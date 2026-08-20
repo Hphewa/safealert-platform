@@ -1,0 +1,26 @@
+{
+  "name": "safealert-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SafeAlert monorepo foundation for a disaster and flood warning platform.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "mobile": "npm --workspace @safealert/mobile run start",
+    "api": "npm --workspace @safealert/api run dev",
+    "typecheck": "npm --workspaces --if-present run typecheck",
+    "lint": "npm --workspaces --if-present run lint",
+    "build": "npm --workspaces --if-present run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.34.0",
+    "eslint": "^9.34.0",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.40.0"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  }
+}
