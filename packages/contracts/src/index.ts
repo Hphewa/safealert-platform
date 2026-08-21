@@ -34,3 +34,46 @@ export const SYNC_OPERATION_TYPES = [
 ] as const;
 
 export type SyncOperationType = (typeof SYNC_OPERATION_TYPES)[number];
+
+export type SafeUser = {
+  id: string;
+  name: string;
+  email: string;
+  role: UserRole;
+};
+
+export type RegisterRequest = {
+  name: string;
+  email: string;
+  password: string;
+};
+
+export type LoginRequest = {
+  email: string;
+  password: string;
+};
+
+export type AuthResponse = {
+  user: SafeUser;
+  accessToken: string;
+  refreshToken: string;
+};
+
+export type RefreshRequest = {
+  refreshToken: string;
+};
+
+export type LogoutRequest = {
+  refreshToken: string;
+};
+
+export type MeResponse = {
+  user: SafeUser;
+};
+
+export type ApiErrorResponse = {
+  error: {
+    code: string;
+    message: string;
+  };
+};

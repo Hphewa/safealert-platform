@@ -1,16 +1,33 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { Redirect } from 'expo-router';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import { REPORT_STATUSES, USER_ROLES } from '@safealert/contracts';
+import { useAuth } from '../src/features/auth/hooks/useAuth';
+import { routeForRole } from '../src/features/auth/utils/roleRoutes';
 
 export default function HomeScreen() {
+  const { status, user } = useAuth();
+
+  if (status === 'loading') {
+    return (
+      <View style={styles.container}>
+        <ActivityIndicator />
+        <Text style={styles.body}>Checking your session...</Text>
+        <StatusBar style="auto" />
+      </View>
+    );
+  }
+
+  if (status === 'authenticated' && user) {
+    return <Redirect href={routeForRole(user.role)} />;
+  }
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>SafeAlert</Text>
-      <Text style={styles.subtitle}>Foundation app shell</Text>
-      <Text style={styles.body}>
-        {USER_ROLES.length} roles and {REPORT_STATUSES.length} report statuses are loaded from shared contracts.
-      </Text>
+      <Text style={styles.subtitle}>Authentication foundation</Text>
+      <Text style={styles.body}>Sign in or create a Resident account to continue.</Text>
+      <Redirect href="/auth/login" />
       <StatusBar style="auto" />
     </View>
   );

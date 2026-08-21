@@ -15,7 +15,11 @@ This file is a short navigation and rules guide. Keep detailed product and archi
 - Backend authorization is mandatory for protected operations.
 - Client-side route guards are UX/navigation controls, not the security boundary.
 - Never commit secrets.
+- Store mobile auth tokens only in Expo SecureStore.
+- Public registration creates `RESIDENT` users only.
 - Never put backend secrets into `EXPO_PUBLIC_*`.
+- Store mobile auth tokens only in Expo SecureStore.
+- Public registration creates `RESIDENT` users only.
 - Avoid introducing major dependencies without justification.
 - Keep route and screen files thin.
 - Put business logic in feature and service layers.
