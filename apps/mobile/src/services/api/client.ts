@@ -17,6 +17,7 @@ export class ApiClientError extends Error {
     message: string
   ) {
     super(message);
+    Object.setPrototypeOf(this, ApiClientError.prototype);
   }
 }
 
@@ -30,20 +31,38 @@ function isApiErrorResponse(value: unknown): value is ApiErrorResponse {
 }
 
 export async function apiRequest<TResponse>(path: string, options: ApiRequestOptions = {}) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: options.method ?? 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.accessToken ? { Authorization: `Bearer ${options.accessToken}` } : {})
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
+  const url = `${apiBaseUrl}${path}`;
+  let response: Response;
+
+  try {
+    response = await fetch(url, {
+      method: options.method ?? 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options.accessToken ? { Authorization: `Bearer ${options.accessToken}` } : {})
+      },
+      body: options.body ? JSON.stringify(options.body) : undefined
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Network request failed.';
+    throw new ApiClientError(
+      0,
+      'NETWORK_ERROR',
+      `Cannot reach SafeAlert API at ${apiBaseUrl}. ${message}`
+    );
+  }
 
   if (response.status === 204) {
     return undefined as TResponse;
   }
 
-  const data: unknown = await response.json();
+  let data: unknown;
+
+  try {
+    data = await response.json();
+  } catch {
+    data = null;
+  }
 
   if (!response.ok) {
     const error = isApiErrorResponse(data) ? data.error : undefined;

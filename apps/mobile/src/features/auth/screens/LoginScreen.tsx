@@ -31,7 +31,9 @@ export function LoginScreen() {
       router.replace(destinationRole ? routeForRole(destinationRole) : '/');
     } catch (caughtError) {
       const message =
-        caughtError instanceof ApiClientError ? caughtError.message : 'Unable to sign in right now.';
+        caughtError instanceof ApiClientError || caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to sign in right now.';
       setError(message);
     } finally {
       setLoading(false);

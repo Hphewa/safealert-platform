@@ -41,7 +41,9 @@ export function RegisterScreen() {
       router.replace('/resident');
     } catch (caughtError) {
       const message =
-        caughtError instanceof ApiClientError ? caughtError.message : 'Unable to create account right now.';
+        caughtError instanceof ApiClientError || caughtError instanceof Error
+          ? caughtError.message
+          : 'Unable to create account right now.';
       setError(message);
     } finally {
       setLoading(false);

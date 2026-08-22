@@ -40,6 +40,10 @@ export function errorHandler(
     return;
   }
 
+  if (process.env.NODE_ENV !== 'production') {
+    console.error(error instanceof Error ? error.stack ?? error.message : error);
+  }
+
   response.status(500).json({
     error: {
       code: 'INTERNAL_SERVER_ERROR',
