@@ -1,11 +1,5 @@
-import { RoleHomeScreen } from '../../src/features/auth/screens/RoleHomeScreen';
+import { ResidentDashboardScreen } from '../../src/features/dashboards/resident/screens/ResidentDashboardScreen';
 
 export default function ResidentHome() {
-  return (
-    <RoleHomeScreen
-      allowedRole="RESIDENT"
-      title="Resident Home"
-      description="Logged in as Resident"
-    />
-  );
+  return <ResidentDashboardScreen />;
 }
