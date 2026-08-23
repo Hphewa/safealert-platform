@@ -7,6 +7,19 @@ import type {
 
 import type { ReportRepository } from '../repositories/report.repository.js';
 
+export type CommunityReportRetrievalOptions =
+  | {
+      mode: 'incoming';
+    }
+  | {
+      mode: 'nearby';
+      longitude: number;
+      latitude: number;
+      radiusKm: number;
+    };
+
+const volunteerEligibleStatuses = ['PENDING'] as const;
+
 export class ReportService {
   constructor(private readonly repository: ReportRepository) {}
 
@@ -27,8 +40,21 @@ export class ReportService {
     return { report };
   }
 
-  async listCommunityReportsForVolunteer(): Promise<GetCommunityReportsResponse> {
-    const reports = await this.repository.findReportsByStatuses(['PENDING']);
+  async listCommunityReportsForVolunteer(
+    options: CommunityReportRetrievalOptions
+  ): Promise<GetCommunityReportsResponse> {
+    if (options.mode === 'nearby') {
+      return {
+        reports: await this.repository.findNearbyCommunityReports({
+          statuses: [...volunteerEligibleStatuses],
+          longitude: options.longitude,
+          latitude: options.latitude,
+          radiusKm: options.radiusKm
+        })
+      };
+    }
+
+    const reports = await this.repository.findReportsByStatuses([...volunteerEligibleStatuses]);
 
     return {
       reports: reports.map<CommunityReportSummary>((report) => ({

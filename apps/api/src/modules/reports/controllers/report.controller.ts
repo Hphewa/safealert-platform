@@ -4,7 +4,11 @@ import type { RequestHandler } from 'express';
 import { ApiError } from '../../../shared/apiError.js';
 import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { ReportService } from '../services/report.service.js';
-import { createReportSchema } from '../validation/report.schemas.js';
+import {
+  communityReportQuerySchema,
+  createReportSchema,
+  maxCommunityReportRadiusKm
+} from '../validation/report.schemas.js';
 
 export function createReportController(reportService: ReportService) {
   const create: RequestHandler = asyncHandler(async (request, response) => {
@@ -25,8 +29,23 @@ export function createReportController(reportService: ReportService) {
     response.status(201).json(result);
   });
 
-  const listCommunity: RequestHandler = asyncHandler(async (_request, response) => {
-    const result = await reportService.listCommunityReportsForVolunteer();
+  const listCommunity: RequestHandler = asyncHandler(async (request, response) => {
+    const parsedQuery = communityReportQuerySchema.parse(request.query);
+    const resolvedMode =
+      parsedQuery.mode ??
+      (parsedQuery.latitude !== undefined || parsedQuery.longitude !== undefined ? 'nearby' : 'incoming');
+
+    const result =
+      resolvedMode === 'nearby' && parsedQuery.latitude !== undefined && parsedQuery.longitude !== undefined
+        ? await reportService.listCommunityReportsForVolunteer({
+            mode: 'nearby',
+            latitude: parsedQuery.latitude,
+            longitude: parsedQuery.longitude,
+            radiusKm: parsedQuery.radiusKm ?? maxCommunityReportRadiusKm
+          })
+        : await reportService.listCommunityReportsForVolunteer({
+            mode: 'incoming'
+          });
 
     response.status(200).json(result);
   });

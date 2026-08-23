@@ -374,4 +374,113 @@ describe('report API', () => {
     expect(residentForbidden.status).toBe(403);
     expect(officerForbidden.status).toBe(403);
   });
+
+  it('returns nearby pending community reports within the requested radius ordered nearest first', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const volunteerToken = await createVolunteerToken(
+      authRepository,
+      'COMMUNITY_VOLUNTEER',
+      'volunteer-nearby@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'nearby-closest',
+      status: 'PENDING',
+      createdAt: '2026-08-23T10:10:00.000Z',
+      location: {
+        type: 'Point',
+        coordinates: [79.8615, 6.9273]
+      }
+    });
+    seedReport(reportRepository, {
+      id: 'nearby-second',
+      status: 'PENDING',
+      createdAt: '2026-08-23T10:09:00.000Z',
+      location: {
+        type: 'Point',
+        coordinates: [79.87, 6.93]
+      },
+      severity: 'MODERATE'
+    });
+    seedReport(reportRepository, {
+      id: 'outside-radius',
+      status: 'PENDING',
+      createdAt: '2026-08-23T10:08:00.000Z',
+      location: {
+        type: 'Point',
+        coordinates: [79.98, 7.04]
+      }
+    });
+    seedReport(reportRepository, {
+      id: 'verified-nearby',
+      status: 'VERIFIED',
+      createdAt: '2026-08-23T10:07:00.000Z',
+      location: {
+        type: 'Point',
+        coordinates: [79.8616, 6.9274]
+      }
+    });
+
+    const response = await request(app)
+      .get('/api/v1/reports/community')
+      .query({
+        mode: 'nearby',
+        latitude: 6.9271,
+        longitude: 79.8612,
+        radiusKm: 2
+      })
+      .set('Authorization', `Bearer ${volunteerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.reports).toHaveLength(2);
+    expect(response.body.reports.map((report: { id: string }) => report.id)).toEqual([
+      'nearby-closest',
+      'nearby-second'
+    ]);
+    expect(response.body.reports[0].distanceKm).toBeTypeOf('number');
+    expect(response.body.reports[0].distanceKm).toBeLessThanOrEqual(response.body.reports[1].distanceKm);
+    expect(response.body.reports.find((report: { id: string }) => report.id === 'outside-radius')).toBeUndefined();
+    expect(response.body.reports.find((report: { id: string }) => report.id === 'verified-nearby')).toBeUndefined();
+  });
+
+  it('rejects invalid nearby query coordinates and radius values', async () => {
+    const { app, authRepository } = createTestContext();
+    const volunteerToken = await createVolunteerToken(
+      authRepository,
+      'COMMUNITY_VOLUNTEER',
+      'volunteer-invalid-query@example.com'
+    );
+
+    const invalidLatitude = await request(app)
+      .get('/api/v1/reports/community')
+      .query({
+        mode: 'nearby',
+        latitude: 99,
+        longitude: 79.8612,
+        radiusKm: 5
+      })
+      .set('Authorization', `Bearer ${volunteerToken}`);
+    const invalidLongitude = await request(app)
+      .get('/api/v1/reports/community')
+      .query({
+        mode: 'nearby',
+        latitude: 6.9271,
+        longitude: -190,
+        radiusKm: 5
+      })
+      .set('Authorization', `Bearer ${volunteerToken}`);
+    const invalidRadius = await request(app)
+      .get('/api/v1/reports/community')
+      .query({
+        mode: 'nearby',
+        latitude: 6.9271,
+        longitude: 79.8612,
+        radiusKm: 999
+      })
+      .set('Authorization', `Bearer ${volunteerToken}`);
+
+    expect(invalidLatitude.status).toBe(400);
+    expect(invalidLongitude.status).toBe(400);
+    expect(invalidRadius.status).toBe(400);
+  });
 });

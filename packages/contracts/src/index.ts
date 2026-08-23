@@ -62,6 +62,7 @@ export type CommunityReportSummary = {
   mediaReference?: string;
   status: ReportStatus;
   createdAt: string;
+  distanceKm?: number;
 };
 
 export type GetCommunityReportsResponse = {
