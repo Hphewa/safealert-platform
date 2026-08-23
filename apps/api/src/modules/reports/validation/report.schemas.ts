@@ -1,4 +1,9 @@
-import { HAZARD_TYPES, REPORT_SEVERITIES } from '@safealert/contracts';
+import {
+  HAZARD_TYPES,
+  REPORT_REJECTION_REASON_MAX_LENGTH,
+  REPORT_REJECTION_REASON_MIN_LENGTH,
+  REPORT_SEVERITIES
+} from '@safealert/contracts';
 import { z } from 'zod';
 
 export const geoJsonPointSchema = z.object({
@@ -92,6 +97,14 @@ export const reportReviewActionSchema = z.discriminatedUnion('action', [
   }),
   z.object({
     action: z.literal('REJECT'),
-    rejectionReason: z.string().trim().min(1, 'Rejection reason is required.')
+    rejectionReason: z
+      .string({
+        required_error: 'Rejection reason is required.',
+        invalid_type_error: 'Rejection reason is required.'
+      })
+      .trim()
+      .min(1, 'Rejection reason is required.')
+      .min(REPORT_REJECTION_REASON_MIN_LENGTH, 'Rejection reason must be at least 10 characters.')
+      .max(REPORT_REJECTION_REASON_MAX_LENGTH, 'Rejection reason must be at most 500 characters.')
   })
 ]);

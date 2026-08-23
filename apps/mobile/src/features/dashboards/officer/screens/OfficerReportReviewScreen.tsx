@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { REPORT_REJECTION_REASON_MAX_LENGTH } from '@safealert/contracts';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
@@ -12,10 +13,11 @@ import { officerBottomNavItems } from '../mockData';
 import {
   getOfficerReportReviewRecord,
   statusLabelForOfficer,
+  validateOfficerRejectionReason,
   type OfficerReportChecklistKey
 } from '../reports';
 
-type OfficerReviewAction = 'idle' | 'verified' | 'rejected' | 'more-info';
+type OfficerReviewAction = 'idle' | 'verified' | 'rejecting' | 'rejected' | 'more-info';
 
 const checklistItems: ReadonlyArray<{
   key: OfficerReportChecklistKey;
@@ -55,6 +57,22 @@ export function OfficerReportReviewScreen() {
   const reportId = Array.isArray(params.reportId) ? params.reportId[0] : params.reportId;
   const report = reportId ? getOfficerReportReviewRecord(reportId) : null;
   const [selectedAction, setSelectedAction] = useState<OfficerReviewAction>('idle');
+  const [rejectionReason, setRejectionReason] = useState('');
+  const rejectionValidation = validateOfficerRejectionReason(rejectionReason);
+
+  const cancelRejection = () => {
+    setRejectionReason('');
+    setSelectedAction('idle');
+  };
+
+  const confirmRejection = () => {
+    if (!rejectionValidation.isValid) {
+      return;
+    }
+
+    setRejectionReason(rejectionValidation.normalizedReason);
+    setSelectedAction('rejected');
+  };
 
   if (!report) {
     return (
@@ -257,16 +275,80 @@ export function OfficerReportReviewScreen() {
 
           <Pressable
             accessibilityRole="button"
-            onPress={() => setSelectedAction('rejected')}
+            onPress={() => setSelectedAction('rejecting')}
             style={({ pressed }) => [
               styles.destructiveButton,
-              selectedAction === 'rejected' && styles.destructiveButtonSelected,
+              (selectedAction === 'rejecting' || selectedAction === 'rejected') &&
+                styles.destructiveButtonSelected,
               pressed && styles.pressed
             ]}
           >
             <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={16} />
             <Text style={styles.destructiveButtonText}>Reject</Text>
           </Pressable>
+
+          {selectedAction === 'rejecting' ? (
+            <View style={styles.rejectionPanel}>
+              <View style={styles.fieldLabelRow}>
+                <Text style={styles.fieldLabel}>Reason</Text>
+                <Text style={styles.requiredLabel}>Required</Text>
+              </View>
+              <TextInput
+                accessibilityLabel="Rejection reason"
+                accessibilityHint="Required before this report can be rejected"
+                multiline
+                onChangeText={setRejectionReason}
+                placeholder="Add reason or notes (required for reject)"
+                placeholderTextColor={dashboardTheme.colors.muted}
+                style={[styles.reasonInput, !rejectionValidation.isValid && styles.reasonInputError]}
+                textAlignVertical="top"
+                value={rejectionReason}
+              />
+              <View style={styles.fieldMetaRow}>
+                <Text
+                  accessibilityLiveRegion="polite"
+                  style={[
+                    styles.validationText,
+                    rejectionValidation.isValid && styles.validationSuccessText
+                  ]}
+                >
+                  {rejectionValidation.errorMessage ?? 'Reason is ready to submit.'}
+                </Text>
+                <Text style={styles.characterCount}>
+                  {rejectionValidation.normalizedReason.length}/{REPORT_REJECTION_REASON_MAX_LENGTH}
+                </Text>
+              </View>
+              <View style={styles.confirmationActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={cancelRejection}
+                  style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: !rejectionValidation.isValid }}
+                  disabled={!rejectionValidation.isValid}
+                  onPress={confirmRejection}
+                  style={({ pressed }) => [
+                    styles.confirmRejectButton,
+                    !rejectionValidation.isValid && styles.confirmRejectButtonDisabled,
+                    pressed && rejectionValidation.isValid && styles.pressed
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.confirmRejectButtonText,
+                      !rejectionValidation.isValid && styles.confirmRejectButtonTextDisabled
+                    ]}
+                  >
+                    Confirm Rejection
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
 
           <Pressable
             accessibilityRole="button"
@@ -285,6 +367,9 @@ export function OfficerReportReviewScreen() {
         <View style={styles.actionStateBanner}>
           <Text style={styles.actionStateLabel}>Selected action</Text>
           <Text style={styles.actionStateValue}>{actionLabelMap[selectedAction]}</Text>
+          {selectedAction === 'rejected' ? (
+            <Text style={styles.actionStateReason}>Reason: {rejectionReason}</Text>
+          ) : null}
         </View>
       </View>
     </DashboardScreen>
@@ -312,7 +397,8 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
 const actionLabelMap: Record<OfficerReviewAction, string> = {
   idle: 'Awaiting officer decision',
   verified: 'Mark Verified selected',
-  rejected: 'Reject selected',
+  rejecting: 'Rejection reason required',
+  rejected: 'Rejection confirmed',
   'more-info': 'Request More Info selected'
 };
 
@@ -618,6 +704,107 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: dashboardTheme.colors.critical
   },
+  rejectionPanel: {
+    gap: 10,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#f0c6c1',
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: '#fffafa'
+  },
+  fieldLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10
+  },
+  fieldLabel: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  requiredLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    color: dashboardTheme.colors.critical
+  },
+  reasonInput: {
+    minHeight: 112,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface,
+    fontSize: 15,
+    lineHeight: 22,
+    color: dashboardTheme.colors.text
+  },
+  reasonInputError: {
+    borderColor: '#e7a29b'
+  },
+  fieldMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 12
+  },
+  validationText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 19,
+    color: dashboardTheme.colors.critical
+  },
+  validationSuccessText: {
+    color: dashboardTheme.colors.success
+  },
+  characterCount: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: dashboardTheme.colors.muted
+  },
+  confirmationActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10
+  },
+  cancelButton: {
+    minHeight: 46,
+    flexGrow: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  cancelButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  confirmRejectButton: {
+    minHeight: 46,
+    flexGrow: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.critical
+  },
+  confirmRejectButtonDisabled: {
+    backgroundColor: '#ead9d7'
+  },
+  confirmRejectButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#ffffff'
+  },
+  confirmRejectButtonTextDisabled: {
+    color: '#8f7774'
+  },
   secondaryButton: {
     minHeight: 52,
     flexDirection: 'row',
@@ -653,6 +840,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: dashboardTheme.colors.text
+  },
+  actionStateReason: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: dashboardTheme.colors.muted
   },
   noticeCard: {
     gap: 12,

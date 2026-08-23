@@ -23,6 +23,9 @@ export const REPORT_REVIEW_ACTIONS = ['VERIFY', 'REJECT'] as const;
 
 export type ReportReviewAction = (typeof REPORT_REVIEW_ACTIONS)[number];
 
+export const REPORT_REJECTION_REASON_MIN_LENGTH = 10;
+export const REPORT_REJECTION_REASON_MAX_LENGTH = 500;
+
 export const HAZARD_TYPES = ['FLOOD', 'BLOCKED_ROAD', 'LANDSLIDE', 'OTHER'] as const;
 
 export type HazardType = (typeof HAZARD_TYPES)[number];

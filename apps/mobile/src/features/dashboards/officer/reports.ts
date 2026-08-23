@@ -1,4 +1,10 @@
-import type { HazardType, ReportSeverity, ReportStatus } from '@safealert/contracts';
+import {
+  REPORT_REJECTION_REASON_MAX_LENGTH,
+  REPORT_REJECTION_REASON_MIN_LENGTH,
+  type HazardType,
+  type ReportSeverity,
+  type ReportStatus
+} from '@safealert/contracts';
 import type { Href } from 'expo-router';
 
 import type { BadgeTone, DashboardIconName } from '../shared/types';
@@ -112,6 +118,46 @@ export function statusLabelForOfficer(status: ReportStatus) {
 
 export function formatCommunityReportsLabel(count: number) {
   return `${count} Community Report${count === 1 ? '' : 's'}`;
+}
+
+export type OfficerRejectionReasonValidation = {
+  isValid: boolean;
+  normalizedReason: string;
+  errorMessage: string | null;
+};
+
+export function validateOfficerRejectionReason(reason: string): OfficerRejectionReasonValidation {
+  const normalizedReason = reason.trim();
+
+  if (!normalizedReason) {
+    return {
+      isValid: false,
+      normalizedReason,
+      errorMessage: 'Enter a reason for rejecting this report.'
+    };
+  }
+
+  if (normalizedReason.length < REPORT_REJECTION_REASON_MIN_LENGTH) {
+    return {
+      isValid: false,
+      normalizedReason,
+      errorMessage: `Enter at least ${REPORT_REJECTION_REASON_MIN_LENGTH} characters.`
+    };
+  }
+
+  if (normalizedReason.length > REPORT_REJECTION_REASON_MAX_LENGTH) {
+    return {
+      isValid: false,
+      normalizedReason,
+      errorMessage: `Keep the reason to ${REPORT_REJECTION_REASON_MAX_LENGTH} characters or fewer.`
+    };
+  }
+
+  return {
+    isValid: true,
+    normalizedReason,
+    errorMessage: null
+  };
 }
 
 const officerReportReviewFixtures: OfficerReportReviewRecord[] = [

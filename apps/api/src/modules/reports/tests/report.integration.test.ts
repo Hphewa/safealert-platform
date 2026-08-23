@@ -654,7 +654,7 @@ describe('report API', () => {
       .set('Authorization', `Bearer ${officer.token}`)
       .send({
         action: 'REJECT',
-        rejectionReason: 'The submitted photo shows an unrelated location.',
+        rejectionReason: '  The submitted photo shows an unrelated location.  ',
         rejectedById: 'client-supplied-officer-id'
       });
 
@@ -744,6 +744,117 @@ describe('report API', () => {
       .send({ action: 'REJECT', rejectionReason: '   ' });
 
     expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: {
+        code: 'VALIDATION_ERROR',
+        message: 'Rejection reason is required.'
+      }
+    });
+  });
+
+  it('requires a rejection reason in the request', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-reject-missing-reason@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'reject-missing-reason',
+      status: 'PENDING',
+      createdAt: '2026-08-23T13:25:00.000Z'
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/reports/reject-missing-reason/verification')
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ action: 'REJECT' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: 'VALIDATION_ERROR',
+      message: 'Rejection reason is required.'
+    });
+  });
+
+  it('rejects a rejection reason shorter than 10 trimmed characters', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-reject-short-reason@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'reject-short-reason',
+      status: 'PENDING',
+      createdAt: '2026-08-23T13:30:00.000Z'
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/reports/reject-short-reason/verification')
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ action: 'REJECT', rejectionReason: '  Too short  ' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: 'VALIDATION_ERROR',
+      message: 'Rejection reason must be at least 10 characters.'
+    });
+  });
+
+  it('rejects a rejection reason longer than 500 trimmed characters', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-reject-long-reason@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'reject-long-reason',
+      status: 'PENDING',
+      createdAt: '2026-08-23T13:35:00.000Z'
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/reports/reject-long-reason/verification')
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ action: 'REJECT', rejectionReason: ` ${'a'.repeat(501)} ` });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: 'VALIDATION_ERROR',
+      message: 'Rejection reason must be at most 500 characters.'
+    });
+  });
+
+  it.each([
+    ['minimum', ` ${'a'.repeat(10)} `, 'a'.repeat(10)],
+    ['maximum', ` ${'a'.repeat(500)} `, 'a'.repeat(500)]
+  ])('accepts the %s rejection reason boundary after trimming', async (boundary, reason, expectedReason) => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      `officer-reject-${boundary}-boundary@example.com`
+    );
+    const reportId = `reject-${boundary}-boundary`;
+
+    seedReport(reportRepository, {
+      id: reportId,
+      status: 'PENDING',
+      createdAt: '2026-08-23T13:40:00.000Z'
+    });
+
+    const response = await request(app)
+      .patch(`/api/v1/reports/${reportId}/verification`)
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ action: 'REJECT', rejectionReason: reason });
+
+    expect(response.status).toBe(200);
+    expect(response.body.report.rejectionReason).toBe(expectedReason);
   });
 
   it('requires authentication to reject a report', async () => {
