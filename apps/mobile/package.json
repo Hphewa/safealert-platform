@@ -16,6 +16,7 @@
     "@safealert/contracts": "0.1.0",
     "@types/react": "~19.1.10",
     "expo": "~54.0.6",
+    "expo-image-picker": "~17.0.11",
     "expo-location": "~19.0.8",
     "expo-router": "~6.0.24",
     "expo-secure-store": "~15.0.7",

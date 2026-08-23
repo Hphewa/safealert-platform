@@ -14,6 +14,13 @@
           "locationWhenInUsePermission": "Allow SafeAlert to use your location when reporting nearby hazards."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow SafeAlert to select a photo as optional hazard evidence.",
+          "cameraPermission": "Allow SafeAlert to take a photo as optional hazard evidence."
+        }
+      ],
       "expo-secure-store"
     ],
     "extra": {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
@@ -34,16 +35,44 @@ type ReportLocationState =
       errorMessage: string;
     };
 
+type SelectedPhotoEvidence = {
+  localUri: string;
+  width: number;
+  height: number;
+  fileName: string | null;
+  mimeType: string | null;
+  assetId: string | null;
+  source: 'MEDIA_LIBRARY' | 'CAMERA';
+  needsUpload: true;
+  uploadedMediaReference: null;
+};
+
+type PhotoEvidenceState =
+  | {
+      status: 'EMPTY';
+      selected: null;
+      message: string | null;
+    }
+  | {
+      status: 'REQUESTING_PERMISSION' | 'PICKING';
+      selected: null;
+      message: string;
+    }
+  | {
+      status: 'LOCAL_SELECTED';
+      selected: SelectedPhotoEvidence;
+      message: string;
+    }
+  | {
+      status: 'PERMISSION_DENIED' | 'ERROR';
+      selected: null;
+      message: string;
+    };
+
 type ReportHazardFormState = {
   hazardType: HazardType | null;
   location: ReportLocationState;
-  photoEvidence: {
-    status: 'PENDING_PHOTO_PICKER';
-    assets: Array<{
-      uri: string;
-      id?: string;
-    }>;
-  };
+  photoEvidence: PhotoEvidenceState;
   severity: HazardSeverity | null;
   description: string;
 };
@@ -94,8 +123,9 @@ const initialFormState: ReportHazardFormState = {
     errorMessage: null
   },
   photoEvidence: {
-    status: 'PENDING_PHOTO_PICKER',
-    assets: []
+    status: 'EMPTY',
+    selected: null,
+    message: null
   },
   severity: null,
   description: ''
@@ -186,6 +216,126 @@ export function ReportHazardScreen() {
     setFormState((current) => ({ ...current, description }));
   };
 
+  const setPhotoState = (photoEvidence: PhotoEvidenceState) => {
+    setFormState((current) => ({ ...current, photoEvidence }));
+  };
+
+  const selectPhotoFromLibrary = async () => {
+    setPhotoState({
+      status: 'REQUESTING_PERMISSION',
+      selected: null,
+      message: 'Requesting photo library permission...'
+    });
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (permission.status !== ImagePicker.PermissionStatus.GRANTED) {
+        setPhotoState({
+          status: 'PERMISSION_DENIED',
+          selected: null,
+          message: 'Photo library permission is needed to add optional photo evidence.'
+        });
+        return;
+      }
+
+      setPhotoState({
+        status: 'PICKING',
+        selected: null,
+        message: 'Opening photo library...'
+      });
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: false,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.82
+      });
+
+      if (result.canceled) {
+        setPhotoState({
+          status: 'EMPTY',
+          selected: null,
+          message: 'Photo selection canceled.'
+        });
+        return;
+      }
+
+      setPhotoState({
+        status: 'LOCAL_SELECTED',
+        selected: toSelectedPhotoEvidence(result.assets[0], 'MEDIA_LIBRARY'),
+        message: 'Photo selected. It will be uploaded during report submission.'
+      });
+    } catch {
+      setPhotoState({
+        status: 'ERROR',
+        selected: null,
+        message: 'We could not open your photo library. Try again.'
+      });
+    }
+  };
+
+  const capturePhotoWithCamera = async () => {
+    setPhotoState({
+      status: 'REQUESTING_PERMISSION',
+      selected: null,
+      message: 'Requesting camera permission...'
+    });
+
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+      if (permission.status !== ImagePicker.PermissionStatus.GRANTED) {
+        setPhotoState({
+          status: 'PERMISSION_DENIED',
+          selected: null,
+          message: 'Camera permission is needed to take optional photo evidence.'
+        });
+        return;
+      }
+
+      setPhotoState({
+        status: 'PICKING',
+        selected: null,
+        message: 'Opening camera...'
+      });
+
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: false,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.82
+      });
+
+      if (result.canceled) {
+        setPhotoState({
+          status: 'EMPTY',
+          selected: null,
+          message: 'Camera capture canceled.'
+        });
+        return;
+      }
+
+      setPhotoState({
+        status: 'LOCAL_SELECTED',
+        selected: toSelectedPhotoEvidence(result.assets[0], 'CAMERA'),
+        message: 'Photo captured. It will be uploaded during report submission.'
+      });
+    } catch {
+      setPhotoState({
+        status: 'ERROR',
+        selected: null,
+        message: 'We could not open the camera. Try selecting a saved photo instead.'
+      });
+    }
+  };
+
+  const removeSelectedPhoto = () => {
+    setPhotoState({
+      status: 'EMPTY',
+      selected: null,
+      message: null
+    });
+  };
+
   return (
     <DashboardScreen bottomNavItems={residentBottomNavItems} contentContainerStyle={styles.content}>
       <View style={styles.header}>
@@ -270,21 +420,83 @@ export function ReportHazardScreen() {
       </View>
 
       <View style={styles.photoPanel}>
-        <View style={styles.photoPlaceholder}>
-          <DashboardGlyph color={dashboardTheme.colors.info} name="camera-outline" size={24} />
-        </View>
+        {formState.photoEvidence.status === 'LOCAL_SELECTED' ? (
+          <Image
+            accessibilityLabel="Selected hazard evidence preview"
+            source={{ uri: formState.photoEvidence.selected.localUri }}
+            style={styles.photoPreview}
+          />
+        ) : (
+          <View style={styles.photoPlaceholder}>
+            {formState.photoEvidence.status === 'REQUESTING_PERMISSION' ||
+            formState.photoEvidence.status === 'PICKING' ? (
+              <ActivityIndicator color={dashboardTheme.colors.info} size="small" />
+            ) : (
+              <DashboardGlyph color={dashboardTheme.colors.info} name="camera-outline" size={24} />
+            )}
+          </View>
+        )}
         <View style={styles.panelBody}>
           <Text style={styles.panelTitle}>Photo evidence</Text>
-          <Text style={styles.panelText}>Photo upload will be connected in a later step.</Text>
+          {formState.photoEvidence.status === 'LOCAL_SELECTED' ? (
+            <View style={styles.detectedLocation}>
+              <Text style={styles.detectedText}>Photo ready</Text>
+              <Text style={styles.panelText}>{formState.photoEvidence.message}</Text>
+              <Text style={styles.mongoHintText}>
+                Local image stays on this device until a media upload service stores it.
+              </Text>
+            </View>
+          ) : (
+            <Text
+              style={[
+                styles.panelText,
+                (formState.photoEvidence.status === 'PERMISSION_DENIED' ||
+                  formState.photoEvidence.status === 'ERROR') &&
+                  styles.errorText
+              ]}
+            >
+              {formState.photoEvidence.message ?? 'Add an optional photo from this device.'}
+            </Text>
+          )}
         </View>
-        <Pressable
-          accessibilityLabel="Add photo evidence"
-          accessibilityRole="button"
-          onPress={() => undefined}
-          style={({ pressed }) => [styles.addPhotoButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.addPhotoButtonText}>Add Photo</Text>
-        </Pressable>
+        <View style={styles.photoActions}>
+          <Pressable
+            accessibilityLabel={
+              formState.photoEvidence.status === 'LOCAL_SELECTED'
+                ? 'Change photo evidence'
+                : 'Add photo evidence'
+            }
+            accessibilityRole="button"
+            onPress={() => {
+              void selectPhotoFromLibrary();
+            }}
+            style={({ pressed }) => [styles.addPhotoButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.addPhotoButtonText}>
+              {formState.photoEvidence.status === 'LOCAL_SELECTED' ? 'Change Photo' : 'Add Photo'}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityLabel="Take photo evidence"
+            accessibilityRole="button"
+            onPress={() => {
+              void capturePhotoWithCamera();
+            }}
+            style={({ pressed }) => [styles.cameraButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.cameraButtonText}>Take Photo</Text>
+          </Pressable>
+          {formState.photoEvidence.status === 'LOCAL_SELECTED' ? (
+            <Pressable
+              accessibilityLabel="Remove selected photo evidence"
+              accessibilityRole="button"
+              onPress={removeSelectedPhoto}
+              style={({ pressed }) => [styles.removePhotoButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.removePhotoButtonText}>Remove</Text>
+            </Pressable>
+          ) : null}
+        </View>
       </View>
 
       <View style={styles.section}>
@@ -355,6 +567,23 @@ function LocationStatusMessage({ message, showSpinner }: { message: string; show
 
 function formatCoordinate(value: number) {
   return value.toFixed(6);
+}
+
+function toSelectedPhotoEvidence(
+  asset: ImagePicker.ImagePickerAsset,
+  source: SelectedPhotoEvidence['source']
+): SelectedPhotoEvidence {
+  return {
+    localUri: asset.uri,
+    width: asset.width,
+    height: asset.height,
+    fileName: asset.fileName ?? null,
+    mimeType: asset.mimeType ?? null,
+    assetId: asset.assetId ?? null,
+    source,
+    needsUpload: true,
+    uploadedMediaReference: null
+  };
 }
 
 const styles = StyleSheet.create({
@@ -516,7 +745,19 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.surfaceMuted
   },
+  photoPreview: {
+    width: '100%',
+    minHeight: 188,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  photoActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10
+  },
   addPhotoButton: {
+    flexGrow: 1,
     minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
@@ -529,6 +770,36 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: dashboardTheme.colors.info
+  },
+  cameraButton: {
+    flexGrow: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.primary,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  cameraButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  removePhotoButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#f0c6c1',
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: '#fff5f4'
+  },
+  removePhotoButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.critical
   },
   severityRow: {
     flexDirection: 'row',
