@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { captureCurrentLocation, formatCoordinate } from '../../shared/currentLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { CounterField } from '../components/CounterField';
 import { SelectableCard } from '../components/SelectableCard';
@@ -46,7 +47,12 @@ export function EmergencyAssistanceScreen() {
   const { draft, setDraft, validation } = useEmergencyAssistanceDraft();
   const [reviewQueued, setReviewQueued] = useState(false);
   const canReviewRequest = validation.isValid;
-  const locationActionLabel = draft.location.status === 'UNAVAILABLE' ? 'Retry' : 'Use Current Location';
+  const isDetectingLocation =
+    draft.location.status === 'REQUESTING_PERMISSION' || draft.location.status === 'LOCATING';
+  const locationActionLabel =
+    draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR'
+      ? 'Retry'
+      : 'Use Current Location';
 
   useEffect(() => {
     if (!user) {
@@ -178,22 +184,62 @@ export function EmergencyAssistanceScreen() {
     }));
   };
 
-  const requestCurrentLocation = () => {
+  const requestCurrentLocation = async () => {
     setDraft((current) => ({
       ...current,
       location: {
-        status: 'UNAVAILABLE',
+        status: 'REQUESTING_PERMISSION',
         latitude: null,
         longitude: null,
         accuracyMeters: null,
-        source: null,
-        updatedAt: new Date().toISOString(),
-        message:
-          "Current-location GPS integration isn't connected yet. You can retry later or continue with manual location adjustment."
+        capturedAt: null,
+        errorMessage: null
       },
       reviewRequestedAt: null
     }));
     setReviewQueued(false);
+
+    const nextLocationState = await captureCurrentLocation({
+      permissionDeniedMessage:
+        'Location permission is needed to share your current emergency location.',
+      locationErrorMessage:
+        'We could not detect your location. Check GPS or location services and try again.',
+      onLocating: () => {
+        setDraft((current) => ({
+          ...current,
+          location: {
+            status: 'LOCATING',
+            latitude: null,
+            longitude: null,
+            accuracyMeters: null,
+            capturedAt: null,
+            errorMessage: null
+          }
+        }));
+      }
+    });
+
+    setDraft((current) => ({
+      ...current,
+      location:
+        nextLocationState.status === 'DETECTED'
+          ? {
+              status: 'DETECTED',
+              latitude: nextLocationState.latitude,
+              longitude: nextLocationState.longitude,
+              accuracyMeters: nextLocationState.accuracyMeters,
+              capturedAt: nextLocationState.capturedAt,
+              errorMessage: null
+            }
+          : {
+              status: nextLocationState.status,
+              latitude: null,
+              longitude: null,
+              accuracyMeters: null,
+              capturedAt: null,
+              errorMessage: nextLocationState.errorMessage
+            }
+    }));
   };
 
   const markLocationForAdjustment = () => {
@@ -204,9 +250,8 @@ export function EmergencyAssistanceScreen() {
         latitude: null,
         longitude: null,
         accuracyMeters: null,
-        source: 'MANUAL',
-        updatedAt: new Date().toISOString(),
-        message: 'Manual map adjustment will be connected in the next step of this flow.'
+        capturedAt: null,
+        errorMessage: 'Manual location adjustment will be connected in the next step of this flow.'
       },
       reviewRequestedAt: null
     }));
@@ -271,43 +316,89 @@ export function EmergencyAssistanceScreen() {
           </View>
           <View style={styles.panelHeaderText}>
             <Text style={styles.panelTitle}>Current Location</Text>
-            <Text style={styles.panelText}>
-              {draft.location.status === 'IDLE'
-                ? 'No live coordinates yet. This section is prepared for GPS integration.'
-                : draft.location.message}
-            </Text>
-            {draft.location.updatedAt ? (
-              <Text style={styles.helperNote}>Last updated {formatTimestamp(draft.location.updatedAt)}</Text>
+            {draft.location.status === 'IDLE' ? (
+              <Text style={styles.panelText}>
+                Use your current GPS location so responders receive coordinates in the correct
+                longitude, latitude order.
+              </Text>
+            ) : null}
+            {draft.location.status === 'REQUESTING_PERMISSION' ? (
+              <LocationStatusMessage message="Requesting location permission..." showSpinner />
+            ) : null}
+            {draft.location.status === 'LOCATING' ? (
+              <LocationStatusMessage message="Detecting your current location..." showSpinner />
+            ) : null}
+            {draft.location.status === 'DETECTED' ? (
+              <View style={styles.detectedLocation}>
+                <Text style={styles.detectedText}>Detected current location</Text>
+                <Text style={styles.coordinateText}>
+                  Lat {formatCoordinate(draft.location.latitude)}, Long{' '}
+                  {formatCoordinate(draft.location.longitude)}
+                </Text>
+                <Text style={styles.helperNote}>Saved for response requests as [longitude, latitude].</Text>
+                <Text style={styles.helperNote}>
+                  Captured {formatTimestamp(draft.location.capturedAt)}
+                </Text>
+              </View>
+            ) : null}
+            {draft.location.status === 'PERMISSION_DENIED' ||
+            draft.location.status === 'ERROR' ||
+            draft.location.status === 'MANUAL_REVIEW' ? (
+              <Text style={styles.errorText}>{draft.location.errorMessage}</Text>
             ) : null}
           </View>
         </View>
+        <ValidationMessage message={validation.errors.location} />
 
         <View style={styles.locationActionRow}>
           <Pressable
             accessibilityLabel={locationActionLabel}
             accessibilityRole="button"
-            onPress={requestCurrentLocation}
+            accessibilityState={{ disabled: isDetectingLocation }}
+            disabled={isDetectingLocation}
+            onPress={() => {
+              void requestCurrentLocation();
+            }}
             style={({ pressed }) => [
               styles.primaryActionButton,
-              draft.location.status === 'UNAVAILABLE' && styles.retryActionButton,
-              pressed && styles.pressed
+              (draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR') &&
+                styles.retryActionButton,
+              isDetectingLocation && styles.actionButtonDisabled,
+              pressed && !isDetectingLocation && styles.pressed
             ]}
           >
-            <Text
-              style={[
-                styles.primaryActionButtonText,
-                draft.location.status === 'UNAVAILABLE' && styles.retryActionButtonText
-              ]}
-            >
-              {locationActionLabel}
-            </Text>
+            {isDetectingLocation ? (
+              <ActivityIndicator
+                color={
+                  draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR'
+                    ? dashboardTheme.colors.critical
+                    : '#ffffff'
+                }
+                size="small"
+              />
+            ) : (
+              <Text
+                style={[
+                  styles.primaryActionButtonText,
+                  (draft.location.status === 'PERMISSION_DENIED' ||
+                    draft.location.status === 'ERROR') &&
+                    styles.retryActionButtonText
+                ]}
+              >
+                {locationActionLabel}
+              </Text>
+            )}
           </Pressable>
 
           <Pressable
             accessibilityLabel="Adjust location"
             accessibilityRole="button"
             onPress={markLocationForAdjustment}
-            style={({ pressed }) => [styles.secondaryActionButton, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.secondaryActionButton,
+              isDetectingLocation && styles.actionButtonDisabled,
+              pressed && !isDetectingLocation && styles.pressed
+            ]}
           >
             <Text style={styles.secondaryActionButtonText}>Adjust Location</Text>
           </Pressable>
@@ -537,6 +628,15 @@ function ValidationMessage({ message }: { message?: string }) {
   return <Text style={styles.validationText}>{message}</Text>;
 }
 
+function LocationStatusMessage({ message, showSpinner }: { message: string; showSpinner?: boolean }) {
+  return (
+    <View style={styles.statusRow}>
+      {showSpinner ? <ActivityIndicator color={dashboardTheme.colors.primary} size="small" /> : null}
+      <Text style={styles.panelText}>{message}</Text>
+    </View>
+  );
+}
+
 function formatTimestamp(value: string) {
   return new Date(value).toLocaleTimeString([], {
     hour: 'numeric',
@@ -651,6 +751,30 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: dashboardTheme.colors.muted
   },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  detectedLocation: {
+    gap: 4
+  },
+  detectedText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: dashboardTheme.colors.success
+  },
+  coordinateText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: dashboardTheme.colors.text
+  },
+  errorText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+    color: dashboardTheme.colors.critical
+  },
   helperNote: {
     fontSize: 12,
     lineHeight: 18,
@@ -682,6 +806,9 @@ const styles = StyleSheet.create({
   },
   retryActionButtonText: {
     color: dashboardTheme.colors.critical
+  },
+  actionButtonDisabled: {
+    opacity: 0.7
   },
   secondaryActionButton: {
     minHeight: 48,

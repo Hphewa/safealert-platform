@@ -17,15 +17,31 @@ export type EmergencyAssistanceType =
 
 export type AccessCondition = 'ACCESSIBLE' | 'LIMITED' | 'BLOCKED' | 'UNKNOWN';
 
-export type EmergencyLocationState = {
-  status: 'IDLE' | 'UNAVAILABLE' | 'MANUAL_REVIEW';
-  latitude: number | null;
-  longitude: number | null;
-  accuracyMeters: number | null;
-  source: 'DEVICE' | 'MANUAL' | null;
-  updatedAt: string | null;
-  message: string;
-};
+export type EmergencyLocationState =
+  | {
+      status: 'IDLE' | 'REQUESTING_PERMISSION' | 'LOCATING';
+      latitude: null;
+      longitude: null;
+      accuracyMeters: null;
+      capturedAt: null;
+      errorMessage: null;
+    }
+  | {
+      status: 'DETECTED';
+      latitude: number;
+      longitude: number;
+      accuracyMeters: number | null;
+      capturedAt: string;
+      errorMessage: null;
+    }
+  | {
+      status: 'PERMISSION_DENIED' | 'ERROR' | 'MANUAL_REVIEW';
+      latitude: null;
+      longitude: null;
+      accuracyMeters: null;
+      capturedAt: null;
+      errorMessage: string;
+    };
 
 export type EmergencyMedicalNeeds = {
   requiresMedicalAssistance: boolean | null;
@@ -63,6 +79,7 @@ export type EmergencyAssistanceValidationErrors = Partial<
   Record<
     | 'assistanceType'
     | 'affectedPeopleCount'
+    | 'location'
     | 'medicalNeeds'
     | 'injuredCount'
     | 'accessCondition'
@@ -111,9 +128,8 @@ const initialEmergencyAssistanceDraft: EmergencyAssistanceDraft = {
     latitude: null,
     longitude: null,
     accuracyMeters: null,
-    source: null,
-    updatedAt: null,
-    message: 'Current location is ready for future GPS integration.'
+    capturedAt: null,
+    errorMessage: null
   },
   affectedPeopleCount: 1,
   medicalNeeds: {
@@ -182,6 +198,10 @@ export function validateEmergencyAssistanceDraft(
 
   if (draft.affectedPeopleCount < 1) {
     errors.affectedPeopleCount = 'At least one affected person is required.';
+  }
+
+  if (draft.location.status !== 'DETECTED') {
+    errors.location = 'Current location is required.';
   }
 
   if (draft.medicalNeeds.requiresMedicalAssistance === null) {

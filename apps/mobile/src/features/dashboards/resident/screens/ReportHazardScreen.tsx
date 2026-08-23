@@ -2,10 +2,13 @@ import { useCallback, useEffect } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
-import * as Location from 'expo-location';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import {
+  captureCurrentLocation as captureCurrentDeviceLocation,
+  formatCoordinate
+} from '../../shared/currentLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { residentBottomNavItems } from '../mockData';
 import { SelectableCard } from '../components/SelectableCard';
@@ -71,58 +74,42 @@ export function ReportHazardScreen() {
       }
     }));
 
-    try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-
-      if (permission.status !== Location.PermissionStatus.GRANTED) {
+    const nextLocationState = await captureCurrentDeviceLocation({
+      permissionDeniedMessage: 'Location permission is needed to detect where this hazard is.',
+      locationErrorMessage:
+        'We could not detect your location. Check location services and try again.',
+      onLocating: () => {
         setDraft((current) => ({
           ...current,
           location: {
-            status: 'PERMISSION_DENIED',
+            status: 'LOCATING',
             latitude: null,
             longitude: null,
-            errorMessage: 'Location permission is needed to detect where this hazard is.'
+            errorMessage: null
           }
         }));
-        return;
       }
+    });
 
-      setDraft((current) => ({
-        ...current,
-        location: {
-          status: 'LOCATING',
-          latitude: null,
-          longitude: null,
-          errorMessage: null
-        }
-      }));
-
-      const currentLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced
-      });
-
-      setDraft((current) => ({
-        ...current,
-        location: {
-          status: 'DETECTED',
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-          accuracyMeters: currentLocation.coords.accuracy,
-          capturedAt: new Date(currentLocation.timestamp).toISOString(),
-          errorMessage: null
-        }
-      }));
-    } catch {
-      setDraft((current) => ({
-        ...current,
-        location: {
-          status: 'ERROR',
-          latitude: null,
-          longitude: null,
-          errorMessage: 'We could not detect your location. Check location services and try again.'
-        }
-      }));
-    }
+    setDraft((current) => ({
+      ...current,
+      location:
+        nextLocationState.status === 'DETECTED'
+          ? {
+              status: 'DETECTED',
+              latitude: nextLocationState.latitude,
+              longitude: nextLocationState.longitude,
+              accuracyMeters: nextLocationState.accuracyMeters,
+              capturedAt: nextLocationState.capturedAt,
+              errorMessage: null
+            }
+          : {
+              status: nextLocationState.status,
+              latitude: null,
+              longitude: null,
+              errorMessage: nextLocationState.errorMessage
+            }
+    }));
   }, [setDraft]);
 
   useEffect(() => {
@@ -523,10 +510,6 @@ function ValidationMessage({ message }: { message?: string }) {
   }
 
   return <Text style={styles.validationText}>{message}</Text>;
-}
-
-function formatCoordinate(value: number) {
-  return value.toFixed(6);
 }
 
 function toSelectedPhotoEvidence(
