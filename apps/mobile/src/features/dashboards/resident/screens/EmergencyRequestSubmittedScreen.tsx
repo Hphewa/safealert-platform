@@ -14,13 +14,23 @@ import { residentBottomNavItems } from '../mockData';
 export function EmergencyRequestSubmittedScreen() {
   const router = useRouter();
   const { submittedResponseRequest } = useEmergencyAssistanceDraft();
-  const submittedStatus = submittedResponseRequest?.status ?? 'NEW';
+  const submittedStatus = submittedResponseRequest?.status ?? 'Unavailable';
+  const requestReference = submittedResponseRequest
+    ? formatRequestReference(submittedResponseRequest.id)
+    : null;
+
+  const trackRequest = () => {
+    router.push({
+      pathname: '/resident/reports',
+      params: submittedResponseRequest ? { requestId: submittedResponseRequest.id } : undefined
+    });
+  };
 
   return (
     <DashboardScreen bottomNavItems={residentBottomNavItems} contentContainerStyle={styles.content}>
       <View style={styles.header}>
         <View style={styles.headerSpacer} />
-        <Text style={styles.headerTitle}>Emergency Request Submitted</Text>
+        <Text style={styles.headerTitle}>Request Submitted</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -28,10 +38,8 @@ export function EmergencyRequestSubmittedScreen() {
         <View style={styles.successIcon}>
           <DashboardGlyph color={dashboardTheme.colors.success} name="checkmark-done-outline" size={24} />
         </View>
-        <Text style={styles.successTitle}>Request Submitted Successfully!</Text>
-        <Text style={styles.successText}>
-          SafeAlert confirmed your emergency assistance request.
-        </Text>
+        <Text style={styles.successTitle}>Emergency Request Submitted Successfully!</Text>
+        <Text style={styles.successText}>Your request has been received.</Text>
       </View>
 
       <View style={styles.statusCard}>
@@ -42,6 +50,7 @@ export function EmergencyRequestSubmittedScreen() {
       {submittedResponseRequest ? (
         <View style={styles.summaryPanel}>
           <Text style={styles.panelTitle}>Confirmed request details</Text>
+          {requestReference ? <SubmittedDetail label="Reference" value={requestReference} /> : null}
           <SubmittedDetail label="Request ID" value={submittedResponseRequest.id} />
           <SubmittedDetail
             label="Assistance Type"
@@ -59,25 +68,39 @@ export function EmergencyRequestSubmittedScreen() {
       ) : (
         <View style={styles.summaryPanel}>
           <Text style={styles.panelTitle}>Confirmed request details</Text>
-          <Text style={styles.helperText}>No confirmed emergency request details are available in this session.</Text>
+          <Text style={styles.helperText}>
+            No confirmed emergency request details are available in this session.
+          </Text>
         </View>
       )}
 
       <View style={styles.confirmationPanel}>
         <View style={styles.connectionDot} />
         <Text style={styles.helperText}>
-          Confirmed by SafeAlert. The backend created this request with status `NEW`.
+          {submittedResponseRequest
+            ? `Confirmed by SafeAlert with backend status ${submittedResponseRequest.status}.`
+            : 'Track this request from the resident reports area once confirmed request data is available.'}
         </Text>
       </View>
 
-      <Pressable
-        accessibilityLabel="Return to resident dashboard"
-        accessibilityRole="button"
-        onPress={() => router.push('/resident')}
-        style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-      >
-        <Text style={styles.primaryButtonText}>Back to Home</Text>
-      </Pressable>
+      <View style={styles.actionRow}>
+        <Pressable
+          accessibilityLabel="Track emergency request"
+          accessibilityRole="button"
+          onPress={trackRequest}
+          style={({ pressed }) => [styles.trackButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.trackButtonText}>Track Request</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="Return to resident dashboard"
+          accessibilityRole="button"
+          onPress={() => router.push('/resident')}
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.primaryButtonText}>Back to Home</Text>
+        </Pressable>
+      </View>
     </DashboardScreen>
   );
 }
@@ -89,6 +112,10 @@ function SubmittedDetail({ label, value }: { label: string; value: string }) {
       <Text style={styles.detailValue}>{value}</Text>
     </View>
   );
+}
+
+function formatRequestReference(id: string) {
+  return `REQ-${id.slice(0, 8).toUpperCase()}`;
 }
 
 const styles = StyleSheet.create({
@@ -215,7 +242,29 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     backgroundColor: dashboardTheme.colors.success
   },
+  actionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12
+  },
+  trackButton: {
+    flexGrow: 1,
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.primary,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  trackButtonText: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
+  },
   primaryButton: {
+    flexGrow: 1,
     minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
