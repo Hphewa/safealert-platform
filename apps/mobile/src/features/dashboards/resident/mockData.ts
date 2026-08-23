@@ -30,7 +30,7 @@ export const residentPrimaryActions: QuickAction[] = [
   },
   {
     title: 'Help / Emergency Assistance',
-    subtitle: 'Find support options and urgent assistance contacts',
+    subtitle: 'Request urgent help and share your current situation',
     href: '/resident/help',
     icon: 'help-buoy-outline'
   }
