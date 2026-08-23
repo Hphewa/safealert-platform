@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
@@ -10,12 +11,14 @@ type VolunteerReportCardProps = {
 };
 
 export function VolunteerReportCard({ report }: VolunteerReportCardProps) {
+  const router = useRouter();
+
   return (
     <Pressable
-      accessibilityHint="Detailed volunteer report view will be added in a later step."
+      accessibilityHint="Open the full volunteer report details view."
       accessibilityLabel={`${report.severity} severity ${report.hazardType} at ${report.location}`}
       accessibilityRole="button"
-      onPress={() => {}}
+      onPress={() => router.push(report.href)}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={styles.headerRow}>
