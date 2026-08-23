@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { CreateResponseRequestRequest } from '@safealert/contracts';
@@ -29,6 +29,7 @@ export function ReviewEmergencyRequestScreen() {
   const { accessToken } = useAuth();
   const { draft, resetDraft, setSubmittedResponseRequest, validation } = useEmergencyAssistanceDraft();
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
+  const submitInFlightRef = useRef(false);
   const isSubmitting = submitState.status === 'submitting';
   const canSubmit = validation.isValid && !isSubmitting;
   const vulnerablePeopleDetails = getRelevantVulnerablePeople(draft.vulnerablePeople);
@@ -38,7 +39,7 @@ export function ReviewEmergencyRequestScreen() {
   };
 
   const submitRequest = async () => {
-    if (isSubmitting) {
+    if (submitInFlightRef.current || isSubmitting) {
       return;
     }
 
@@ -82,14 +83,18 @@ export function ReviewEmergencyRequestScreen() {
         : {})
     };
 
+    submitInFlightRef.current = true;
+    setSubmittedResponseRequest(null);
     setSubmitState({ status: 'submitting', message: null });
 
     try {
       const response = await createResidentResponseRequest(payload, accessToken);
       setSubmittedResponseRequest(response.responseRequest);
       resetDraft();
+      submitInFlightRef.current = false;
       router.replace('/resident/emergency-request-submitted');
     } catch (error) {
+      submitInFlightRef.current = false;
       setSubmitState({
         status: 'error',
         ...submitErrorStateFor(error)
@@ -210,6 +215,12 @@ export function ReviewEmergencyRequestScreen() {
       {submitState.status === 'error' ? (
         <View style={styles.validationPanel}>
           <Text style={styles.errorText}>{submitState.message}</Text>
+          {(submitState.reason === 'network' || submitState.reason === 'server') && (
+            <Text style={styles.errorHelperText}>
+              Your current location, people information, medical needs, road condition, contact
+              details, and notes are still saved in this draft.
+            </Text>
+          )}
           {submitState.reason === 'network' || submitState.reason === 'server' ? (
             <Pressable
               accessibilityLabel="Retry emergency request submission"
@@ -544,23 +555,10 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: dashboardTheme.colors.critical
   },
-  infoPanel: {
-    gap: 6,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.info,
-    borderRadius: dashboardTheme.radius.sm,
-    backgroundColor: dashboardTheme.colors.infoSoft
-  },
-  infoTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: dashboardTheme.colors.info
-  },
-  infoText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: dashboardTheme.colors.text
+  errorHelperText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: dashboardTheme.colors.muted
   },
   actionRow: {
     flexDirection: 'row',
