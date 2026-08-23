@@ -3,7 +3,8 @@ import type {
   CreateReportRequest,
   CreateReportResponse,
   GetCommunityReportResponse,
-  GetCommunityReportsResponse
+  GetCommunityReportsResponse,
+  VerifyReportResponse
 } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 
@@ -80,5 +81,30 @@ export class ReportService {
     }
 
     return { report };
+  }
+
+  async verifyReport(reportId: string, verifiedById: string): Promise<VerifyReportResponse> {
+    const report = await this.repository.findReportById(reportId);
+
+    if (!report) {
+      throw new ApiError(404, 'REPORT_NOT_FOUND', 'Report not found.');
+    }
+
+    if (report.status !== 'PENDING') {
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be verified.');
+    }
+
+    const verifiedAt = new Date();
+    const updatedReport = await this.repository.verifyReport({
+      reportId,
+      verifiedById,
+      verifiedAt
+    });
+
+    if (!updatedReport) {
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be verified.');
+    }
+
+    return { report: updatedReport };
   }
 }

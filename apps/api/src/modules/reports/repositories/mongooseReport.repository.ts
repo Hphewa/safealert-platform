@@ -9,6 +9,12 @@ export class MongooseReportRepository implements ReportRepository {
     return toSafeReport(report);
   }
 
+  async findReportById(reportId: string) {
+    const report = await ReportModel.findById(reportId).exec();
+
+    return report ? toSafeReport(report) : null;
+  }
+
   async findReportsByStatuses(statuses: CreateReportInput['status'][]) {
     const reports = await ReportModel.find({
       status: {
@@ -90,5 +96,40 @@ export class MongooseReportRepository implements ReportRepository {
       createdAt: safeReport.createdAt,
       ...(safeReport.mediaReference ? { mediaReference: safeReport.mediaReference } : {})
     };
+  }
+
+  async verifyReport(input: {
+    reportId: string;
+    verifiedById: string;
+    verifiedAt: Date;
+  }) {
+    const report = await ReportModel.findOneAndUpdate(
+      {
+        _id: input.reportId,
+        status: 'PENDING'
+      },
+      {
+        $set: {
+          status: 'VERIFIED',
+          verification: {
+            verifiedById: input.verifiedById,
+            verifiedAt: input.verifiedAt
+          },
+          updatedAt: input.verifiedAt
+        },
+        $push: {
+          verificationHistory: {
+            action: 'VERIFY',
+            verifiedById: input.verifiedById,
+            verifiedAt: input.verifiedAt
+          }
+        }
+      },
+      {
+        new: true
+      }
+    ).exec();
+
+    return report ? toSafeReport(report) : null;
   }
 }

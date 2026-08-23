@@ -29,7 +29,7 @@ export class InMemoryReportRepository implements ReportRepository {
     return report;
   }
 
-  findReportById(id: string) {
+  async findReportById(id: string) {
     return this.reports.get(id) ?? null;
   }
 
@@ -87,6 +87,38 @@ export class InMemoryReportRepository implements ReportRepository {
 
   seedReport(report: SafeReport) {
     this.reports.set(report.id, report);
+  }
+
+  async verifyReport(input: {
+    reportId: string;
+    verifiedById: string;
+    verifiedAt: Date;
+  }) {
+    const report = this.reports.get(input.reportId);
+
+    if (!report || report.status !== 'PENDING') {
+      return null;
+    }
+
+    const verifiedAt = input.verifiedAt.toISOString();
+    const updatedReport: SafeReport = {
+      ...report,
+      status: 'VERIFIED',
+      updatedAt: verifiedAt,
+      verifiedById: input.verifiedById,
+      verifiedAt,
+      verificationHistory: [
+        ...(report.verificationHistory ?? []),
+        {
+          action: 'VERIFY',
+          verifiedById: input.verifiedById,
+          verifiedAt
+        }
+      ]
+    };
+
+    this.reports.set(updatedReport.id, updatedReport);
+    return updatedReport;
   }
 }
 

@@ -522,4 +522,93 @@ describe('report API', () => {
     });
     expect(response.body.report.residentId).toBeUndefined();
   });
+
+  it('verifies a pending report for an authenticated disaster officer', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-verify@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'verify-me',
+      status: 'PENDING',
+      createdAt: '2026-08-23T12:00:00.000Z',
+      updatedAt: '2026-08-23T12:00:00.000Z',
+      description: 'Water is rising near the lower bridge.'
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/reports/verify-me/verification')
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ action: 'VERIFY' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.report).toEqual(
+      expect.objectContaining({
+        id: 'verify-me',
+        status: 'VERIFIED',
+        updatedAt: expect.any(String),
+        verifiedById: expect.any(String),
+        verifiedAt: expect.any(String),
+        verificationHistory: [
+          expect.objectContaining({
+            action: 'VERIFY',
+            verifiedById: expect.any(String),
+            verifiedAt: expect.any(String)
+          })
+        ]
+      })
+    );
+  });
+
+  it('returns not found when verifying a missing report', async () => {
+    const { app, authRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-missing@example.com'
+    );
+
+    const response = await request(app)
+      .patch('/api/v1/reports/missing-report/verification')
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ action: 'VERIFY' });
+
+    expect(response.status).toBe(404);
+  });
+
+  it('rejects verification when the report is not pending', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-invalid-state@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'already-verified',
+      status: 'VERIFIED',
+      createdAt: '2026-08-23T12:10:00.000Z',
+      updatedAt: '2026-08-23T12:10:00.000Z'
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/reports/already-verified/verification')
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ action: 'VERIFY' });
+
+    expect(response.status).toBe(409);
+  });
+
+  it('requires authentication to verify a report', async () => {
+    const { app } = createTestContext();
+
+    const response = await request(app).patch('/api/v1/reports/verify-me/verification').send({
+      action: 'VERIFY'
+    });
+
+    expect(response.status).toBe(401);
+  });
 });

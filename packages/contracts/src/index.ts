@@ -15,6 +15,10 @@ export const REPORT_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED', 'RESOLVED'] a
 
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
 
+export const REPORT_VERIFICATION_ACTIONS = ['VERIFY'] as const;
+
+export type ReportVerificationAction = (typeof REPORT_VERIFICATION_ACTIONS)[number];
+
 export const HAZARD_TYPES = ['FLOOD', 'BLOCKED_ROAD', 'LANDSLIDE', 'OTHER'] as const;
 
 export type HazardType = (typeof HAZARD_TYPES)[number];
@@ -47,9 +51,22 @@ export type SafeReport = {
   status: ReportStatus;
   createdAt: string;
   updatedAt: string;
+  verifiedById?: string;
+  verifiedAt?: string;
+  verificationHistory?: ReportVerificationEvent[];
+};
+
+export type ReportVerificationEvent = {
+  action: ReportVerificationAction;
+  verifiedById: string;
+  verifiedAt: string;
 };
 
 export type CreateReportResponse = {
+  report: SafeReport;
+};
+
+export type VerifyReportResponse = {
   report: SafeReport;
 };
 

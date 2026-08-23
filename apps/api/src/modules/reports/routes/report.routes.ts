@@ -23,6 +23,12 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
     authorizeRoles('COMMUNITY_VOLUNTEER'),
     controller.getCommunityById
   );
+  router.patch(
+    '/:reportId/verification',
+    authenticate(config),
+    authorizeRoles('DISASTER_OFFICER'),
+    controller.verify
+  );
 
   return router;
 }

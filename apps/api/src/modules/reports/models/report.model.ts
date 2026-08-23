@@ -2,9 +2,49 @@ import {
   HAZARD_TYPES,
   REPORT_SEVERITIES,
   REPORT_STATUSES,
+  type ReportVerificationEvent,
   type SafeReport
 } from '@safealert/contracts';
 import mongoose, { type InferSchemaType, type Model } from 'mongoose';
+
+const reportVerificationSchema = new mongoose.Schema(
+  {
+    verifiedById: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      ref: 'User'
+    },
+    verifiedAt: {
+      type: Date,
+      required: true
+    }
+  },
+  {
+    _id: false
+  }
+);
+
+const reportVerificationHistorySchema = new mongoose.Schema(
+  {
+    action: {
+      type: String,
+      required: true,
+      enum: ['VERIFY']
+    },
+    verifiedById: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+      ref: 'User'
+    },
+    verifiedAt: {
+      type: Date,
+      required: true
+    }
+  },
+  {
+    _id: false
+  }
+);
 
 const geoJsonPointSchema = new mongoose.Schema(
   {
@@ -81,6 +121,15 @@ const reportSchema = new mongoose.Schema(
       required: true,
       enum: REPORT_STATUSES,
       default: 'PENDING'
+    },
+    verification: {
+      type: reportVerificationSchema,
+      required: false
+    },
+    verificationHistory: {
+      type: [reportVerificationHistorySchema],
+      required: true,
+      default: []
     }
   },
   {
@@ -95,6 +144,11 @@ export type ReportDocument = InferSchemaType<typeof reportSchema> & {
   residentId: { toString(): string };
   createdAt: Date;
   updatedAt: Date;
+  verification?: {
+    verifiedById: { toString(): string };
+    verifiedAt: Date;
+  };
+  verificationHistory?: ReportVerificationEvent[];
 };
 
 export const ReportModel =
@@ -116,6 +170,19 @@ export function toSafeReport(report: ReportDocument): SafeReport {
     createdAt: report.createdAt.toISOString(),
     updatedAt: report.updatedAt.toISOString()
   };
+
+  if (report.verification) {
+    safeReport.verifiedById = report.verification.verifiedById.toString();
+    safeReport.verifiedAt = report.verification.verifiedAt.toISOString();
+  }
+
+  if (report.verificationHistory?.length) {
+    safeReport.verificationHistory = report.verificationHistory.map((entry) => ({
+      action: entry.action,
+      verifiedById: entry.verifiedById.toString(),
+      verifiedAt: entry.verifiedAt.toISOString()
+    }));
+  }
 
   if (report.mediaReference) {
     safeReport.mediaReference = report.mediaReference;

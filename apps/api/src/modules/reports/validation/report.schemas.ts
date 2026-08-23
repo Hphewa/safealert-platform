@@ -85,3 +85,7 @@ export const communityReportQuerySchema = z
       });
     }
   });
+
+export const reportVerificationActionSchema = z.object({
+  action: z.literal('VERIFY')
+});
