@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,84 +9,14 @@ import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { residentBottomNavItems } from '../mockData';
 import { SelectableCard } from '../components/SelectableCard';
-
-type HazardType = 'FLOOD' | 'BLOCKED_ROAD' | 'LANDSLIDE' | 'OTHER';
-type HazardSeverity = 'LOW' | 'MODERATE' | 'HIGH';
-
-type ReportLocationState =
-  | {
-      status: 'REQUESTING_PERMISSION' | 'LOCATING';
-      latitude: null;
-      longitude: null;
-      errorMessage: null;
-    }
-  | {
-      status: 'DETECTED';
-      latitude: number;
-      longitude: number;
-      accuracyMeters: number | null;
-      capturedAt: string;
-      errorMessage: null;
-    }
-  | {
-      status: 'PERMISSION_DENIED' | 'ERROR';
-      latitude: null;
-      longitude: null;
-      errorMessage: string;
-    };
-
-type SelectedPhotoEvidence = {
-  localUri: string;
-  width: number;
-  height: number;
-  fileName: string | null;
-  mimeType: string | null;
-  assetId: string | null;
-  source: 'MEDIA_LIBRARY' | 'CAMERA';
-  needsUpload: true;
-  uploadedMediaReference: null;
-};
-
-type PhotoEvidenceState =
-  | {
-      status: 'EMPTY';
-      selected: null;
-      message: string | null;
-    }
-  | {
-      status: 'REQUESTING_PERMISSION' | 'PICKING';
-      selected: null;
-      message: string;
-    }
-  | {
-      status: 'LOCAL_SELECTED';
-      selected: SelectedPhotoEvidence;
-      message: string;
-    }
-  | {
-      status: 'PERMISSION_DENIED' | 'ERROR';
-      selected: null;
-      message: string;
-    };
-
-type ReportHazardFormState = {
-  hazardType: HazardType | null;
-  location: ReportLocationState;
-  photoEvidence: PhotoEvidenceState;
-  severity: HazardSeverity | null;
-  description: string;
-};
-
-type ReportHazardValidationErrors = Partial<
-  Record<'hazardType' | 'location' | 'severity' | 'description', string>
->;
-
-type ReportHazardValidationResult = {
-  errors: ReportHazardValidationErrors;
-  isValid: boolean;
-};
-
-const descriptionMaxLength = 500;
+import {
+  descriptionMaxLength,
+  type HazardSeverity,
+  type HazardType,
+  type PhotoEvidenceState,
+  type SelectedPhotoEvidence,
+  useReportHazardDraft
+} from '../reportDraft';
 
 const hazardTypeOptions: Array<{
   label: string;
@@ -125,31 +55,13 @@ const severityOptions: Array<{
   }
 ];
 
-const initialFormState: ReportHazardFormState = {
-  hazardType: null,
-  location: {
-    status: 'REQUESTING_PERMISSION',
-    latitude: null,
-    longitude: null,
-    errorMessage: null
-  },
-  photoEvidence: {
-    status: 'EMPTY',
-    selected: null,
-    message: null
-  },
-  severity: null,
-  description: ''
-};
-
 export function ReportHazardScreen() {
   const router = useRouter();
-  const [formState, setFormState] = useState<ReportHazardFormState>(initialFormState);
-  const validation = useMemo(() => validateReportHazardForm(formState), [formState]);
+  const { draft, setDraft, validation } = useReportHazardDraft();
   const canReviewReport = validation.isValid;
 
   const captureCurrentLocation = useCallback(async () => {
-    setFormState((current) => ({
+    setDraft((current) => ({
       ...current,
       location: {
         status: 'REQUESTING_PERMISSION',
@@ -163,7 +75,7 @@ export function ReportHazardScreen() {
       const permission = await Location.requestForegroundPermissionsAsync();
 
       if (permission.status !== Location.PermissionStatus.GRANTED) {
-        setFormState((current) => ({
+        setDraft((current) => ({
           ...current,
           location: {
             status: 'PERMISSION_DENIED',
@@ -175,7 +87,7 @@ export function ReportHazardScreen() {
         return;
       }
 
-      setFormState((current) => ({
+      setDraft((current) => ({
         ...current,
         location: {
           status: 'LOCATING',
@@ -189,7 +101,7 @@ export function ReportHazardScreen() {
         accuracy: Location.Accuracy.Balanced
       });
 
-      setFormState((current) => ({
+      setDraft((current) => ({
         ...current,
         location: {
           status: 'DETECTED',
@@ -201,7 +113,7 @@ export function ReportHazardScreen() {
         }
       }));
     } catch {
-      setFormState((current) => ({
+      setDraft((current) => ({
         ...current,
         location: {
           status: 'ERROR',
@@ -211,30 +123,32 @@ export function ReportHazardScreen() {
         }
       }));
     }
-  }, []);
+  }, [setDraft]);
 
   useEffect(() => {
-    void captureCurrentLocation();
-  }, [captureCurrentLocation]);
+    if (draft.location.status === 'REQUESTING_PERMISSION') {
+      void captureCurrentLocation();
+    }
+  }, [captureCurrentLocation, draft.location.status]);
 
   const setHazardType = (hazardType: HazardType) => {
-    setFormState((current) => ({ ...current, hazardType }));
+    setDraft((current) => ({ ...current, hazardType }));
   };
 
   const setSeverity = (severity: HazardSeverity) => {
-    setFormState((current) => ({ ...current, severity }));
+    setDraft((current) => ({ ...current, severity }));
   };
 
   const setDescription = (description: string) => {
-    setFormState((current) => ({ ...current, description }));
+    setDraft((current) => ({ ...current, description }));
   };
 
   const trimDescription = () => {
-    setFormState((current) => ({ ...current, description: current.description.trim() }));
+    setDraft((current) => ({ ...current, description: current.description.trim() }));
   };
 
   const setPhotoState = (photoEvidence: PhotoEvidenceState) => {
-    setFormState((current) => ({ ...current, photoEvidence }));
+    setDraft((current) => ({ ...current, photoEvidence }));
   };
 
   const selectPhotoFromLibrary = async () => {
@@ -353,6 +267,15 @@ export function ReportHazardScreen() {
     });
   };
 
+  const reviewReport = () => {
+    if (!canReviewReport) {
+      return;
+    }
+
+    trimDescription();
+    router.push('/resident/review-report');
+  };
+
   return (
     <DashboardScreen bottomNavItems={residentBottomNavItems} contentContainerStyle={styles.content}>
       <View style={styles.header}>
@@ -377,7 +300,7 @@ export function ReportHazardScreen() {
               key={option.value}
               label={option.label}
               onSelect={setHazardType}
-              selected={formState.hazardType === option.value}
+              selected={draft.hazardType === option.value}
               value={option.value}
             />
           ))}
@@ -391,31 +314,28 @@ export function ReportHazardScreen() {
         </View>
         <View style={styles.panelBody}>
           <Text style={styles.panelTitle}>Location</Text>
-          {formState.location.status === 'REQUESTING_PERMISSION' ? (
+          {draft.location.status === 'REQUESTING_PERMISSION' ? (
             <LocationStatusMessage message="Requesting location permission..." showSpinner />
           ) : null}
-          {formState.location.status === 'LOCATING' ? (
+          {draft.location.status === 'LOCATING' ? (
             <LocationStatusMessage message="Detecting your current location..." showSpinner />
           ) : null}
-          {formState.location.status === 'DETECTED' ? (
+          {draft.location.status === 'DETECTED' ? (
             <View style={styles.detectedLocation}>
               <Text style={styles.detectedText}>Detected current location</Text>
               <Text style={styles.coordinateText}>
-                Lat {formatCoordinate(formState.location.latitude)}, Long{' '}
-                {formatCoordinate(formState.location.longitude)}
+                Lat {formatCoordinate(draft.location.latitude)}, Long {formatCoordinate(draft.location.longitude)}
               </Text>
               <Text style={styles.mongoHintText}>Saved for reports as [longitude, latitude].</Text>
             </View>
           ) : null}
-          {formState.location.status === 'PERMISSION_DENIED' ||
-          formState.location.status === 'ERROR' ? (
-            <Text style={styles.errorText}>{formState.location.errorMessage}</Text>
+          {draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR' ? (
+            <Text style={styles.errorText}>{draft.location.errorMessage}</Text>
           ) : null}
           <ValidationMessage message={validation.errors.location} />
         </View>
         <View style={styles.locationActions}>
-          {(formState.location.status === 'PERMISSION_DENIED' ||
-            formState.location.status === 'ERROR') && (
+          {(draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR') && (
             <Pressable
               accessibilityLabel="Retry location detection"
               accessibilityRole="button"
@@ -439,16 +359,15 @@ export function ReportHazardScreen() {
       </View>
 
       <View style={styles.photoPanel}>
-        {formState.photoEvidence.status === 'LOCAL_SELECTED' ? (
+        {draft.photoEvidence.status === 'LOCAL_SELECTED' ? (
           <Image
             accessibilityLabel="Selected hazard evidence preview"
-            source={{ uri: formState.photoEvidence.selected.localUri }}
+            source={{ uri: draft.photoEvidence.selected.localUri }}
             style={styles.photoPreview}
           />
         ) : (
           <View style={styles.photoPlaceholder}>
-            {formState.photoEvidence.status === 'REQUESTING_PERMISSION' ||
-            formState.photoEvidence.status === 'PICKING' ? (
+            {draft.photoEvidence.status === 'REQUESTING_PERMISSION' || draft.photoEvidence.status === 'PICKING' ? (
               <ActivityIndicator color={dashboardTheme.colors.info} size="small" />
             ) : (
               <DashboardGlyph color={dashboardTheme.colors.info} name="camera-outline" size={24} />
@@ -457,10 +376,10 @@ export function ReportHazardScreen() {
         )}
         <View style={styles.panelBody}>
           <Text style={styles.panelTitle}>Photo evidence</Text>
-          {formState.photoEvidence.status === 'LOCAL_SELECTED' ? (
+          {draft.photoEvidence.status === 'LOCAL_SELECTED' ? (
             <View style={styles.detectedLocation}>
               <Text style={styles.detectedText}>Photo ready</Text>
-              <Text style={styles.panelText}>{formState.photoEvidence.message}</Text>
+              <Text style={styles.panelText}>{draft.photoEvidence.message}</Text>
               <Text style={styles.mongoHintText}>
                 Local image stays on this device until a media upload service stores it.
               </Text>
@@ -469,21 +388,19 @@ export function ReportHazardScreen() {
             <Text
               style={[
                 styles.panelText,
-                (formState.photoEvidence.status === 'PERMISSION_DENIED' ||
-                  formState.photoEvidence.status === 'ERROR') &&
+                (draft.photoEvidence.status === 'PERMISSION_DENIED' ||
+                  draft.photoEvidence.status === 'ERROR') &&
                   styles.errorText
               ]}
             >
-              {formState.photoEvidence.message ?? 'Add an optional photo from this device.'}
+              {draft.photoEvidence.message ?? 'Add an optional photo from this device.'}
             </Text>
           )}
         </View>
         <View style={styles.photoActions}>
           <Pressable
             accessibilityLabel={
-              formState.photoEvidence.status === 'LOCAL_SELECTED'
-                ? 'Change photo evidence'
-                : 'Add photo evidence'
+              draft.photoEvidence.status === 'LOCAL_SELECTED' ? 'Change photo evidence' : 'Add photo evidence'
             }
             accessibilityRole="button"
             onPress={() => {
@@ -492,7 +409,7 @@ export function ReportHazardScreen() {
             style={({ pressed }) => [styles.addPhotoButton, pressed && styles.pressed]}
           >
             <Text style={styles.addPhotoButtonText}>
-              {formState.photoEvidence.status === 'LOCAL_SELECTED' ? 'Change Photo' : 'Add Photo'}
+              {draft.photoEvidence.status === 'LOCAL_SELECTED' ? 'Change Photo' : 'Add Photo'}
             </Text>
           </Pressable>
           <Pressable
@@ -505,7 +422,7 @@ export function ReportHazardScreen() {
           >
             <Text style={styles.cameraButtonText}>Take Photo</Text>
           </Pressable>
-          {formState.photoEvidence.status === 'LOCAL_SELECTED' ? (
+          {draft.photoEvidence.status === 'LOCAL_SELECTED' ? (
             <Pressable
               accessibilityLabel="Remove selected photo evidence"
               accessibilityRole="button"
@@ -522,7 +439,7 @@ export function ReportHazardScreen() {
         <Text style={styles.sectionTitle}>Severity</Text>
         <View accessibilityRole="radiogroup" style={styles.severityRow}>
           {severityOptions.map((option) => {
-            const selected = formState.severity === option.value;
+            const selected = draft.severity === option.value;
 
             return (
               <Pressable
@@ -563,10 +480,10 @@ export function ReportHazardScreen() {
           placeholderTextColor={dashboardTheme.colors.muted}
           style={styles.descriptionInput}
           textAlignVertical="top"
-          value={formState.description}
+          value={draft.description}
         />
         <Text style={styles.characterCount}>
-          {formState.description.trim().length}/{descriptionMaxLength}
+          {draft.description.trim().length}/{descriptionMaxLength}
         </Text>
         <ValidationMessage message={validation.errors.description} />
       </View>
@@ -576,7 +493,7 @@ export function ReportHazardScreen() {
         accessibilityRole="button"
         accessibilityState={{ disabled: !canReviewReport }}
         disabled={!canReviewReport}
-        onPress={trimDescription}
+        onPress={reviewReport}
         style={({ pressed }) => [
           styles.reviewButton,
           !canReviewReport && styles.reviewButtonDisabled,
@@ -606,36 +523,6 @@ function ValidationMessage({ message }: { message?: string }) {
   }
 
   return <Text style={styles.validationText}>{message}</Text>;
-}
-
-function validateReportHazardForm(
-  formState: ReportHazardFormState
-): ReportHazardValidationResult {
-  const errors: ReportHazardValidationErrors = {};
-  const trimmedDescription = formState.description.trim();
-
-  if (!formState.hazardType) {
-    errors.hazardType = 'Select a hazard type.';
-  }
-
-  if (formState.location.status !== 'DETECTED') {
-    errors.location = 'Location is required.';
-  }
-
-  if (!formState.severity) {
-    errors.severity = 'Select the observed severity.';
-  }
-
-  if (!trimmedDescription) {
-    errors.description = 'Enter a short description.';
-  } else if (trimmedDescription.length > descriptionMaxLength) {
-    errors.description = `Keep the description under ${descriptionMaxLength} characters.`;
-  }
-
-  return {
-    errors,
-    isValid: Object.keys(errors).length === 0
-  };
 }
 
 function formatCoordinate(value: number) {
