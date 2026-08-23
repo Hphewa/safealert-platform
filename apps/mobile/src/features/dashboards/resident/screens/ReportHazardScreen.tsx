@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -77,6 +77,17 @@ type ReportHazardFormState = {
   description: string;
 };
 
+type ReportHazardValidationErrors = Partial<
+  Record<'hazardType' | 'location' | 'severity' | 'description', string>
+>;
+
+type ReportHazardValidationResult = {
+  errors: ReportHazardValidationErrors;
+  isValid: boolean;
+};
+
+const descriptionMaxLength = 500;
+
 const hazardTypeOptions: Array<{
   label: string;
   value: HazardType;
@@ -134,6 +145,8 @@ const initialFormState: ReportHazardFormState = {
 export function ReportHazardScreen() {
   const router = useRouter();
   const [formState, setFormState] = useState<ReportHazardFormState>(initialFormState);
+  const validation = useMemo(() => validateReportHazardForm(formState), [formState]);
+  const canReviewReport = validation.isValid;
 
   const captureCurrentLocation = useCallback(async () => {
     setFormState((current) => ({
@@ -214,6 +227,10 @@ export function ReportHazardScreen() {
 
   const setDescription = (description: string) => {
     setFormState((current) => ({ ...current, description }));
+  };
+
+  const trimDescription = () => {
+    setFormState((current) => ({ ...current, description: current.description.trim() }));
   };
 
   const setPhotoState = (photoEvidence: PhotoEvidenceState) => {
@@ -365,6 +382,7 @@ export function ReportHazardScreen() {
             />
           ))}
         </View>
+        <ValidationMessage message={validation.errors.hazardType} />
       </View>
 
       <View style={styles.locationPanel}>
@@ -393,6 +411,7 @@ export function ReportHazardScreen() {
           formState.location.status === 'ERROR' ? (
             <Text style={styles.errorText}>{formState.location.errorMessage}</Text>
           ) : null}
+          <ValidationMessage message={validation.errors.location} />
         </View>
         <View style={styles.locationActions}>
           {(formState.location.status === 'PERMISSION_DENIED' ||
@@ -529,13 +548,16 @@ export function ReportHazardScreen() {
             );
           })}
         </View>
+        <ValidationMessage message={validation.errors.severity} />
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Short description</Text>
         <TextInput
           accessibilityLabel="Short description"
+          maxLength={descriptionMaxLength}
           multiline
+          onBlur={trimDescription}
           onChangeText={setDescription}
           placeholder="Briefly describe what you see."
           placeholderTextColor={dashboardTheme.colors.muted}
@@ -543,14 +565,27 @@ export function ReportHazardScreen() {
           textAlignVertical="top"
           value={formState.description}
         />
+        <Text style={styles.characterCount}>
+          {formState.description.trim().length}/{descriptionMaxLength}
+        </Text>
+        <ValidationMessage message={validation.errors.description} />
       </View>
 
       <Pressable
+        accessibilityLabel="Review hazard report"
         accessibilityRole="button"
-        onPress={() => undefined}
-        style={({ pressed }) => [styles.reviewButton, pressed && styles.pressed]}
+        accessibilityState={{ disabled: !canReviewReport }}
+        disabled={!canReviewReport}
+        onPress={trimDescription}
+        style={({ pressed }) => [
+          styles.reviewButton,
+          !canReviewReport && styles.reviewButtonDisabled,
+          pressed && canReviewReport && styles.pressed
+        ]}
       >
-        <Text style={styles.reviewButtonText}>Review Report</Text>
+        <Text style={[styles.reviewButtonText, !canReviewReport && styles.reviewButtonTextDisabled]}>
+          Review Report
+        </Text>
       </Pressable>
     </DashboardScreen>
   );
@@ -563,6 +598,44 @@ function LocationStatusMessage({ message, showSpinner }: { message: string; show
       <Text style={styles.panelText}>{message}</Text>
     </View>
   );
+}
+
+function ValidationMessage({ message }: { message?: string }) {
+  if (!message) {
+    return null;
+  }
+
+  return <Text style={styles.validationText}>{message}</Text>;
+}
+
+function validateReportHazardForm(
+  formState: ReportHazardFormState
+): ReportHazardValidationResult {
+  const errors: ReportHazardValidationErrors = {};
+  const trimmedDescription = formState.description.trim();
+
+  if (!formState.hazardType) {
+    errors.hazardType = 'Select a hazard type.';
+  }
+
+  if (formState.location.status !== 'DETECTED') {
+    errors.location = 'Location is required.';
+  }
+
+  if (!formState.severity) {
+    errors.severity = 'Select the observed severity.';
+  }
+
+  if (!trimmedDescription) {
+    errors.description = 'Enter a short description.';
+  } else if (trimmedDescription.length > descriptionMaxLength) {
+    errors.description = `Keep the description under ${descriptionMaxLength} characters.`;
+  }
+
+  return {
+    errors,
+    isValid: Object.keys(errors).length === 0
+  };
 }
 
 function formatCoordinate(value: number) {
@@ -699,6 +772,12 @@ const styles = StyleSheet.create({
   errorText: {
     fontSize: 14,
     lineHeight: 20,
+    fontWeight: '700',
+    color: dashboardTheme.colors.critical
+  },
+  validationText: {
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '700',
     color: dashboardTheme.colors.critical
   },
@@ -841,6 +920,12 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     color: dashboardTheme.colors.text
   },
+  characterCount: {
+    alignSelf: 'flex-end',
+    fontSize: 12,
+    fontWeight: '700',
+    color: dashboardTheme.colors.muted
+  },
   reviewButton: {
     minHeight: 56,
     alignItems: 'center',
@@ -848,10 +933,18 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.primary
   },
+  reviewButtonDisabled: {
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
   reviewButtonText: {
     fontSize: 17,
     fontWeight: '800',
     color: '#ffffff'
+  },
+  reviewButtonTextDisabled: {
+    color: dashboardTheme.colors.muted
   },
   pressed: {
     opacity: 0.82
