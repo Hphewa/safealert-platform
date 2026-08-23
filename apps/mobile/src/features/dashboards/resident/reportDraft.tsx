@@ -1,4 +1,13 @@
-import { createContext, useContext, useMemo, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import type { SafeReport } from '@safealert/contracts';
+import {
+  createContext,
+  useContext,
+  useMemo,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction
+} from 'react';
 
 export type HazardType = 'FLOOD' | 'BLOCKED_ROAD' | 'LANDSLIDE' | 'OTHER';
 export type HazardSeverity = 'LOW' | 'MODERATE' | 'HIGH';
@@ -80,6 +89,8 @@ type ReportHazardDraftContextValue = {
   draft: ReportHazardDraft;
   setDraft: Dispatch<SetStateAction<ReportHazardDraft>>;
   validation: ReportHazardValidationResult;
+  submittedReport: SafeReport | null;
+  setSubmittedReport: Dispatch<SetStateAction<SafeReport | null>>;
 };
 
 const ReportHazardDraftContext = createContext<ReportHazardDraftContextValue | null>(null);
@@ -118,14 +129,17 @@ const initialReportHazardDraft: ReportHazardDraft = {
 
 export function ReportHazardDraftProvider({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState<ReportHazardDraft>(initialReportHazardDraft);
+  const [submittedReport, setSubmittedReport] = useState<SafeReport | null>(null);
   const validation = useMemo(() => validateReportHazardDraft(draft), [draft]);
   const value = useMemo(
     () => ({
       draft,
       setDraft,
-      validation
+      validation,
+      submittedReport,
+      setSubmittedReport
     }),
-    [draft, validation]
+    [draft, submittedReport, validation]
   );
 
   return (
@@ -170,4 +184,3 @@ export function validateReportHazardDraft(draft: ReportHazardDraft): ReportHazar
     isValid: Object.keys(errors).length === 0
   };
 }
-

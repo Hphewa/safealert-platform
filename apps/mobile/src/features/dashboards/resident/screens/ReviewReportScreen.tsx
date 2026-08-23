@@ -1,33 +1,76 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import type { CreateReportRequest } from '@safealert/contracts';
+
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ApiClientError } from '@/services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { createResidentReport } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
-import {
-  hazardTypeLabels,
-  severityLabels,
-  useReportHazardDraft
-} from '../reportDraft';
+import { hazardTypeLabels, severityLabels, useReportHazardDraft } from '../reportDraft';
 
 const connectionStatus = 'Online';
 
+type SubmitState = {
+  status: 'idle' | 'submitting' | 'error';
+  message: string | null;
+};
+
 export function ReviewReportScreen() {
   const router = useRouter();
-  const { draft, validation } = useReportHazardDraft();
-  const canSubmit = validation.isValid;
+  const { accessToken } = useAuth();
+  const { draft, setSubmittedReport, validation } = useReportHazardDraft();
+  const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
+  const isSubmitting = submitState.status === 'submitting';
+  const canSubmit = validation.isValid && !isSubmitting;
 
   const editReport = () => {
     router.push('/resident/report-hazard');
   };
 
-  const submitReport = () => {
-    if (!canSubmit) {
+  const submitReport = async () => {
+    if (!validation.isValid || !draft.hazardType || !draft.severity || draft.location.status !== 'DETECTED') {
+      setSubmitState({
+        status: 'error',
+        message: 'Please fix the highlighted report details before submitting.'
+      });
       return;
     }
 
-    // Backend submission will be wired in the next task.
+    if (!accessToken) {
+      setSubmitState({
+        status: 'error',
+        message: 'Your session has expired. Please log in again before submitting.'
+      });
+      return;
+    }
+
+    const payload: CreateReportRequest = {
+      hazardType: draft.hazardType,
+      severity: draft.severity,
+      description: draft.description.trim(),
+      location: {
+        type: 'Point',
+        coordinates: [draft.location.longitude, draft.location.latitude]
+      }
+    };
+
+    setSubmitState({ status: 'submitting', message: null });
+
+    try {
+      const response = await createResidentReport(payload, accessToken);
+      setSubmittedReport(response.report);
+      router.push('/resident/report-submitted');
+    } catch (error) {
+      setSubmitState({
+        status: 'error',
+        message: messageForSubmitError(error)
+      });
+    }
   };
 
   return (
@@ -76,13 +119,9 @@ export function ReviewReportScreen() {
         {draft.location.status === 'DETECTED' ? (
           <View style={styles.locationPreview}>
             <Text style={styles.locationPreviewTitle}>Detected coordinates</Text>
-            <Text style={styles.coordinateText}>
-              Latitude {formatCoordinate(draft.location.latitude)}
-            </Text>
-            <Text style={styles.coordinateText}>
-              Longitude {formatCoordinate(draft.location.longitude)}
-            </Text>
-            <Text style={styles.helperText}>Submission will convert this to [longitude, latitude].</Text>
+            <Text style={styles.coordinateText}>Latitude {formatCoordinate(draft.location.latitude)}</Text>
+            <Text style={styles.coordinateText}>Longitude {formatCoordinate(draft.location.longitude)}</Text>
+            <Text style={styles.helperText}>Submitted to the API as [longitude, latitude].</Text>
           </View>
         ) : (
           <Text style={styles.errorText}>Location is required.</Text>
@@ -104,7 +143,7 @@ export function ReviewReportScreen() {
               style={styles.photoPreview}
             />
             <Text style={styles.helperText}>
-              Photo selected locally. It will need upload before final backend submission.
+              Photo selected locally. No media upload service exists yet, so this local device URI is not sent to the API.
             </Text>
           </View>
         ) : (
@@ -133,7 +172,7 @@ export function ReviewReportScreen() {
         </View>
       </View>
 
-      {!canSubmit ? (
+      {!validation.isValid ? (
         <View style={styles.validationPanel}>
           {Object.values(validation.errors).map((message) => (
             <Text key={message} style={styles.errorText}>
@@ -143,30 +182,47 @@ export function ReviewReportScreen() {
         </View>
       ) : null}
 
+      {submitState.status === 'error' ? (
+        <View style={styles.validationPanel}>
+          <Text style={styles.errorText}>{submitState.message}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.actionRow}>
         <Pressable
           accessibilityLabel="Edit hazard report"
           accessibilityRole="button"
+          disabled={isSubmitting}
           onPress={editReport}
-          style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.editButton,
+            isSubmitting && styles.editButtonDisabled,
+            pressed && !isSubmitting && styles.pressed
+          ]}
         >
-          <Text style={styles.editButtonText}>Edit Report</Text>
+          <Text style={[styles.editButtonText, isSubmitting && styles.editButtonTextDisabled]}>Edit Report</Text>
         </Pressable>
         <Pressable
           accessibilityLabel="Submit hazard report"
           accessibilityRole="button"
           accessibilityState={{ disabled: !canSubmit }}
           disabled={!canSubmit}
-          onPress={submitReport}
+          onPress={() => {
+            void submitReport();
+          }}
           style={({ pressed }) => [
             styles.submitButton,
             !canSubmit && styles.submitButtonDisabled,
             pressed && canSubmit && styles.pressed
           ]}
         >
-          <Text style={[styles.submitButtonText, !canSubmit && styles.submitButtonTextDisabled]}>
-            Submit Report
-          </Text>
+          {isSubmitting ? (
+            <ActivityIndicator color="#ffffff" size="small" />
+          ) : (
+            <Text style={[styles.submitButtonText, !canSubmit && styles.submitButtonTextDisabled]}>
+              Submit Report
+            </Text>
+          )}
         </Pressable>
       </View>
     </DashboardScreen>
@@ -180,6 +236,26 @@ function ReviewDetail({ label, value }: { label: string; value: string }) {
       <Text style={styles.detailValue}>{value}</Text>
     </View>
   );
+}
+
+function messageForSubmitError(error: unknown) {
+  if (error instanceof ApiClientError) {
+    if (error.status === 0) {
+      return 'Cannot reach SafeAlert right now. Check your connection and try again.';
+    }
+
+    if (error.status === 401 || error.status === 403) {
+      return 'Your session could not submit this report. Please log in again.';
+    }
+
+    if (error.status === 400) {
+      return error.message || 'Some report details are invalid. Please review and try again.';
+    }
+
+    return 'SafeAlert could not submit the report right now. Please try again.';
+  }
+
+  return 'SafeAlert could not submit the report right now. Please try again.';
 }
 
 function formatCoordinate(value: number) {
@@ -385,10 +461,17 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.primarySoft
   },
+  editButtonDisabled: {
+    borderColor: dashboardTheme.colors.border,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
   editButtonText: {
     fontSize: 16,
     fontWeight: '800',
     color: dashboardTheme.colors.primaryStrong
+  },
+  editButtonTextDisabled: {
+    color: dashboardTheme.colors.muted
   },
   submitButton: {
     flexGrow: 1,
@@ -416,3 +499,4 @@ const styles = StyleSheet.create({
     opacity: 0.82
   }
 });
+
