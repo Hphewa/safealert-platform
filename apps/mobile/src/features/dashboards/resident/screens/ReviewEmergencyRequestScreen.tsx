@@ -1,11 +1,16 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState, type ReactNode } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import type { CreateResponseRequestRequest } from '@safealert/contracts';
+
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ApiClientError } from '@/services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { formatCoordinate } from '../../shared/currentLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { createResidentResponseRequest } from '../api/responseRequestApi';
 import {
   accessConditionLabels,
   emergencyAssistanceTypeLabels,
@@ -13,23 +18,83 @@ import {
 } from '../emergencyAssistanceDraft';
 import { residentBottomNavItems } from '../mockData';
 
+type SubmitState = {
+  status: 'idle' | 'submitting' | 'error';
+  reason?: 'validation' | 'auth' | 'network' | 'server';
+  message: string | null;
+};
+
 export function ReviewEmergencyRequestScreen() {
   const router = useRouter();
-  const { draft, validation } = useEmergencyAssistanceDraft();
-  const [submitNoticeVisible, setSubmitNoticeVisible] = useState(false);
-  const canSubmit = validation.isValid;
+  const { accessToken } = useAuth();
+  const { draft, resetDraft, setSubmittedResponseRequest, validation } = useEmergencyAssistanceDraft();
+  const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
+  const isSubmitting = submitState.status === 'submitting';
+  const canSubmit = validation.isValid && !isSubmitting;
   const vulnerablePeopleDetails = getRelevantVulnerablePeople(draft.vulnerablePeople);
 
   const editRequest = () => {
     router.push('/resident/help');
   };
 
-  const submitRequest = () => {
-    if (!canSubmit) {
+  const submitRequest = async () => {
+    if (isSubmitting) {
       return;
     }
 
-    setSubmitNoticeVisible(true);
+    if (!validation.isValid || draft.location.status !== 'DETECTED') {
+      setSubmitState({
+        status: 'error',
+        reason: 'validation',
+        message: 'Please fix the highlighted emergency request details before submitting.'
+      });
+      return;
+    }
+
+    if (!accessToken) {
+      setSubmitState({
+        status: 'error',
+        reason: 'auth',
+        message: 'Your session has expired. Please log in again before submitting.'
+      });
+      return;
+    }
+
+    const payload: CreateResponseRequestRequest = {
+      assistanceType: draft.assistanceType!,
+      location: {
+        type: 'Point',
+        coordinates: [draft.location.longitude, draft.location.latitude]
+      },
+      affectedPeople: draft.affectedPeopleCount,
+      medicalNeeds: draft.medicalNeeds.requiresMedicalAssistance ?? false,
+      injuredPeople: draft.medicalNeeds.injuredCount,
+      vulnerablePeople: draft.vulnerablePeople,
+      roadAccessibility: draft.accessCondition!,
+      contact: {
+        name: draft.contactDetails.name.trim(),
+        phoneNumber: draft.contactDetails.phoneNumber.trim(),
+        ...(draft.contactDetails.email?.trim() ? { email: draft.contactDetails.email.trim() } : {})
+      },
+      description: draft.emergencyDescription.trim(),
+      ...(draft.specialRequirements.trim()
+        ? { specialRequirements: draft.specialRequirements.trim() }
+        : {})
+    };
+
+    setSubmitState({ status: 'submitting', message: null });
+
+    try {
+      const response = await createResidentResponseRequest(payload, accessToken);
+      setSubmittedResponseRequest(response.responseRequest);
+      resetDraft();
+      router.replace('/resident/emergency-request-submitted');
+    } catch (error) {
+      setSubmitState({
+        status: 'error',
+        ...submitErrorStateFor(error)
+      });
+    }
   };
 
   return (
@@ -117,6 +182,10 @@ export function ReviewEmergencyRequestScreen() {
         <View style={styles.detailStack}>
           <ReviewLine label="Resident name" value={draft.contactDetails.name || 'Not available'} />
           <ReviewLine label="Account email" value={draft.contactDetails.email || 'Not available'} />
+          <ReviewLine
+            label="Response phone"
+            value={draft.contactDetails.phoneNumber.trim() || 'Not provided'}
+          />
         </View>
       </SummaryPanel>
 
@@ -138,12 +207,22 @@ export function ReviewEmergencyRequestScreen() {
         </View>
       ) : null}
 
-      {submitNoticeVisible ? (
-        <View style={styles.infoPanel}>
-          <Text style={styles.infoTitle}>Submission not connected yet</Text>
-          <Text style={styles.infoText}>
-            Your emergency request draft is still preserved. The backend submission step will be wired in the next implementation.
-          </Text>
+      {submitState.status === 'error' ? (
+        <View style={styles.validationPanel}>
+          <Text style={styles.errorText}>{submitState.message}</Text>
+          {submitState.reason === 'network' || submitState.reason === 'server' ? (
+            <Pressable
+              accessibilityLabel="Retry emergency request submission"
+              accessibilityRole="button"
+              disabled={isSubmitting}
+              onPress={() => {
+                void submitRequest();
+              }}
+              style={({ pressed }) => [styles.retrySubmitButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.retrySubmitButtonText}>Retry</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
@@ -151,26 +230,39 @@ export function ReviewEmergencyRequestScreen() {
         <Pressable
           accessibilityLabel="Edit emergency request"
           accessibilityRole="button"
+          disabled={isSubmitting}
           onPress={editRequest}
-          style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.editButton,
+            isSubmitting && styles.editButtonDisabled,
+            pressed && !isSubmitting && styles.pressed
+          ]}
         >
-          <Text style={styles.editButtonText}>Edit Request</Text>
+          <Text style={[styles.editButtonText, isSubmitting && styles.editButtonTextDisabled]}>
+            Edit Request
+          </Text>
         </Pressable>
         <Pressable
           accessibilityLabel="Submit emergency request"
           accessibilityRole="button"
           accessibilityState={{ disabled: !canSubmit }}
           disabled={!canSubmit}
-          onPress={submitRequest}
+          onPress={() => {
+            void submitRequest();
+          }}
           style={({ pressed }) => [
             styles.submitButton,
             !canSubmit && styles.submitButtonDisabled,
             pressed && canSubmit && styles.pressed
           ]}
         >
-          <Text style={[styles.submitButtonText, !canSubmit && styles.submitButtonTextDisabled]}>
-            Submit Emergency Request
-          </Text>
+          {isSubmitting ? (
+            <ActivityIndicator color="#ffffff" size="small" />
+          ) : (
+            <Text style={[styles.submitButtonText, !canSubmit && styles.submitButtonTextDisabled]}>
+              {submitState.status === 'error' ? 'Try Submit Again' : 'Submit Emergency Request'}
+            </Text>
+          )}
         </Pressable>
       </View>
     </DashboardScreen>
@@ -184,7 +276,7 @@ function SummaryPanel({
 }: {
   title: string;
   icon: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <View style={styles.summaryPanel}>
@@ -234,6 +326,44 @@ function getRelevantVulnerablePeople(vulnerablePeople: {
       label: item.label,
       value: String(item.value)
     }));
+}
+
+function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'message'> {
+  if (error instanceof ApiClientError) {
+    if (error.status === 0) {
+      return {
+        reason: 'network',
+        message:
+          'Cannot reach SafeAlert right now. Your emergency request draft was not lost. Check your connection and retry.'
+      };
+    }
+
+    if (error.status === 401 || error.status === 403) {
+      return {
+        reason: 'auth',
+        message: 'Your session could not submit this emergency request. Please log in again.'
+      };
+    }
+
+    if (error.status === 400) {
+      return {
+        reason: 'validation',
+        message: 'Some emergency request details are invalid. Please edit the request and try again.'
+      };
+    }
+
+    return {
+      reason: 'server',
+      message:
+        'SafeAlert could not submit the emergency request right now. Your draft is still here, so you can retry.'
+    };
+  }
+
+  return {
+    reason: 'server',
+    message:
+      'SafeAlert could not submit the emergency request right now. Your draft is still here, so you can retry.'
+  };
 }
 
 const styles = StyleSheet.create({
@@ -448,10 +578,17 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.primarySoft
   },
+  editButtonDisabled: {
+    borderColor: dashboardTheme.colors.border,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
   editButtonText: {
     fontSize: 16,
     fontWeight: '800',
     color: dashboardTheme.colors.primaryStrong
+  },
+  editButtonTextDisabled: {
+    color: dashboardTheme.colors.muted
   },
   submitButton: {
     flexGrow: 1,
@@ -474,6 +611,21 @@ const styles = StyleSheet.create({
   },
   submitButtonTextDisabled: {
     color: dashboardTheme.colors.muted
+  },
+  retrySubmitButton: {
+    alignSelf: 'flex-start',
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#f0c6c1',
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  retrySubmitButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: dashboardTheme.colors.critical
   },
   pressed: {
     opacity: 0.82

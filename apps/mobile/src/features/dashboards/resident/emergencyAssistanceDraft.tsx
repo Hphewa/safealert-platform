@@ -1,3 +1,4 @@
+import type { SafeResponseRequest } from '@safealert/contracts';
 import {
   createContext,
   useContext,
@@ -58,7 +59,7 @@ export type VulnerablePeopleCounts = {
 export type EmergencyContactDetails = {
   name: string;
   email: string | null;
-  phoneNumber: null;
+  phoneNumber: string;
   usesAuthenticatedProfile: boolean;
 };
 
@@ -100,6 +101,8 @@ type EmergencyAssistanceDraftContextValue = {
   setDraft: Dispatch<SetStateAction<EmergencyAssistanceDraft>>;
   resetDraft: () => void;
   validation: EmergencyAssistanceValidationResult;
+  submittedResponseRequest: SafeResponseRequest | null;
+  setSubmittedResponseRequest: Dispatch<SetStateAction<SafeResponseRequest | null>>;
 };
 
 const EmergencyAssistanceDraftContext = createContext<EmergencyAssistanceDraftContextValue | null>(null);
@@ -147,7 +150,7 @@ const initialEmergencyAssistanceDraft: EmergencyAssistanceDraft = {
   contactDetails: {
     name: '',
     email: null,
-    phoneNumber: null,
+    phoneNumber: '',
     usesAuthenticatedProfile: false
   },
   emergencyDescription: '',
@@ -157,6 +160,9 @@ const initialEmergencyAssistanceDraft: EmergencyAssistanceDraft = {
 
 export function EmergencyAssistanceDraftProvider({ children }: { children: ReactNode }) {
   const [draft, setDraft] = useState<EmergencyAssistanceDraft>(initialEmergencyAssistanceDraft);
+  const [submittedResponseRequest, setSubmittedResponseRequest] = useState<SafeResponseRequest | null>(
+    null
+  );
   const validation = useMemo(() => validateEmergencyAssistanceDraft(draft), [draft]);
   const resetDraft = () => setDraft(initialEmergencyAssistanceDraft);
   const value = useMemo(
@@ -164,9 +170,11 @@ export function EmergencyAssistanceDraftProvider({ children }: { children: React
       draft,
       setDraft,
       resetDraft,
-      validation
+      validation,
+      submittedResponseRequest,
+      setSubmittedResponseRequest
     }),
-    [draft, validation]
+    [draft, submittedResponseRequest, validation]
   );
 
   return (
@@ -192,6 +200,7 @@ export function validateEmergencyAssistanceDraft(
   const errors: EmergencyAssistanceValidationErrors = {};
   const trimmedContactName = draft.contactDetails.name.trim();
   const trimmedContactEmail = draft.contactDetails.email?.trim() ?? '';
+  const trimmedContactPhoneNumber = draft.contactDetails.phoneNumber.trim();
   const trimmedDescription = draft.emergencyDescription.trim();
   const trimmedSpecialRequirements = draft.specialRequirements.trim();
   const hasValidDetectedCoordinates =
@@ -242,6 +251,8 @@ export function validateEmergencyAssistanceDraft(
 
   if (!trimmedContactName || !trimmedContactEmail) {
     errors.contactDetails = 'Your account contact information is required.';
+  } else if (!trimmedContactPhoneNumber) {
+    errors.contactDetails = 'Enter a contact phone number.';
   }
 
   if (!trimmedDescription) {

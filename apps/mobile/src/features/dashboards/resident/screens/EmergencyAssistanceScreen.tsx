@@ -175,6 +175,27 @@ export function EmergencyAssistanceScreen() {
     }));
   };
 
+  const setContactPhoneNumber = (phoneNumber: string) => {
+    setDraft((current) => ({
+      ...current,
+      contactDetails: {
+        ...current.contactDetails,
+        phoneNumber
+      },
+      reviewRequestedAt: null
+    }));
+  };
+
+  const trimContactPhoneNumber = () => {
+    setDraft((current) => ({
+      ...current,
+      contactDetails: {
+        ...current.contactDetails,
+        phoneNumber: current.contactDetails.phoneNumber.trim()
+      }
+    }));
+  };
+
   const requestCurrentLocation = async () => {
     setDraft((current) => ({
       ...current,
@@ -512,6 +533,16 @@ export function EmergencyAssistanceScreen() {
           <Text style={styles.readOnlyLabel}>Account email</Text>
           <Text style={styles.readOnlyValue}>{draft.contactDetails.email || 'Not available'}</Text>
         </View>
+        <TextInput
+          accessibilityLabel="Contact phone number"
+          keyboardType="phone-pad"
+          onBlur={trimContactPhoneNumber}
+          onChangeText={setContactPhoneNumber}
+          placeholder="Enter a response contact phone number."
+          placeholderTextColor={dashboardTheme.colors.muted}
+          style={styles.contactInput}
+          value={draft.contactDetails.phoneNumber}
+        />
         <ValidationMessage message={validation.errors.contactDetails} />
       </View>
 
@@ -868,6 +899,17 @@ const styles = StyleSheet.create({
   readOnlyValue: {
     fontSize: 15,
     lineHeight: 21,
+    color: dashboardTheme.colors.text
+  },
+  contactInput: {
+    minHeight: 52,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface,
+    fontSize: 15,
     color: dashboardTheme.colors.text
   },
   multilineInput: {
