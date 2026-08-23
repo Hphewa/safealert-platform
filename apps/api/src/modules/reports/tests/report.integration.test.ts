@@ -2,6 +2,8 @@ import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 
+import type { SafeReport } from '@safealert/contracts';
+
 import { createApp } from '../../../app.js';
 import { loadConfig, type ApiConfig } from '../../../config/env.js';
 import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
@@ -31,6 +33,48 @@ async function registerResident(app: ReturnType<typeof createApp>) {
     email: 'resident@example.com',
     password: 'password123'
   });
+}
+
+async function createVolunteerToken(
+  authRepository: InMemoryAuthRepository,
+  role: 'COMMUNITY_VOLUNTEER' | 'DISASTER_OFFICER' | 'RESIDENT',
+  email: string
+) {
+  const user = await authRepository.createUser({
+    name: `${role} User`,
+    email,
+    passwordHash: 'not-used-in-this-test',
+    role
+  });
+
+  return jwt.sign({ role }, 'test-access-secret', {
+    subject: user.id,
+    expiresIn: '15m'
+  });
+}
+
+function seedReport(
+  reportRepository: InMemoryReportRepository,
+  overrides: Partial<SafeReport> & Pick<SafeReport, 'id' | 'status' | 'createdAt'>
+) {
+  const report: SafeReport = {
+    id: overrides.id,
+    residentId: overrides.residentId ?? 'resident-1',
+    hazardType: overrides.hazardType ?? 'FLOOD',
+    description: overrides.description ?? 'Water is crossing the roadside drain.',
+    severity: overrides.severity ?? 'HIGH',
+    location:
+      overrides.location ?? {
+        type: 'Point',
+        coordinates: [79.8612, 6.9271]
+      },
+    status: overrides.status,
+    createdAt: overrides.createdAt,
+    updatedAt: overrides.updatedAt ?? overrides.createdAt,
+    ...(overrides.mediaReference ? { mediaReference: overrides.mediaReference } : {})
+  };
+
+  reportRepository.seedReport(report);
 }
 
 const validReportPayload = {
@@ -233,5 +277,101 @@ describe('report API', () => {
     expect(response.status).toBe(200);
     expect(response.body.status).toBe('ok');
     expect(response.body.service).toBe('safealert-api');
+  });
+
+  it('returns pending community reports for authenticated volunteers only', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const volunteerToken = await createVolunteerToken(
+      authRepository,
+      'COMMUNITY_VOLUNTEER',
+      'volunteer@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'report-pending-new',
+      status: 'PENDING',
+      createdAt: '2026-08-23T10:05:00.000Z',
+      description: 'Flood water is moving across the junction.',
+      mediaReference: 'media/reports/flood-water.jpg'
+    });
+    seedReport(reportRepository, {
+      id: 'report-verified',
+      status: 'VERIFIED',
+      createdAt: '2026-08-23T09:55:00.000Z',
+      description: 'This verified report should not be shown.'
+    });
+    seedReport(reportRepository, {
+      id: 'report-pending-earlier',
+      status: 'PENDING',
+      createdAt: '2026-08-23T09:45:00.000Z',
+      severity: 'LOW',
+      hazardType: 'BLOCKED_ROAD',
+      description: 'Branches are obstructing one side of the road.'
+    });
+    seedReport(reportRepository, {
+      id: 'report-resolved',
+      status: 'RESOLVED',
+      createdAt: '2026-08-23T09:35:00.000Z'
+    });
+
+    const response = await request(app)
+      .get('/api/v1/reports/community')
+      .set('Authorization', `Bearer ${volunteerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      reports: [
+        {
+          id: 'report-pending-new',
+          hazardType: 'FLOOD',
+          description: 'Flood water is moving across the junction.',
+          severity: 'HIGH',
+          location: {
+            type: 'Point',
+            coordinates: [79.8612, 6.9271]
+          },
+          mediaReference: 'media/reports/flood-water.jpg',
+          status: 'PENDING',
+          createdAt: '2026-08-23T10:05:00.000Z'
+        },
+        {
+          id: 'report-pending-earlier',
+          hazardType: 'BLOCKED_ROAD',
+          description: 'Branches are obstructing one side of the road.',
+          severity: 'LOW',
+          location: {
+            type: 'Point',
+            coordinates: [79.8612, 6.9271]
+          },
+          status: 'PENDING',
+          createdAt: '2026-08-23T09:45:00.000Z'
+        }
+      ]
+    });
+
+    expect(response.body.reports[0].residentId).toBeUndefined();
+    expect(response.body.reports[0].updatedAt).toBeUndefined();
+  });
+
+  it('requires authentication and the COMMUNITY_VOLUNTEER role for community report retrieval', async () => {
+    const { app, authRepository } = createTestContext();
+    const residentToken = await createVolunteerToken(authRepository, 'RESIDENT', 'resident-2@example.com');
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-2@example.com'
+    );
+
+    const unauthenticated = await request(app).get('/api/v1/reports/community');
+    const residentForbidden = await request(app)
+      .get('/api/v1/reports/community')
+      .set('Authorization', `Bearer ${residentToken}`);
+    const officerForbidden = await request(app)
+      .get('/api/v1/reports/community')
+      .set('Authorization', `Bearer ${officerToken}`);
+
+    expect(unauthenticated.status).toBe(401);
+    expect(residentForbidden.status).toBe(403);
+    expect(officerForbidden.status).toBe(403);
   });
 });

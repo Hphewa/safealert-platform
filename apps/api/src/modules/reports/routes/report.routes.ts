@@ -11,6 +11,12 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
   const controller = createReportController(reportService);
 
   router.post('/', authenticate(config), authorizeRoles('RESIDENT'), controller.create);
+  router.get(
+    '/community',
+    authenticate(config),
+    authorizeRoles('COMMUNITY_VOLUNTEER'),
+    controller.listCommunity
+  );
 
   return router;
 }

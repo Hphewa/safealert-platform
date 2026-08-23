@@ -1,4 +1,4 @@
-import type { CreateReportRequest, SafeReport } from '@safealert/contracts';
+import type { CreateReportRequest, ReportStatus, SafeReport } from '@safealert/contracts';
 
 export type CreateReportInput = CreateReportRequest & {
   residentId: string;
@@ -7,4 +7,5 @@ export type CreateReportInput = CreateReportRequest & {
 
 export interface ReportRepository {
   createReport(input: CreateReportInput): Promise<SafeReport>;
+  findReportsByStatuses(statuses: ReportStatus[]): Promise<SafeReport[]>;
 }

@@ -6,4 +6,16 @@ export class MongooseReportRepository implements ReportRepository {
     const report = await ReportModel.create(input);
     return toSafeReport(report);
   }
+
+  async findReportsByStatuses(statuses: CreateReportInput['status'][]) {
+    const reports = await ReportModel.find({
+      status: {
+        $in: statuses
+      }
+    })
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return reports.map(toSafeReport);
+  }
 }

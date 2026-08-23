@@ -25,8 +25,15 @@ export function createReportController(reportService: ReportService) {
     response.status(201).json(result);
   });
 
+  const listCommunity: RequestHandler = asyncHandler(async (_request, response) => {
+    const result = await reportService.listCommunityReportsForVolunteer();
+
+    response.status(200).json(result);
+  });
+
   return {
-    create
+    create,
+    listCommunity
   };
 }
 

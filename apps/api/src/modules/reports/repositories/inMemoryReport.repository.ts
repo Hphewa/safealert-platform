@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import type { SafeReport } from '@safealert/contracts';
+import type { ReportStatus, SafeReport } from '@safealert/contracts';
 
 import type { CreateReportInput, ReportRepository } from './report.repository.js';
 
@@ -31,5 +31,15 @@ export class InMemoryReportRepository implements ReportRepository {
 
   findReportById(id: string) {
     return this.reports.get(id) ?? null;
+  }
+
+  async findReportsByStatuses(statuses: ReportStatus[]) {
+    return [...this.reports.values()]
+      .filter((report) => statuses.includes(report.status))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  seedReport(report: SafeReport) {
+    this.reports.set(report.id, report);
   }
 }

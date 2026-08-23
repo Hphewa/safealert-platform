@@ -53,6 +53,21 @@ export type CreateReportResponse = {
   report: SafeReport;
 };
 
+export type CommunityReportSummary = {
+  id: string;
+  hazardType: HazardType;
+  description: string;
+  severity: ReportSeverity;
+  location: GeoJsonPoint;
+  mediaReference?: string;
+  status: ReportStatus;
+  createdAt: string;
+};
+
+export type GetCommunityReportsResponse = {
+  reports: CommunityReportSummary[];
+};
+
 export const RESPONSE_STATUSES = [
   'NEW',
   'ASSIGNED',
