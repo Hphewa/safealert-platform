@@ -17,6 +17,7 @@ const connectionStatus = 'Online';
 
 type SubmitState = {
   status: 'idle' | 'submitting' | 'error';
+  reason?: 'validation' | 'auth' | 'network' | 'server';
   message: string | null;
 };
 
@@ -33,9 +34,14 @@ export function ReviewReportScreen() {
   };
 
   const submitReport = async () => {
+    if (isSubmitting) {
+      return;
+    }
+
     if (!validation.isValid || !draft.hazardType || !draft.severity || draft.location.status !== 'DETECTED') {
       setSubmitState({
         status: 'error',
+        reason: 'validation',
         message: 'Please fix the highlighted report details before submitting.'
       });
       return;
@@ -44,6 +50,7 @@ export function ReviewReportScreen() {
     if (!accessToken) {
       setSubmitState({
         status: 'error',
+        reason: 'auth',
         message: 'Your session has expired. Please log in again before submitting.'
       });
       return;
@@ -69,7 +76,7 @@ export function ReviewReportScreen() {
     } catch (error) {
       setSubmitState({
         status: 'error',
-        message: messageForSubmitError(error)
+        ...submitErrorStateFor(error)
       });
     }
   };
@@ -169,7 +176,11 @@ export function ReviewReportScreen() {
         <View style={styles.connectionDot} />
         <View style={styles.connectionTextWrap}>
           <Text style={styles.connectionTitle}>Connection status</Text>
-          <Text style={styles.helperText}>{connectionStatus}. Offline sync will be added later.</Text>
+          <Text style={styles.helperText}>
+            {submitState.reason === 'network'
+              ? 'Connection problem detected. Your draft is still saved on this screen.'
+              : `${connectionStatus}. Offline sync will be added later.`}
+          </Text>
         </View>
       </View>
 
@@ -186,6 +197,19 @@ export function ReviewReportScreen() {
       {submitState.status === 'error' ? (
         <View style={styles.validationPanel}>
           <Text style={styles.errorText}>{submitState.message}</Text>
+          {submitState.reason === 'network' || submitState.reason === 'server' ? (
+            <Pressable
+              accessibilityLabel="Retry report submission"
+              accessibilityRole="button"
+              disabled={isSubmitting}
+              onPress={() => {
+                void submitReport();
+              }}
+              style={({ pressed }) => [styles.retrySubmitButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.retrySubmitButtonText}>Retry</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
@@ -221,7 +245,7 @@ export function ReviewReportScreen() {
             <ActivityIndicator color="#ffffff" size="small" />
           ) : (
             <Text style={[styles.submitButtonText, !canSubmit && styles.submitButtonTextDisabled]}>
-              Submit Report
+              {submitState.status === 'error' ? 'Try Submit Again' : 'Submit Report'}
             </Text>
           )}
         </Pressable>
@@ -239,24 +263,39 @@ function ReviewDetail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function messageForSubmitError(error: unknown) {
+function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'message'> {
   if (error instanceof ApiClientError) {
     if (error.status === 0) {
-      return 'Cannot reach SafeAlert right now. Check your connection and try again.';
+      return {
+        reason: 'network',
+        message: 'Cannot reach SafeAlert right now. Your report draft was not lost. Check your connection and retry.'
+      };
     }
 
     if (error.status === 401 || error.status === 403) {
-      return 'Your session could not submit this report. Please log in again.';
+      return {
+        reason: 'auth',
+        message: 'Your session could not submit this report. Please log in again.'
+      };
     }
 
     if (error.status === 400) {
-      return error.message || 'Some report details are invalid. Please review and try again.';
+      return {
+        reason: 'validation',
+        message: 'Some report details are invalid. Please edit the report and try again.'
+      };
     }
 
-    return 'SafeAlert could not submit the report right now. Please try again.';
+    return {
+      reason: 'server',
+      message: 'SafeAlert could not submit the report right now. Your draft is still here, so you can retry.'
+    };
   }
 
-  return 'SafeAlert could not submit the report right now. Please try again.';
+  return {
+    reason: 'server',
+    message: 'SafeAlert could not submit the report right now. Your draft is still here, so you can retry.'
+  };
 }
 
 function formatCoordinate(value: number) {
@@ -444,6 +483,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     fontWeight: '700',
+    color: dashboardTheme.colors.critical
+  },
+  retrySubmitButton: {
+    alignSelf: 'flex-start',
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#f0c6c1',
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  retrySubmitButtonText: {
+    fontSize: 14,
+    fontWeight: '800',
     color: dashboardTheme.colors.critical
   },
   actionRow: {
