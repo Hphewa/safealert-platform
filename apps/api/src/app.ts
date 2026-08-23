@@ -10,17 +10,27 @@ import { createRbacTestRouter } from './modules/auth/routes/rbacTest.routes.js';
 import { MongooseAuthRepository } from './modules/auth/repositories/mongooseAuth.repository.js';
 import type { AuthRepository } from './modules/auth/repositories/auth.repository.js';
 import { AuthService } from './modules/auth/services/auth.service.js';
+import { createReportRouter } from './modules/reports/routes/report.routes.js';
+import { MongooseReportRepository } from './modules/reports/repositories/mongooseReport.repository.js';
+import type { ReportRepository } from './modules/reports/repositories/report.repository.js';
+import { ReportService } from './modules/reports/services/report.service.js';
 
 type CreateAppOptions = {
   config: ApiConfig;
   authRepository?: AuthRepository;
+  reportRepository?: ReportRepository;
   enableRbacTestRoutes?: boolean;
 };
 
-export function createApp({ config, authRepository, enableRbacTestRoutes = false }: CreateAppOptions) {
+export function createApp({
+  config,
+  authRepository,
+  reportRepository,
+  enableRbacTestRoutes = false
+}: CreateAppOptions) {
   const app = express();
-  const repository = authRepository ?? new MongooseAuthRepository();
-  const authService = new AuthService(repository, config);
+  const authService = new AuthService(authRepository ?? new MongooseAuthRepository(), config);
+  const reportService = new ReportService(reportRepository ?? new MongooseReportRepository());
 
   app.use(cors());
   app.use(express.json());
@@ -34,6 +44,7 @@ export function createApp({ config, authRepository, enableRbacTestRoutes = false
   });
 
   app.use('/api/v1/auth', createAuthRouter(authService, config));
+  app.use('/api/v1/reports', createReportRouter(reportService, config));
 
   if (enableRbacTestRoutes) {
     app.use('/api/v1/test/rbac', createRbacTestRouter(config));

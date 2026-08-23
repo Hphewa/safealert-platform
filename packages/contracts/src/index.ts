@@ -15,6 +15,44 @@ export const REPORT_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED', 'RESOLVED'] a
 
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
 
+export const HAZARD_TYPES = ['FLOOD', 'BLOCKED_ROAD', 'LANDSLIDE', 'OTHER'] as const;
+
+export type HazardType = (typeof HAZARD_TYPES)[number];
+
+export const REPORT_SEVERITIES = ['LOW', 'MODERATE', 'HIGH'] as const;
+
+export type ReportSeverity = (typeof REPORT_SEVERITIES)[number];
+
+export type GeoJsonPoint = {
+  type: 'Point';
+  coordinates: [longitude: number, latitude: number];
+};
+
+export type CreateReportRequest = {
+  hazardType: HazardType;
+  description: string;
+  severity: ReportSeverity;
+  location: GeoJsonPoint;
+  mediaReference?: string;
+};
+
+export type SafeReport = {
+  id: string;
+  residentId: string;
+  hazardType: HazardType;
+  description: string;
+  severity: ReportSeverity;
+  location: GeoJsonPoint;
+  mediaReference?: string;
+  status: ReportStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateReportResponse = {
+  report: SafeReport;
+};
+
 export const RESPONSE_STATUSES = [
   'NEW',
   'ASSIGNED',
@@ -77,3 +115,4 @@ export type ApiErrorResponse = {
     message: string;
   };
 };
+
