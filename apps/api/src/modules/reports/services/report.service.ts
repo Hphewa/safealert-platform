@@ -4,7 +4,8 @@ import type {
   CreateReportResponse,
   GetCommunityReportResponse,
   GetCommunityReportsResponse,
-  VerifyReportResponse
+  ReportReviewRequest,
+  ReviewReportResponse
 } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 
@@ -83,7 +84,11 @@ export class ReportService {
     return { report };
   }
 
-  async verifyReport(reportId: string, verifiedById: string): Promise<VerifyReportResponse> {
+  async reviewReport(
+    reportId: string,
+    officerId: string,
+    review: ReportReviewRequest
+  ): Promise<ReviewReportResponse> {
     const report = await this.repository.findReportById(reportId);
 
     if (!report) {
@@ -91,18 +96,18 @@ export class ReportService {
     }
 
     if (report.status !== 'PENDING') {
-      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be verified.');
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be reviewed.');
     }
 
-    const verifiedAt = new Date();
-    const updatedReport = await this.repository.verifyReport({
+    const updatedReport = await this.repository.reviewReport({
       reportId,
-      verifiedById,
-      verifiedAt
+      officerId,
+      reviewedAt: new Date(),
+      ...review
     });
 
     if (!updatedReport) {
-      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be verified.');
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be reviewed.');
     }
 
     return { report: updatedReport };

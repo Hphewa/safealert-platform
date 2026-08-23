@@ -86,6 +86,12 @@ export const communityReportQuerySchema = z
     }
   });
 
-export const reportVerificationActionSchema = z.object({
-  action: z.literal('VERIFY')
-});
+export const reportReviewActionSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('VERIFY')
+  }),
+  z.object({
+    action: z.literal('REJECT'),
+    rejectionReason: z.string().trim().min(1, 'Rejection reason is required.')
+  })
+]);

@@ -53,6 +53,25 @@ async function createVolunteerToken(
   });
 }
 
+async function createAuthenticatedUser(
+  authRepository: InMemoryAuthRepository,
+  role: 'COMMUNITY_VOLUNTEER' | 'DISASTER_OFFICER' | 'RESIDENT',
+  email: string
+) {
+  const user = await authRepository.createUser({
+    name: `${role} User`,
+    email,
+    passwordHash: 'not-used-in-this-test',
+    role
+  });
+  const token = jwt.sign({ role }, 'test-access-secret', {
+    subject: user.id,
+    expiresIn: '15m'
+  });
+
+  return { token, user };
+}
+
 function seedReport(
   reportRepository: InMemoryReportRepository,
   overrides: Partial<SafeReport> & Pick<SafeReport, 'id' | 'status' | 'createdAt'>
@@ -610,5 +629,147 @@ describe('report API', () => {
     });
 
     expect(response.status).toBe(401);
+  });
+
+  it('rejects a pending report using the authenticated disaster officer identity', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officer = await createAuthenticatedUser(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-reject@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'reject-me',
+      residentId: 'resident-evidence-owner',
+      status: 'PENDING',
+      createdAt: '2026-08-23T13:00:00.000Z',
+      updatedAt: '2026-08-23T13:00:00.000Z',
+      description: 'The road is reported as blocked near the railway crossing.',
+      mediaReference: 'media/reports/road-evidence.jpg'
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/reports/reject-me/verification')
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({
+        action: 'REJECT',
+        rejectionReason: 'The submitted photo shows an unrelated location.',
+        rejectedById: 'client-supplied-officer-id'
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.report).toEqual(
+      expect.objectContaining({
+        id: 'reject-me',
+        residentId: 'resident-evidence-owner',
+        description: 'The road is reported as blocked near the railway crossing.',
+        mediaReference: 'media/reports/road-evidence.jpg',
+        status: 'REJECTED',
+        updatedAt: expect.any(String),
+        rejectedById: officer.user.id,
+        rejectedAt: expect.any(String),
+        rejectionReason: 'The submitted photo shows an unrelated location.',
+        verificationHistory: [
+          expect.objectContaining({
+            action: 'REJECT',
+            rejectedById: officer.user.id,
+            rejectedAt: expect.any(String),
+            rejectionReason: 'The submitted photo shows an unrelated location.'
+          })
+        ]
+      })
+    );
+  });
+
+  it('returns not found when rejecting a missing report', async () => {
+    const { app, authRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-reject-missing@example.com'
+    );
+
+    const response = await request(app)
+      .patch('/api/v1/reports/missing-report/verification')
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ action: 'REJECT', rejectionReason: 'The evidence does not match the report.' });
+
+    expect(response.status).toBe(404);
+  });
+
+  it.each(['VERIFIED', 'REJECTED'] as const)(
+    'rejects rejection when the report is already %s',
+    async (status) => {
+      const { app, authRepository, reportRepository } = createTestContext();
+      const officerToken = await createVolunteerToken(
+        authRepository,
+        'DISASTER_OFFICER',
+        `officer-reject-${status.toLowerCase()}@example.com`
+      );
+
+      seedReport(reportRepository, {
+        id: `reject-invalid-${status.toLowerCase()}`,
+        status,
+        createdAt: '2026-08-23T13:10:00.000Z',
+        updatedAt: '2026-08-23T13:10:00.000Z'
+      });
+
+      const response = await request(app)
+        .patch(`/api/v1/reports/reject-invalid-${status.toLowerCase()}/verification`)
+        .set('Authorization', `Bearer ${officerToken}`)
+        .send({ action: 'REJECT', rejectionReason: 'The evidence is unreliable.' });
+
+      expect(response.status).toBe(409);
+    }
+  );
+
+  it('requires a non-empty rejection reason', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-reject-empty-reason@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'reject-without-reason',
+      status: 'PENDING',
+      createdAt: '2026-08-23T13:20:00.000Z'
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/reports/reject-without-reason/verification')
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send({ action: 'REJECT', rejectionReason: '   ' });
+
+    expect(response.status).toBe(400);
+  });
+
+  it('requires authentication to reject a report', async () => {
+    const { app } = createTestContext();
+
+    const response = await request(app).patch('/api/v1/reports/reject-me/verification').send({
+      action: 'REJECT',
+      rejectionReason: 'The evidence is unreliable.'
+    });
+
+    expect(response.status).toBe(401);
+  });
+
+  it('requires the disaster officer role to reject a report', async () => {
+    const { app, authRepository } = createTestContext();
+    const residentToken = await createVolunteerToken(
+      authRepository,
+      'RESIDENT',
+      'resident-reject-attempt@example.com'
+    );
+
+    const response = await request(app)
+      .patch('/api/v1/reports/reject-me/verification')
+      .set('Authorization', `Bearer ${residentToken}`)
+      .send({ action: 'REJECT', rejectionReason: 'The evidence is unreliable.' });
+
+    expect(response.status).toBe(403);
   });
 });

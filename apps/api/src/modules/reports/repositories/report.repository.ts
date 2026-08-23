@@ -1,6 +1,7 @@
 import type {
   CommunityReportSummary,
   CreateReportRequest,
+  ReportReviewRequest,
   ReportStatus,
   SafeReport
 } from '@safealert/contracts';
@@ -17,15 +18,17 @@ export type NearbyCommunityReportsQuery = {
   radiusKm: number;
 };
 
+export type ReviewReportInput = ReportReviewRequest & {
+  reportId: string;
+  officerId: string;
+  reviewedAt: Date;
+};
+
 export interface ReportRepository {
   createReport(input: CreateReportInput): Promise<SafeReport>;
   findReportById(reportId: string): Promise<SafeReport | null>;
   findReportsByStatuses(statuses: ReportStatus[]): Promise<SafeReport[]>;
   findNearbyCommunityReports(query: NearbyCommunityReportsQuery): Promise<CommunityReportSummary[]>;
   findCommunityReportById(reportId: string, statuses: ReportStatus[]): Promise<CommunityReportSummary | null>;
-  verifyReport(input: {
-    reportId: string;
-    verifiedById: string;
-    verifiedAt: Date;
-  }): Promise<SafeReport | null>;
+  reviewReport(input: ReviewReportInput): Promise<SafeReport | null>;
 }

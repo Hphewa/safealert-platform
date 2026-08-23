@@ -1,7 +1,12 @@
 import type { CommunityReportSummary } from '@safealert/contracts';
 
 import { ReportModel, toSafeReport } from '../models/report.model.js';
-import type { CreateReportInput, NearbyCommunityReportsQuery, ReportRepository } from './report.repository.js';
+import type {
+  CreateReportInput,
+  NearbyCommunityReportsQuery,
+  ReportRepository,
+  ReviewReportInput
+} from './report.repository.js';
 
 export class MongooseReportRepository implements ReportRepository {
   async createReport(input: CreateReportInput) {
@@ -98,11 +103,36 @@ export class MongooseReportRepository implements ReportRepository {
     };
   }
 
-  async verifyReport(input: {
-    reportId: string;
-    verifiedById: string;
-    verifiedAt: Date;
-  }) {
+  async reviewReport(input: ReviewReportInput) {
+    const reviewUpdate =
+      input.action === 'VERIFY'
+        ? {
+            status: 'VERIFIED' as const,
+            audit: {
+              verifiedById: input.officerId,
+              verifiedAt: input.reviewedAt
+            },
+            history: {
+              action: 'VERIFY' as const,
+              verifiedById: input.officerId,
+              verifiedAt: input.reviewedAt
+            }
+          }
+        : {
+            status: 'REJECTED' as const,
+            audit: {
+              rejectedById: input.officerId,
+              rejectedAt: input.reviewedAt,
+              rejectionReason: input.rejectionReason
+            },
+            history: {
+              action: 'REJECT' as const,
+              rejectedById: input.officerId,
+              rejectedAt: input.reviewedAt,
+              rejectionReason: input.rejectionReason
+            }
+          };
+
     const report = await ReportModel.findOneAndUpdate(
       {
         _id: input.reportId,
@@ -110,23 +140,17 @@ export class MongooseReportRepository implements ReportRepository {
       },
       {
         $set: {
-          status: 'VERIFIED',
-          verification: {
-            verifiedById: input.verifiedById,
-            verifiedAt: input.verifiedAt
-          },
-          updatedAt: input.verifiedAt
+          status: reviewUpdate.status,
+          [input.action === 'VERIFY' ? 'verification' : 'rejection']: reviewUpdate.audit,
+          updatedAt: input.reviewedAt
         },
         $push: {
-          verificationHistory: {
-            action: 'VERIFY',
-            verifiedById: input.verifiedById,
-            verifiedAt: input.verifiedAt
-          }
+          verificationHistory: reviewUpdate.history
         }
       },
       {
-        new: true
+        new: true,
+        runValidators: true
       }
     ).exec();
 

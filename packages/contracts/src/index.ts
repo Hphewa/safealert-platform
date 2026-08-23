@@ -19,6 +19,10 @@ export const REPORT_VERIFICATION_ACTIONS = ['VERIFY'] as const;
 
 export type ReportVerificationAction = (typeof REPORT_VERIFICATION_ACTIONS)[number];
 
+export const REPORT_REVIEW_ACTIONS = ['VERIFY', 'REJECT'] as const;
+
+export type ReportReviewAction = (typeof REPORT_REVIEW_ACTIONS)[number];
+
 export const HAZARD_TYPES = ['FLOOD', 'BLOCKED_ROAD', 'LANDSLIDE', 'OTHER'] as const;
 
 export type HazardType = (typeof HAZARD_TYPES)[number];
@@ -53,7 +57,10 @@ export type SafeReport = {
   updatedAt: string;
   verifiedById?: string;
   verifiedAt?: string;
-  verificationHistory?: ReportVerificationEvent[];
+  rejectedById?: string;
+  rejectedAt?: string;
+  rejectionReason?: string;
+  verificationHistory?: ReportReviewEvent[];
 };
 
 export type ReportVerificationEvent = {
@@ -62,6 +69,24 @@ export type ReportVerificationEvent = {
   verifiedAt: string;
 };
 
+export type ReportRejectionEvent = {
+  action: 'REJECT';
+  rejectedById: string;
+  rejectedAt: string;
+  rejectionReason: string;
+};
+
+export type ReportReviewEvent = ReportVerificationEvent | ReportRejectionEvent;
+
+export type ReportReviewRequest =
+  | {
+      action: 'VERIFY';
+    }
+  | {
+      action: 'REJECT';
+      rejectionReason: string;
+    };
+
 export type CreateReportResponse = {
   report: SafeReport;
 };
@@ -69,6 +94,8 @@ export type CreateReportResponse = {
 export type VerifyReportResponse = {
   report: SafeReport;
 };
+
+export type ReviewReportResponse = VerifyReportResponse;
 
 export type CommunityReportSummary = {
   id: string;

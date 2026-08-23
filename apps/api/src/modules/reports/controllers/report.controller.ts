@@ -8,7 +8,7 @@ import {
   communityReportQuerySchema,
   createReportSchema,
   maxCommunityReportRadiusKm,
-  reportVerificationActionSchema
+  reportReviewActionSchema
 } from '../validation/report.schemas.js';
 
 export function createReportController(reportService: ReportService) {
@@ -63,7 +63,7 @@ export function createReportController(reportService: ReportService) {
     response.status(200).json(result);
   });
 
-  const verify: RequestHandler = asyncHandler(async (request, response) => {
+  const review: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
     }
@@ -74,9 +74,9 @@ export function createReportController(reportService: ReportService) {
       throw new ApiError(400, 'INVALID_REPORT_ID', 'Report id is required.');
     }
 
-    reportVerificationActionSchema.parse(request.body);
+    const parsedReview = reportReviewActionSchema.parse(request.body);
 
-    const result = await reportService.verifyReport(reportId, request.auth.id);
+    const result = await reportService.reviewReport(reportId, request.auth.id, parsedReview);
 
     response.status(200).json(result);
   });
@@ -85,7 +85,7 @@ export function createReportController(reportService: ReportService) {
     create,
     listCommunity,
     getCommunityById,
-    verify
+    review
   };
 }
 

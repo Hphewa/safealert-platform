@@ -27,7 +27,7 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
     '/:reportId/verification',
     authenticate(config),
     authorizeRoles('DISASTER_OFFICER'),
-    controller.verify
+    controller.review
   );
 
   return router;

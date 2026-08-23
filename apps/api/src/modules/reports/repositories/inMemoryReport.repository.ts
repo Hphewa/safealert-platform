@@ -2,7 +2,12 @@ import crypto from 'node:crypto';
 
 import type { CommunityReportSummary, ReportStatus, SafeReport } from '@safealert/contracts';
 
-import type { CreateReportInput, NearbyCommunityReportsQuery, ReportRepository } from './report.repository.js';
+import type {
+  CreateReportInput,
+  NearbyCommunityReportsQuery,
+  ReportRepository,
+  ReviewReportInput
+} from './report.repository.js';
 
 export class InMemoryReportRepository implements ReportRepository {
   private readonly reports = new Map<string, SafeReport>();
@@ -89,33 +94,48 @@ export class InMemoryReportRepository implements ReportRepository {
     this.reports.set(report.id, report);
   }
 
-  async verifyReport(input: {
-    reportId: string;
-    verifiedById: string;
-    verifiedAt: Date;
-  }) {
+  async reviewReport(input: ReviewReportInput) {
     const report = this.reports.get(input.reportId);
 
     if (!report || report.status !== 'PENDING') {
       return null;
     }
 
-    const verifiedAt = input.verifiedAt.toISOString();
-    const updatedReport: SafeReport = {
-      ...report,
-      status: 'VERIFIED',
-      updatedAt: verifiedAt,
-      verifiedById: input.verifiedById,
-      verifiedAt,
-      verificationHistory: [
-        ...(report.verificationHistory ?? []),
-        {
-          action: 'VERIFY',
-          verifiedById: input.verifiedById,
-          verifiedAt
-        }
-      ]
-    };
+    const reviewedAt = input.reviewedAt.toISOString();
+    const updatedReport: SafeReport =
+      input.action === 'VERIFY'
+        ? {
+            ...report,
+            status: 'VERIFIED',
+            updatedAt: reviewedAt,
+            verifiedById: input.officerId,
+            verifiedAt: reviewedAt,
+            verificationHistory: [
+              ...(report.verificationHistory ?? []),
+              {
+                action: 'VERIFY',
+                verifiedById: input.officerId,
+                verifiedAt: reviewedAt
+              }
+            ]
+          }
+        : {
+            ...report,
+            status: 'REJECTED',
+            updatedAt: reviewedAt,
+            rejectedById: input.officerId,
+            rejectedAt: reviewedAt,
+            rejectionReason: input.rejectionReason,
+            verificationHistory: [
+              ...(report.verificationHistory ?? []),
+              {
+                action: 'REJECT',
+                rejectedById: input.officerId,
+                rejectedAt: reviewedAt,
+                rejectionReason: input.rejectionReason
+              }
+            ]
+          };
 
     this.reports.set(updatedReport.id, updatedReport);
     return updatedReport;
