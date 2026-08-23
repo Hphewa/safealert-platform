@@ -69,6 +69,10 @@ export type GetCommunityReportsResponse = {
   reports: CommunityReportSummary[];
 };
 
+export type GetCommunityReportResponse = {
+  report: CommunityReportSummary;
+};
+
 export const RESPONSE_STATUSES = [
   'NEW',
   'ASSIGNED',

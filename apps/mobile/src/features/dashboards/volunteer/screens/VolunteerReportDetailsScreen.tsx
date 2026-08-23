@@ -1,5 +1,9 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ApiClientError } from '@/services/api/client';
 
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
@@ -7,15 +11,87 @@ import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { badgeToneForReportStatus } from '../../shared/utils';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { getCommunityReportById } from '../api/communityReportsApi';
 import { volunteerBottomNavItems } from '../mockData';
 import { VolunteerReportDetailItem } from '../components/VolunteerReportDetailItem';
-import { getVolunteerCommunityReportById } from '../reports';
+import {
+  mapCommunityReportToVolunteerReport,
+  type VolunteerCommunityReport
+} from '../reports';
 
 export function VolunteerReportDetailsScreen() {
   const router = useRouter();
+  const { accessToken } = useAuth();
   const params = useLocalSearchParams<{ reportId?: string | string[] }>();
   const reportId = Array.isArray(params.reportId) ? params.reportId[0] : params.reportId;
-  const report = reportId ? getVolunteerCommunityReportById(reportId) : null;
+  const [report, setReport] = useState<VolunteerCommunityReport | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadReport() {
+      if (!reportId || !accessToken) {
+        if (mounted) {
+          setReport(null);
+          setErrorMessage('This report is unavailable right now.');
+          setIsLoading(false);
+        }
+        return;
+      }
+
+      setIsLoading(true);
+      setErrorMessage(null);
+
+      try {
+        const response = await getCommunityReportById(reportId, accessToken);
+
+        if (mounted) {
+          setReport(mapCommunityReportToVolunteerReport(response.report));
+          setIsLoading(false);
+        }
+      } catch (error) {
+        if (mounted) {
+          setReport(null);
+          setErrorMessage(
+            error instanceof ApiClientError ? error.message : 'Unable to load this community report.'
+          );
+          setIsLoading(false);
+        }
+      }
+    }
+
+    void loadReport();
+
+    return () => {
+      mounted = false;
+    };
+  }, [accessToken, reportId]);
+
+  if (isLoading) {
+    return (
+      <DashboardScreen bottomNavItems={volunteerBottomNavItems} contentContainerStyle={styles.content}>
+        <View style={styles.headerRow}>
+          <Pressable
+            accessibilityLabel="Go back"
+            accessibilityRole="button"
+            onPress={() => router.back()}
+            style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+          >
+            <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
+          </Pressable>
+          <Text style={styles.headerTitle}>Report Details</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+
+        <View style={styles.panel}>
+          <ActivityIndicator color={dashboardTheme.colors.info} size="small" />
+          <Text style={styles.panelBody}>Loading volunteer report details...</Text>
+        </View>
+      </DashboardScreen>
+    );
+  }
 
   if (!report) {
     return (
@@ -36,7 +112,7 @@ export function VolunteerReportDetailsScreen() {
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Report not found</Text>
           <Text style={styles.panelBody}>
-            This volunteer report preview is unavailable. Return to Community Reports and select another item.
+            {errorMessage ?? 'This volunteer report preview is unavailable. Return to Community Reports and select another item.'}
           </Text>
         </View>
       </DashboardScreen>
@@ -64,7 +140,7 @@ export function VolunteerReportDetailsScreen() {
           <StatusBadge label={report.status} tone={badgeToneForReportStatus(report.status)} />
         </View>
         <Text style={styles.heroTitle}>{report.hazardType}</Text>
-        <Text style={styles.heroSubtitle}>{report.location}</Text>
+        <Text style={styles.heroSubtitle}>{report.locationLabel}</Text>
         <Text style={styles.heroSummary}>
           Review what happened, where it was reported, and what evidence is available before heading into the field.
         </Text>
@@ -73,14 +149,14 @@ export function VolunteerReportDetailsScreen() {
       <View style={styles.panel}>
         <Text style={styles.sectionTitle}>Report Overview</Text>
         <View style={styles.detailGrid}>
-          <VolunteerReportDetailItem label="Reported" value={report.reportedDateTime} />
+          <VolunteerReportDetailItem label="Reported" value={report.reportedDateTimeLabel} />
           <VolunteerReportDetailItem label="Severity" value={report.severity} />
           <VolunteerReportDetailItem label="Status" value={report.status} />
-          <VolunteerReportDetailItem label="Location" value={report.location} />
+          <VolunteerReportDetailItem label="Location" value={report.locationLabel} />
           {report.distanceLabel ? (
             <VolunteerReportDetailItem label="Distance" value={report.distanceLabel} />
           ) : null}
-          <VolunteerReportDetailItem label="Preview Age" value={report.reportedTime} />
+          <VolunteerReportDetailItem label="Report Age" value={report.reportedTimeLabel} />
         </View>
       </View>
 

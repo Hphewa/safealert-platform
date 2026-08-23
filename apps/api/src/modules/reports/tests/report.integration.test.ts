@@ -483,4 +483,43 @@ describe('report API', () => {
     expect(invalidLongitude.status).toBe(400);
     expect(invalidRadius.status).toBe(400);
   });
+
+  it('returns a single volunteer-safe community report by id', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const volunteerToken = await createVolunteerToken(
+      authRepository,
+      'COMMUNITY_VOLUNTEER',
+      'volunteer-details@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'detail-report-1',
+      status: 'PENDING',
+      createdAt: '2026-08-23T11:05:00.000Z',
+      description: 'Flooding has started to cross the side lane.',
+      mediaReference: 'media/reports/flood-detail.jpg'
+    });
+
+    const response = await request(app)
+      .get('/api/v1/reports/community/detail-report-1')
+      .set('Authorization', `Bearer ${volunteerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      report: {
+        id: 'detail-report-1',
+        hazardType: 'FLOOD',
+        description: 'Flooding has started to cross the side lane.',
+        severity: 'HIGH',
+        location: {
+          type: 'Point',
+          coordinates: [79.8612, 6.9271]
+        },
+        mediaReference: 'media/reports/flood-detail.jpg',
+        status: 'PENDING',
+        createdAt: '2026-08-23T11:05:00.000Z'
+      }
+    });
+    expect(response.body.report.residentId).toBeUndefined();
+  });
 });

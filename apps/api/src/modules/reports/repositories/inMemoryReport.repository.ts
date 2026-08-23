@@ -66,6 +66,25 @@ export class InMemoryReportRepository implements ReportRepository {
       }));
   }
 
+  async findCommunityReportById(reportId: string, statuses: ReportStatus[]) {
+    const report = this.reports.get(reportId);
+
+    if (!report || !statuses.includes(report.status)) {
+      return null;
+    }
+
+    return {
+      id: report.id,
+      hazardType: report.hazardType,
+      description: report.description,
+      severity: report.severity,
+      location: report.location,
+      status: report.status,
+      createdAt: report.createdAt,
+      ...(report.mediaReference ? { mediaReference: report.mediaReference } : {})
+    };
+  }
+
   seedReport(report: SafeReport) {
     this.reports.set(report.id, report);
   }

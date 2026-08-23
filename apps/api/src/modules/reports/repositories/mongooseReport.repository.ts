@@ -65,4 +65,30 @@ export class MongooseReportRepository implements ReportRepository {
 
     return reports;
   }
+
+  async findCommunityReportById(reportId: string, statuses: CreateReportInput['status'][]) {
+    const report = await ReportModel.findOne({
+      _id: reportId,
+      status: {
+        $in: statuses
+      }
+    }).exec();
+
+    if (!report) {
+      return null;
+    }
+
+    const safeReport = toSafeReport(report);
+
+    return {
+      id: safeReport.id,
+      hazardType: safeReport.hazardType,
+      description: safeReport.description,
+      severity: safeReport.severity,
+      location: safeReport.location,
+      status: safeReport.status,
+      createdAt: safeReport.createdAt,
+      ...(safeReport.mediaReference ? { mediaReference: safeReport.mediaReference } : {})
+    };
+  }
 }

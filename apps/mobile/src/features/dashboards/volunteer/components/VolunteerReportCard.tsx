@@ -16,14 +16,14 @@ export function VolunteerReportCard({ report }: VolunteerReportCardProps) {
   return (
     <Pressable
       accessibilityHint="Open the full volunteer report details view."
-      accessibilityLabel={`${report.severity} severity ${report.hazardType} at ${report.location}`}
+      accessibilityLabel={`${report.severity} severity ${report.hazardType} at ${report.locationLabel}`}
       accessibilityRole="button"
       onPress={() => router.push(report.href)}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={styles.headerRow}>
         <PriorityBadge priority={report.severity} />
-        <Text style={styles.timeText}>{report.reportedTime}</Text>
+        <Text style={styles.timeText}>{report.reportedTimeLabel}</Text>
       </View>
 
       <View style={styles.mainRow}>
@@ -33,10 +33,10 @@ export function VolunteerReportCard({ report }: VolunteerReportCardProps) {
 
         <View style={styles.content}>
           <Text style={styles.title}>{report.hazardType}</Text>
-          <Text style={styles.location}>{report.location}</Text>
+          <Text style={styles.location}>{report.locationLabel}</Text>
           <View style={styles.metaRow}>
             {report.distanceLabel ? <Text style={styles.metaText}>{report.distanceLabel}</Text> : null}
-            <Text style={styles.metaText}>{report.reportedTime}</Text>
+            <Text style={styles.metaText}>{report.reportedTimeLabel}</Text>
           </View>
           {report.descriptionPreview ? (
             <Text numberOfLines={2} style={styles.description}>

@@ -2,8 +2,10 @@ import type {
   CommunityReportSummary,
   CreateReportRequest,
   CreateReportResponse,
+  GetCommunityReportResponse,
   GetCommunityReportsResponse
 } from '@safealert/contracts';
+import { ApiError } from '../../../shared/apiError.js';
 
 import type { ReportRepository } from '../repositories/report.repository.js';
 
@@ -68,5 +70,15 @@ export class ReportService {
         ...(report.mediaReference ? { mediaReference: report.mediaReference } : {})
       }))
     };
+  }
+
+  async getCommunityReportForVolunteer(reportId: string): Promise<GetCommunityReportResponse> {
+    const report = await this.repository.findCommunityReportById(reportId, [...volunteerEligibleStatuses]);
+
+    if (!report) {
+      throw new ApiError(404, 'REPORT_NOT_FOUND', 'Community report not found.');
+    }
+
+    return { report };
   }
 }

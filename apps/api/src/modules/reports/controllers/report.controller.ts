@@ -50,9 +50,22 @@ export function createReportController(reportService: ReportService) {
     response.status(200).json(result);
   });
 
+  const getCommunityById: RequestHandler = asyncHandler(async (request, response) => {
+    const reportId = request.params.reportId;
+
+    if (!reportId) {
+      throw new ApiError(400, 'INVALID_REPORT_ID', 'Report id is required.');
+    }
+
+    const result = await reportService.getCommunityReportForVolunteer(reportId);
+
+    response.status(200).json(result);
+  });
+
   return {
     create,
-    listCommunity
+    listCommunity,
+    getCommunityById
   };
 }
 

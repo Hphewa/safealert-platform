@@ -17,6 +17,12 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
     authorizeRoles('COMMUNITY_VOLUNTEER'),
     controller.listCommunity
   );
+  router.get(
+    '/community/:reportId',
+    authenticate(config),
+    authorizeRoles('COMMUNITY_VOLUNTEER'),
+    controller.getCommunityById
+  );
 
   return router;
 }
