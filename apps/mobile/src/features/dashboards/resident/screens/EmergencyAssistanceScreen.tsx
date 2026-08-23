@@ -433,7 +433,6 @@ export function EmergencyAssistanceScreen() {
             selected={draft.medicalNeeds.requiresMedicalAssistance === false}
           />
         </View>
-        <ValidationMessage message={validation.errors.medicalNeeds} />
 
         {draft.medicalNeeds.requiresMedicalAssistance ? (
           <CounterField
@@ -487,6 +486,7 @@ export function EmergencyAssistanceScreen() {
             value={draft.vulnerablePeople.pregnantPersons}
           />
         </View>
+        <ValidationMessage message={validation.errors.vulnerablePeople} />
       </View>
 
       <View style={styles.section}>
@@ -523,6 +523,7 @@ export function EmergencyAssistanceScreen() {
           <Text style={styles.readOnlyLabel}>Account email</Text>
           <Text style={styles.readOnlyValue}>{draft.contactDetails.email || 'Not available'}</Text>
         </View>
+        <ValidationMessage message={validation.errors.contactDetails} />
       </View>
 
       <View style={styles.section}>

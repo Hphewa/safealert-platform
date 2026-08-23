@@ -80,9 +80,10 @@ export type EmergencyAssistanceValidationErrors = Partial<
     | 'assistanceType'
     | 'affectedPeopleCount'
     | 'location'
-    | 'medicalNeeds'
     | 'injuredCount'
+    | 'vulnerablePeople'
     | 'accessCondition'
+    | 'contactDetails'
     | 'emergencyDescription'
     | 'specialRequirements',
     string
@@ -189,37 +190,62 @@ export function validateEmergencyAssistanceDraft(
   draft: EmergencyAssistanceDraft
 ): EmergencyAssistanceValidationResult {
   const errors: EmergencyAssistanceValidationErrors = {};
+  const trimmedContactName = draft.contactDetails.name.trim();
+  const trimmedContactEmail = draft.contactDetails.email?.trim() ?? '';
   const trimmedDescription = draft.emergencyDescription.trim();
   const trimmedSpecialRequirements = draft.specialRequirements.trim();
+  const hasValidDetectedCoordinates =
+    draft.location.status === 'DETECTED' &&
+    draft.location.latitude !== null &&
+    draft.location.longitude !== null &&
+    Number.isFinite(draft.location.latitude) &&
+    Number.isFinite(draft.location.longitude) &&
+    draft.location.latitude >= -90 &&
+    draft.location.latitude <= 90 &&
+    draft.location.longitude >= -180 &&
+    draft.location.longitude <= 180;
+  const vulnerableCounts = Object.values(draft.vulnerablePeople);
+  const hasInvalidVulnerableCount = vulnerableCounts.some(
+    (count) => !Number.isInteger(count) || count < 0
+  );
 
   if (!draft.assistanceType) {
-    errors.assistanceType = 'Select the type of assistance needed.';
+    errors.assistanceType = 'Select an assistance type.';
   }
 
-  if (draft.affectedPeopleCount < 1) {
-    errors.affectedPeopleCount = 'At least one affected person is required.';
+  if (!Number.isInteger(draft.affectedPeopleCount) || draft.affectedPeopleCount < 1) {
+    errors.affectedPeopleCount = 'Enter the number of affected people.';
   }
 
-  if (draft.location.status !== 'DETECTED') {
+  if (!hasValidDetectedCoordinates) {
     errors.location = 'Current location is required.';
   }
 
-  if (draft.medicalNeeds.requiresMedicalAssistance === null) {
-    errors.medicalNeeds = 'Select whether anyone needs medical assistance.';
-  }
-
-  if (draft.medicalNeeds.injuredCount < 0) {
+  if (!Number.isInteger(draft.medicalNeeds.injuredCount) || draft.medicalNeeds.injuredCount < 0) {
     errors.injuredCount = 'Injured people cannot be a negative number.';
+  } else if (
+    draft.medicalNeeds.requiresMedicalAssistance === false &&
+    draft.medicalNeeds.injuredCount !== 0
+  ) {
+    errors.injuredCount = 'Set injured people to 0 when no medical assistance is required.';
   } else if (draft.medicalNeeds.injuredCount > draft.affectedPeopleCount) {
     errors.injuredCount = 'Injured people cannot exceed the total affected people.';
   }
 
+  if (hasInvalidVulnerableCount) {
+    errors.vulnerablePeople = 'Vulnerable-person counts cannot be negative.';
+  }
+
   if (!draft.accessCondition) {
-    errors.accessCondition = 'Select the current road or access condition.';
+    errors.accessCondition = 'Select the current road/access condition.';
+  }
+
+  if (!trimmedContactName || !trimmedContactEmail) {
+    errors.contactDetails = 'Your account contact information is required.';
   }
 
   if (!trimmedDescription) {
-    errors.emergencyDescription = 'Enter a short emergency description.';
+    errors.emergencyDescription = 'Describe the emergency.';
   } else if (trimmedDescription.length > emergencyDescriptionMaxLength) {
     errors.emergencyDescription = `Keep the description under ${emergencyDescriptionMaxLength} characters.`;
   }
