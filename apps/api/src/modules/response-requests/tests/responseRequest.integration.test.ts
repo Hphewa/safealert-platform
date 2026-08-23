@@ -54,7 +54,6 @@ async function createAccessToken(
 }
 
 const validResponseRequestPayload = {
-  residentId: 'client-supplied-id-must-be-ignored',
   assistanceType: 'MEDICAL_ASSISTANCE',
   location: {
     type: 'Point',
@@ -76,8 +75,7 @@ const validResponseRequestPayload = {
     email: 'resident.contact@example.com'
   },
   description: 'Two people are injured and flood water is rising around the house.',
-  specialRequirements: 'Need transport support for one elderly person.',
-  status: 'ASSIGNED'
+  specialRequirements: 'Need transport support for one elderly person.'
 };
 
 describe('response request API', () => {
@@ -115,8 +113,7 @@ describe('response request API', () => {
         updatedAt: expect.any(String)
       })
     );
-    expect(response.body.responseRequest.residentId).not.toBe(validResponseRequestPayload.residentId);
-    expect(response.body.responseRequest.status).not.toBe(validResponseRequestPayload.status);
+    expect(response.body.responseRequest.status).toBe('NEW');
   });
 
   it('accepts each supported emergency assistance type', async () => {
@@ -165,6 +162,16 @@ describe('response request API', () => {
 
   it('requires authentication and the RESIDENT role', async () => {
     const { app, authRepository } = createTestContext();
+    const volunteerToken = await createAccessToken(
+      authRepository,
+      'COMMUNITY_VOLUNTEER',
+      'volunteer@example.com'
+    );
+    const officerToken = await createAccessToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer@example.com'
+    );
     const responderToken = await createAccessToken(
       authRepository,
       'EMERGENCY_RESPONDER',
@@ -174,13 +181,70 @@ describe('response request API', () => {
     const unauthenticated = await request(app)
       .post('/api/v1/response-requests')
       .send(validResponseRequestPayload);
+    const volunteerForbidden = await request(app)
+      .post('/api/v1/response-requests')
+      .set('Authorization', `Bearer ${volunteerToken}`)
+      .send(validResponseRequestPayload);
+    const officerForbidden = await request(app)
+      .post('/api/v1/response-requests')
+      .set('Authorization', `Bearer ${officerToken}`)
+      .send(validResponseRequestPayload);
     const forbidden = await request(app)
       .post('/api/v1/response-requests')
       .set('Authorization', `Bearer ${responderToken}`)
       .send(validResponseRequestPayload);
 
     expect(unauthenticated.status).toBe(401);
+    expect(volunteerForbidden.status).toBe(403);
+    expect(officerForbidden.status).toBe(403);
     expect(forbidden.status).toBe(403);
+  });
+
+  it('rejects attempts to set server-controlled or forbidden fields', async () => {
+    const { app } = createTestContext();
+    const resident = await registerResident(app);
+
+    const forgedResidentId = await request(app)
+      .post('/api/v1/response-requests')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validResponseRequestPayload,
+        residentId: 'forged-resident-id'
+      });
+    const forgedAssignedResponder = await request(app)
+      .post('/api/v1/response-requests')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validResponseRequestPayload,
+        assignedResponderId: 'responder-123'
+      });
+    const forgedPriority = await request(app)
+      .post('/api/v1/response-requests')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validResponseRequestPayload,
+        priorityScore: 999
+      });
+    const forgedAssignedStatus = await request(app)
+      .post('/api/v1/response-requests')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validResponseRequestPayload,
+        status: 'ASSIGNED'
+      });
+    const forgedCompletedStatus = await request(app)
+      .post('/api/v1/response-requests')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validResponseRequestPayload,
+        status: 'COMPLETED'
+      });
+
+    expect(forgedResidentId.status).toBe(400);
+    expect(forgedAssignedResponder.status).toBe(400);
+    expect(forgedPriority.status).toBe(400);
+    expect(forgedAssignedStatus.status).toBe(400);
+    expect(forgedCompletedStatus.status).toBe(400);
   });
 
   it('validates assistance type, GeoJSON location, and required numeric constraints', async () => {
@@ -219,12 +283,30 @@ describe('response request API', () => {
           elderlyPeople: -1
         }
       });
+    const injuredExceedsAffected = await request(app)
+      .post('/api/v1/response-requests')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validResponseRequestPayload,
+        affectedPeople: 1,
+        injuredPeople: 2
+      });
+    const conflictingMedicalNeeds = await request(app)
+      .post('/api/v1/response-requests')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validResponseRequestPayload,
+        medicalNeeds: false,
+        injuredPeople: 1
+      });
 
     expect(invalidAssistanceType.status).toBe(400);
     expect(invalidLocation.status).toBe(400);
     expect(invalidAffectedPeople.status).toBe(400);
     expect(invalidInjuredPeople.status).toBe(400);
     expect(invalidVulnerablePeople.status).toBe(400);
+    expect(injuredExceedsAffected.status).toBe(400);
+    expect(conflictingMedicalNeeds.status).toBe(400);
   });
 
   it('validates required contact, accessibility, description, and location fields', async () => {
@@ -253,11 +335,22 @@ describe('response request API', () => {
       .post('/api/v1/response-requests')
       .set('Authorization', `Bearer ${resident.body.accessToken}`)
       .send({ ...validResponseRequestPayload, location: undefined });
+    const malformedLocation = await request(app)
+      .post('/api/v1/response-requests')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validResponseRequestPayload,
+        location: {
+          type: 'Point',
+          coordinates: [79.8612]
+        }
+      });
 
     expect(missingRoadAccessibility.status).toBe(400);
     expect(missingContactPhone.status).toBe(400);
     expect(missingDescription.status).toBe(400);
     expect(missingLocation.status).toBe(400);
+    expect(malformedLocation.status).toBe(400);
   });
 
   it('preserves GeoJSON longitude, latitude coordinate order', async () => {
