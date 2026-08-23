@@ -33,6 +33,7 @@ const glyphMap: Record<string, string> = {
   'list-outline': 'RQ',
   'flash-outline': 'AC',
   'time-outline': 'HS',
+  'search-outline': 'SR',
   'bus-outline': 'EV',
   'medical-outline': 'MD',
   'map-outline': 'MP',

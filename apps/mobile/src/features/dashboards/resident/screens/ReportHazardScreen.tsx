@@ -107,7 +107,7 @@ export function ReportHazardScreen() {
           status: 'DETECTED',
           latitude: currentLocation.coords.latitude,
           longitude: currentLocation.coords.longitude,
-          accuracyMeters: currentLocation.coords.accuracy,
+          accuracyMeters: currentLocation.coords.accuracy ?? null,
           capturedAt: new Date(currentLocation.timestamp).toISOString(),
           errorMessage: null
         }
@@ -535,8 +535,8 @@ function toSelectedPhotoEvidence(
 ): SelectedPhotoEvidence {
   return {
     localUri: asset.uri,
-    width: asset.width,
-    height: asset.height,
+    width: asset.width ?? 0,
+    height: asset.height ?? 0,
     fileName: asset.fileName ?? null,
     mimeType: asset.mimeType ?? null,
     assetId: asset.assetId ?? null,
