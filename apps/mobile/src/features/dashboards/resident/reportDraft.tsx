@@ -88,6 +88,7 @@ export type ReportHazardValidationResult = {
 type ReportHazardDraftContextValue = {
   draft: ReportHazardDraft;
   setDraft: Dispatch<SetStateAction<ReportHazardDraft>>;
+  resetDraft: () => void;
   validation: ReportHazardValidationResult;
   submittedReport: SafeReport | null;
   setSubmittedReport: Dispatch<SetStateAction<SafeReport | null>>;
@@ -131,10 +132,12 @@ export function ReportHazardDraftProvider({ children }: { children: ReactNode })
   const [draft, setDraft] = useState<ReportHazardDraft>(initialReportHazardDraft);
   const [submittedReport, setSubmittedReport] = useState<SafeReport | null>(null);
   const validation = useMemo(() => validateReportHazardDraft(draft), [draft]);
+  const resetDraft = () => setDraft(initialReportHazardDraft);
   const value = useMemo(
     () => ({
       draft,
       setDraft,
+      resetDraft,
       validation,
       submittedReport,
       setSubmittedReport

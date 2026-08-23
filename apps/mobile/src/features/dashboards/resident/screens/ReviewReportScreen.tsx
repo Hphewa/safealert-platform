@@ -23,7 +23,7 @@ type SubmitState = {
 export function ReviewReportScreen() {
   const router = useRouter();
   const { accessToken } = useAuth();
-  const { draft, setSubmittedReport, validation } = useReportHazardDraft();
+  const { draft, resetDraft, setSubmittedReport, validation } = useReportHazardDraft();
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
   const isSubmitting = submitState.status === 'submitting';
   const canSubmit = validation.isValid && !isSubmitting;
@@ -64,7 +64,8 @@ export function ReviewReportScreen() {
     try {
       const response = await createResidentReport(payload, accessToken);
       setSubmittedReport(response.report);
-      router.push('/resident/report-submitted');
+      resetDraft();
+      router.replace('/resident/report-submitted');
     } catch (error) {
       setSubmitState({
         status: 'error',

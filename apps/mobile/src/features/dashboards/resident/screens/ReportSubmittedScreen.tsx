@@ -10,6 +10,14 @@ import { hazardTypeLabels, severityLabels, useReportHazardDraft } from '../repor
 export function ReportSubmittedScreen() {
   const router = useRouter();
   const { submittedReport } = useReportHazardDraft();
+  const submittedStatus = submittedReport?.status ?? 'PENDING';
+
+  const trackReport = () => {
+    router.push({
+      pathname: '/resident/report-status',
+      params: submittedReport ? { reportId: submittedReport.id } : undefined
+    });
+  };
 
   return (
     <DashboardScreen bottomNavItems={residentBottomNavItems} contentContainerStyle={styles.content}>
@@ -23,17 +31,19 @@ export function ReportSubmittedScreen() {
         <View style={styles.successIcon}>
           <DashboardGlyph color={dashboardTheme.colors.success} name="checkmark-done-outline" size={24} />
         </View>
-        <Text style={styles.successTitle}>Your report was created.</Text>
-        <Text style={styles.successText}>
-          SafeAlert received your hazard report and marked it as pending review.
-        </Text>
+        <Text style={styles.successTitle}>Report Submitted Successfully!</Text>
+        <Text style={styles.successText}>Your report has been received.</Text>
+      </View>
+
+      <View style={styles.statusCard}>
+        <Text style={styles.statusLabel}>Status</Text>
+        <Text style={styles.statusValue}>{submittedStatus}</Text>
       </View>
 
       {submittedReport ? (
         <View style={styles.summaryPanel}>
           <Text style={styles.panelTitle}>Submission details</Text>
           <SubmittedDetail label="Report ID" value={submittedReport.id} />
-          <SubmittedDetail label="Status" value={submittedReport.status} />
           <SubmittedDetail label="Hazard" value={hazardTypeLabels[submittedReport.hazardType]} />
           <SubmittedDetail label="Severity" value={severityLabels[submittedReport.severity]} />
           <SubmittedDetail
@@ -48,14 +58,31 @@ export function ReportSubmittedScreen() {
         </View>
       )}
 
-      <Pressable
-        accessibilityLabel="Return to resident dashboard"
-        accessibilityRole="button"
-        onPress={() => router.push('/resident')}
-        style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-      >
-        <Text style={styles.primaryButtonText}>Back to Dashboard</Text>
-      </Pressable>
+      <View style={styles.confirmationPanel}>
+        <View style={styles.connectionDot} />
+        <Text style={styles.helperText}>
+          Confirmed by SafeAlert. Keep this report ID for tracking updates.
+        </Text>
+      </View>
+
+      <View style={styles.actionRow}>
+        <Pressable
+          accessibilityLabel="Track submitted report"
+          accessibilityRole="button"
+          onPress={trackReport}
+          style={({ pressed }) => [styles.trackButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.trackButtonText}>Track Report</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="Return to resident dashboard"
+          accessibilityRole="button"
+          onPress={() => router.push('/resident')}
+          style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.primaryButtonText}>Back to Home</Text>
+        </Pressable>
+      </View>
     </DashboardScreen>
   );
 }
@@ -120,6 +147,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: dashboardTheme.colors.muted
   },
+  statusCard: {
+    gap: 4,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.moderate,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.moderateSoft,
+    ...cardShadow
+  },
+  statusLabel: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: dashboardTheme.colors.moderate
+  },
+  statusValue: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
   summaryPanel: {
     gap: 12,
     padding: 16,
@@ -153,14 +199,54 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.text
   },
   helperText: {
+    flex: 1,
     fontSize: 14,
     lineHeight: 20,
     color: dashboardTheme.colors.muted
   },
-  primaryButton: {
+  confirmationPanel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  connectionDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: dashboardTheme.colors.success
+  },
+  actionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12
+  },
+  trackButton: {
+    flexGrow: 1,
     minHeight: 56,
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.primary,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  trackButtonText: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  primaryButton: {
+    flexGrow: 1,
+    minHeight: 56,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.primary
   },
