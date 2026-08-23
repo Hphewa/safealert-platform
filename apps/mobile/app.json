@@ -8,6 +8,12 @@
     "userInterfaceStyle": "automatic",
     "plugins": [
       "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow SafeAlert to use your location when reporting nearby hazards."
+        }
+      ],
       "expo-secure-store"
     ],
     "extra": {

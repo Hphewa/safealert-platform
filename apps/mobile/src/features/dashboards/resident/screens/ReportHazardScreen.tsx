@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as Location from 'expo-location';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
@@ -11,13 +12,31 @@ import { SelectableCard } from '../components/SelectableCard';
 type HazardType = 'FLOOD' | 'BLOCKED_ROAD' | 'LANDSLIDE' | 'OTHER';
 type HazardSeverity = 'LOW' | 'MODERATE' | 'HIGH';
 
+type ReportLocationState =
+  | {
+      status: 'REQUESTING_PERMISSION' | 'LOCATING';
+      latitude: null;
+      longitude: null;
+      errorMessage: null;
+    }
+  | {
+      status: 'DETECTED';
+      latitude: number;
+      longitude: number;
+      accuracyMeters: number | null;
+      capturedAt: string;
+      errorMessage: null;
+    }
+  | {
+      status: 'PERMISSION_DENIED' | 'ERROR';
+      latitude: null;
+      longitude: null;
+      errorMessage: string;
+    };
+
 type ReportHazardFormState = {
   hazardType: HazardType | null;
-  location: {
-    status: 'PENDING_GPS_INTEGRATION';
-    label: string;
-    coordinates: null;
-  };
+  location: ReportLocationState;
   photoEvidence: {
     status: 'PENDING_PHOTO_PICKER';
     assets: Array<{
@@ -69,9 +88,10 @@ const severityOptions: Array<{
 const initialFormState: ReportHazardFormState = {
   hazardType: null,
   location: {
-    status: 'PENDING_GPS_INTEGRATION',
-    label: 'GPS location will be added in the next step.',
-    coordinates: null
+    status: 'REQUESTING_PERMISSION',
+    latitude: null,
+    longitude: null,
+    errorMessage: null
   },
   photoEvidence: {
     status: 'PENDING_PHOTO_PICKER',
@@ -84,6 +104,75 @@ const initialFormState: ReportHazardFormState = {
 export function ReportHazardScreen() {
   const router = useRouter();
   const [formState, setFormState] = useState<ReportHazardFormState>(initialFormState);
+
+  const captureCurrentLocation = useCallback(async () => {
+    setFormState((current) => ({
+      ...current,
+      location: {
+        status: 'REQUESTING_PERMISSION',
+        latitude: null,
+        longitude: null,
+        errorMessage: null
+      }
+    }));
+
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+
+      if (permission.status !== Location.PermissionStatus.GRANTED) {
+        setFormState((current) => ({
+          ...current,
+          location: {
+            status: 'PERMISSION_DENIED',
+            latitude: null,
+            longitude: null,
+            errorMessage: 'Location permission is needed to detect where this hazard is.'
+          }
+        }));
+        return;
+      }
+
+      setFormState((current) => ({
+        ...current,
+        location: {
+          status: 'LOCATING',
+          latitude: null,
+          longitude: null,
+          errorMessage: null
+        }
+      }));
+
+      const currentLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced
+      });
+
+      setFormState((current) => ({
+        ...current,
+        location: {
+          status: 'DETECTED',
+          latitude: currentLocation.coords.latitude,
+          longitude: currentLocation.coords.longitude,
+          accuracyMeters: currentLocation.coords.accuracy,
+          capturedAt: new Date(currentLocation.timestamp).toISOString(),
+          errorMessage: null
+        }
+      }));
+    } catch {
+      setFormState((current) => ({
+        ...current,
+        location: {
+          status: 'ERROR',
+          latitude: null,
+          longitude: null,
+          errorMessage: 'We could not detect your location. Check location services and try again.'
+        }
+      }));
+    }
+  }, []);
+
+  useEffect(() => {
+    void captureCurrentLocation();
+  }, [captureCurrentLocation]);
 
   const setHazardType = (hazardType: HazardType) => {
     setFormState((current) => ({ ...current, hazardType }));
@@ -128,22 +217,56 @@ export function ReportHazardScreen() {
         </View>
       </View>
 
-      <View style={styles.panel}>
+      <View style={styles.locationPanel}>
         <View style={styles.panelIcon}>
           <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="locate-outline" size={20} />
         </View>
         <View style={styles.panelBody}>
           <Text style={styles.panelTitle}>Location</Text>
-          <Text style={styles.panelText}>{formState.location.label}</Text>
+          {formState.location.status === 'REQUESTING_PERMISSION' ? (
+            <LocationStatusMessage message="Requesting location permission..." showSpinner />
+          ) : null}
+          {formState.location.status === 'LOCATING' ? (
+            <LocationStatusMessage message="Detecting your current location..." showSpinner />
+          ) : null}
+          {formState.location.status === 'DETECTED' ? (
+            <View style={styles.detectedLocation}>
+              <Text style={styles.detectedText}>Detected current location</Text>
+              <Text style={styles.coordinateText}>
+                Lat {formatCoordinate(formState.location.latitude)}, Long{' '}
+                {formatCoordinate(formState.location.longitude)}
+              </Text>
+              <Text style={styles.mongoHintText}>Saved for reports as [longitude, latitude].</Text>
+            </View>
+          ) : null}
+          {formState.location.status === 'PERMISSION_DENIED' ||
+          formState.location.status === 'ERROR' ? (
+            <Text style={styles.errorText}>{formState.location.errorMessage}</Text>
+          ) : null}
         </View>
-        <Pressable
-          accessibilityLabel="Adjust report location"
-          accessibilityRole="button"
-          onPress={() => undefined}
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.secondaryButtonText}>Adjust Location</Text>
-        </Pressable>
+        <View style={styles.locationActions}>
+          {(formState.location.status === 'PERMISSION_DENIED' ||
+            formState.location.status === 'ERROR') && (
+            <Pressable
+              accessibilityLabel="Retry location detection"
+              accessibilityRole="button"
+              onPress={() => {
+                void captureCurrentLocation();
+              }}
+              style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </Pressable>
+          )}
+          <Pressable
+            accessibilityLabel="Adjust report location"
+            accessibilityRole="button"
+            onPress={() => undefined}
+            style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.secondaryButtonText}>Adjust Location</Text>
+          </Pressable>
+        </View>
       </View>
 
       <View style={styles.photoPanel}>
@@ -221,6 +344,19 @@ export function ReportHazardScreen() {
   );
 }
 
+function LocationStatusMessage({ message, showSpinner }: { message: string; showSpinner?: boolean }) {
+  return (
+    <View style={styles.statusRow}>
+      {showSpinner ? <ActivityIndicator color={dashboardTheme.colors.primary} size="small" /> : null}
+      <Text style={styles.panelText}>{message}</Text>
+    </View>
+  );
+}
+
+function formatCoordinate(value: number) {
+  return value.toFixed(6);
+}
+
 const styles = StyleSheet.create({
   content: {
     gap: 18,
@@ -265,9 +401,10 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 12
   },
-  panel: {
+  locationPanel: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 12,
     padding: 16,
     borderWidth: 1,
@@ -307,6 +444,41 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: dashboardTheme.colors.muted
   },
+  statusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
+  },
+  detectedLocation: {
+    gap: 3
+  },
+  detectedText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: dashboardTheme.colors.success
+  },
+  coordinateText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: dashboardTheme.colors.text
+  },
+  mongoHintText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: dashboardTheme.colors.muted
+  },
+  errorText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+    color: dashboardTheme.colors.critical
+  },
+  locationActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: 8
+  },
   secondaryButton: {
     minHeight: 40,
     justifyContent: 'center',
@@ -320,6 +492,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '800',
     color: dashboardTheme.colors.primaryStrong
+  },
+  retryButton: {
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#f0c6c1',
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: '#fff5f4'
+  },
+  retryButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: dashboardTheme.colors.critical
   },
   photoPlaceholder: {
     minHeight: 112,
