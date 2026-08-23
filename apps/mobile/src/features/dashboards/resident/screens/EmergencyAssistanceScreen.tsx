@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -45,7 +45,6 @@ export function EmergencyAssistanceScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { draft, setDraft, validation } = useEmergencyAssistanceDraft();
-  const [reviewQueued, setReviewQueued] = useState(false);
   const canReviewRequest = validation.isValid;
   const isDetectingLocation =
     draft.location.status === 'REQUESTING_PERMISSION' || draft.location.status === 'LOCATING';
@@ -88,7 +87,6 @@ export function EmergencyAssistanceScreen() {
       assistanceType,
       reviewRequestedAt: null
     }));
-    setReviewQueued(false);
   };
 
   const updateAffectedPeopleCount = (affectedPeopleCount: number) => {
@@ -101,7 +99,6 @@ export function EmergencyAssistanceScreen() {
       },
       reviewRequestedAt: null
     }));
-    setReviewQueued(false);
   };
 
   const setMedicalNeeds = (requiresMedicalAssistance: boolean) => {
@@ -113,7 +110,6 @@ export function EmergencyAssistanceScreen() {
       },
       reviewRequestedAt: null
     }));
-    setReviewQueued(false);
   };
 
   const updateInjuredCount = (injuredCount: number) => {
@@ -125,7 +121,6 @@ export function EmergencyAssistanceScreen() {
       },
       reviewRequestedAt: null
     }));
-    setReviewQueued(false);
   };
 
   const setAccessCondition = (accessCondition: AccessCondition) => {
@@ -134,7 +129,6 @@ export function EmergencyAssistanceScreen() {
       accessCondition,
       reviewRequestedAt: null
     }));
-    setReviewQueued(false);
   };
 
   const updateVulnerableCount = (
@@ -149,7 +143,6 @@ export function EmergencyAssistanceScreen() {
       },
       reviewRequestedAt: null
     }));
-    setReviewQueued(false);
   };
 
   const setEmergencyDescription = (emergencyDescription: string) => {
@@ -158,7 +151,6 @@ export function EmergencyAssistanceScreen() {
       emergencyDescription,
       reviewRequestedAt: null
     }));
-    setReviewQueued(false);
   };
 
   const trimEmergencyDescription = () => {
@@ -174,7 +166,6 @@ export function EmergencyAssistanceScreen() {
       specialRequirements,
       reviewRequestedAt: null
     }));
-    setReviewQueued(false);
   };
 
   const trimSpecialRequirements = () => {
@@ -197,7 +188,6 @@ export function EmergencyAssistanceScreen() {
       },
       reviewRequestedAt: null
     }));
-    setReviewQueued(false);
 
     const nextLocationState = await captureCurrentLocation({
       permissionDeniedMessage:
@@ -255,7 +245,6 @@ export function EmergencyAssistanceScreen() {
       },
       reviewRequestedAt: null
     }));
-    setReviewQueued(false);
   };
 
   const queueReview = () => {
@@ -267,7 +256,7 @@ export function EmergencyAssistanceScreen() {
       ...current,
       reviewRequestedAt: new Date().toISOString()
     }));
-    setReviewQueued(true);
+    router.push('/resident/review-emergency-request');
   };
 
   return (
@@ -566,24 +555,15 @@ export function EmergencyAssistanceScreen() {
         <ValidationMessage message={validation.errors.specialRequirements} />
       </View>
 
-      {reviewQueued ? (
-        <View style={styles.infoPanel}>
-          <Text style={styles.infoTitle}>Review step prepared</Text>
-          <Text style={styles.infoText}>
-            The review screen is intentionally not implemented yet. This strongly typed draft is now ready to pass forward to that next resident step.
-          </Text>
-        </View>
-      ) : null}
-
       <Pressable
         accessibilityLabel="Review emergency assistance request"
         accessibilityRole="button"
         accessibilityState={{ disabled: !canReviewRequest }}
         disabled={!canReviewRequest}
-        onPress={queueReview}
-        style={({ pressed }) => [
-          styles.reviewButton,
-          !canReviewRequest && styles.reviewButtonDisabled,
+          onPress={queueReview}
+          style={({ pressed }) => [
+            styles.reviewButton,
+            !canReviewRequest && styles.reviewButtonDisabled,
           pressed && canReviewRequest && styles.pressed
         ]}
       >
@@ -923,24 +903,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     fontWeight: '700',
     color: dashboardTheme.colors.critical
-  },
-  infoPanel: {
-    gap: 6,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.info,
-    borderRadius: dashboardTheme.radius.sm,
-    backgroundColor: dashboardTheme.colors.infoSoft
-  },
-  infoTitle: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: dashboardTheme.colors.info
-  },
-  infoText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: dashboardTheme.colors.text
   },
   reviewButton: {
     minHeight: 56,
