@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -13,6 +13,7 @@ import { dashboardTheme } from '../../shared/theme';
 import { volunteerBottomNavItems } from '../mockData';
 import { listCommunityReports } from '../api/communityReportsApi';
 import { VolunteerReportCard } from '../components/VolunteerReportCard';
+import { VolunteerStateCard } from '../components/VolunteerStateCard';
 import { VolunteerReportTabs } from '../components/VolunteerReportTabs';
 import {
   mapCommunityReportToVolunteerReport,
@@ -24,6 +25,12 @@ import {
 const nearbyRadiusKm = 10;
 
 type LoadStatus = 'idle' | 'loading' | 'refreshing' | 'success' | 'error';
+type VolunteerReportsErrorKind =
+  | 'permission-denied'
+  | 'location-unavailable'
+  | 'network'
+  | 'api'
+  | 'session';
 
 export function VolunteerCommunityReportsScreen() {
   const router = useRouter();
@@ -32,34 +39,56 @@ export function VolunteerCommunityReportsScreen() {
   const [reports, setReports] = useState<VolunteerCommunityReport[]>([]);
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorKind, setErrorKind] = useState<VolunteerReportsErrorKind | null>(null);
   const [locationSummary, setLocationSummary] = useState<string | null>(null);
+  const inFlightTabRef = useRef<VolunteerReportListKey | null>(null);
+  const latestRequestIdRef = useRef(0);
 
   const loadReports = useCallback(
     async (tab: VolunteerReportListKey, isRefresh = false) => {
+      if (inFlightTabRef.current === tab) {
+        return;
+      }
+
       if (!accessToken) {
         setLoadStatus('error');
+        setErrorKind('session');
         setErrorMessage('Your volunteer session is not available. Please log in again.');
         return;
       }
 
+      const requestId = latestRequestIdRef.current + 1;
+      latestRequestIdRef.current = requestId;
+      inFlightTabRef.current = tab;
       setLoadStatus(isRefresh ? 'refreshing' : 'loading');
       setErrorMessage(null);
+      setErrorKind(null);
 
       try {
         if (tab === 'nearby') {
           const permission = await Location.requestForegroundPermissionsAsync();
 
           if (permission.status !== Location.PermissionStatus.GRANTED) {
+            if (latestRequestIdRef.current !== requestId) {
+              return;
+            }
+
             setReports([]);
             setLocationSummary(null);
             setLoadStatus('error');
-            setErrorMessage('Location permission is needed to load nearby community reports.');
+            setErrorKind('permission-denied');
+            setErrorMessage('Location is needed to find nearby reports requiring confirmation.');
             return;
           }
 
           const currentLocation = await Location.getCurrentPositionAsync({
             accuracy: Location.Accuracy.Balanced
           });
+
+          if (latestRequestIdRef.current !== requestId) {
+            return;
+          }
+
           const latitude = currentLocation.coords.latitude;
           const longitude = currentLocation.coords.longitude;
 
@@ -73,6 +102,10 @@ export function VolunteerCommunityReportsScreen() {
             radiusKm: nearbyRadiusKm
           });
 
+          if (latestRequestIdRef.current !== requestId) {
+            return;
+          }
+
           setReports(response.reports.map(mapCommunityReportToVolunteerReport));
         } else {
           setLocationSummary('Showing newest eligible community reports.');
@@ -82,16 +115,35 @@ export function VolunteerCommunityReportsScreen() {
             accessToken
           });
 
+          if (latestRequestIdRef.current !== requestId) {
+            return;
+          }
+
           setReports(response.reports.map(mapCommunityReportToVolunteerReport));
         }
 
         setLoadStatus('success');
       } catch (error) {
+        if (latestRequestIdRef.current !== requestId) {
+          return;
+        }
+
         setReports([]);
         setLoadStatus('error');
-        setErrorMessage(
-          error instanceof ApiClientError ? error.message : 'Unable to load community reports right now.'
-        );
+        if (error instanceof ApiClientError) {
+          setErrorKind(error.status === 0 ? 'network' : 'api');
+          setErrorMessage(error.message);
+        } else if (error instanceof Error) {
+          setErrorKind('location-unavailable');
+          setErrorMessage('We could not determine your current location. Check GPS/location services and try again.');
+        } else {
+          setErrorKind('api');
+          setErrorMessage('Unable to load community reports right now.');
+        }
+      } finally {
+        if (inFlightTabRef.current === tab) {
+          inFlightTabRef.current = null;
+        }
       }
     },
     [accessToken]
@@ -103,10 +155,17 @@ export function VolunteerCommunityReportsScreen() {
 
   const isLoading = loadStatus === 'loading' || loadStatus === 'refreshing';
   const isNearby = activeTab === 'nearby';
+  const isRefreshing = loadStatus === 'refreshing';
   const summaryText =
     errorMessage ??
     locationSummary ??
     (isNearby ? 'Nearby reports use your current device location.' : 'Incoming reports are ordered newest first.');
+  const showInitialLoading = loadStatus === 'loading' && reports.length === 0;
+  const showStateCard = (loadStatus === 'error' || loadStatus === 'success') && reports.length === 0;
+
+  const retryCurrentTab = () => {
+    void loadReports(activeTab, true);
+  };
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
@@ -115,7 +174,25 @@ export function VolunteerCommunityReportsScreen() {
           contentContainerStyle={styles.content}
           data={reports}
           keyExtractor={(item) => item.id}
-          ListEmptyComponent={<EmptyState />}
+          ListEmptyComponent={
+            showInitialLoading ? (
+              <VolunteerStateCard
+                icon="refresh-outline"
+                loading
+                message={
+                  isNearby ? 'Retrieving nearby community reports for your current location.' : 'Retrieving the newest community reports.'
+                }
+                title={isNearby ? 'Loading Nearby Reports' : 'Loading Incoming Reports'}
+              />
+            ) : showStateCard ? (
+              <VolunteerReportsEmptyOrErrorState
+                activeTab={activeTab}
+                errorKind={errorKind}
+                errorMessage={errorMessage}
+                onRetry={retryCurrentTab}
+              />
+            ) : null
+          }
           ListHeaderComponent={
             <View style={styles.headerBlock}>
               <View style={styles.headerRow}>
@@ -131,12 +208,18 @@ export function VolunteerCommunityReportsScreen() {
                 <Text style={styles.headerTitle}>Community Reports</Text>
 
                 <Pressable
-                  accessibilityLabel="Refresh report preview"
+                  accessibilityLabel="Refresh community reports"
                   accessibilityRole="button"
                   onPress={() => {
-                    void loadReports(activeTab, true);
+                    if (!isLoading) {
+                      void loadReports(activeTab, true);
+                    }
                   }}
-                  style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    isLoading && styles.iconButtonDisabled,
+                    pressed && styles.pressed
+                  ]}
                 >
                   <DashboardGlyph color={dashboardTheme.colors.text} name="refresh-outline" size={18} />
                 </Pressable>
@@ -152,16 +235,18 @@ export function VolunteerCommunityReportsScreen() {
                 onChange={setActiveTab}
                 tabs={volunteerCommunityReportTabs}
               />
-
-              {isLoading ? (
-                <View style={styles.loadingRow}>
-                  <ActivityIndicator color={dashboardTheme.colors.info} size="small" />
-                  <Text style={styles.loadingText}>
-                    {isNearby ? 'Loading nearby community reports...' : 'Loading incoming community reports...'}
-                  </Text>
-                </View>
-              ) : null}
             </View>
+          }
+          refreshControl={
+            <RefreshControl
+              onRefresh={() => {
+                if (!isLoading) {
+                  void loadReports(activeTab, true);
+                }
+              }}
+              refreshing={isRefreshing}
+              tintColor={dashboardTheme.colors.info}
+            />
           }
           renderItem={({ item }) => <VolunteerReportCard report={item} />}
           showsVerticalScrollIndicator={false}
@@ -173,12 +258,68 @@ export function VolunteerCommunityReportsScreen() {
   );
 }
 
-function EmptyState() {
-  return (
-    <View style={styles.emptyState}>
-      <Text style={styles.emptyTitle}>No reports available</Text>
-      <Text style={styles.emptyBody}>There are no eligible volunteer community reports to show for this view right now.</Text>
-    </View>
+type VolunteerReportsEmptyOrErrorStateProps = {
+  activeTab: VolunteerReportListKey;
+  errorKind: VolunteerReportsErrorKind | null;
+  errorMessage: string | null;
+  onRetry: () => void;
+};
+
+function VolunteerReportsEmptyOrErrorState({
+  activeTab,
+  errorKind,
+  errorMessage,
+  onRetry
+}: VolunteerReportsEmptyOrErrorStateProps) {
+  if (errorKind) {
+    switch (errorKind) {
+      case 'permission-denied':
+        return (
+          <VolunteerStateCard
+            actionLabel="Allow Location"
+            icon="locate-outline"
+            message="Location is needed for Nearby reports. Grant permission to find reports requiring field confirmation near you."
+            onActionPress={onRetry}
+            title="Location Permission Needed"
+          />
+        );
+      case 'location-unavailable':
+        return (
+          <VolunteerStateCard
+            actionLabel="Retry Location"
+            icon="locate-outline"
+            message="We could not determine your current location. Check GPS/location services and try again."
+            onActionPress={onRetry}
+            title="Location Unavailable"
+          />
+        );
+      case 'network':
+      case 'api':
+      case 'session':
+        return (
+          <VolunteerStateCard
+            actionLabel="Retry"
+            icon="alert-circle-outline"
+            message={errorMessage ?? 'Unable to load volunteer community reports right now.'}
+            onActionPress={onRetry}
+            title="Unable to Load Reports"
+          />
+        );
+    }
+  }
+
+  return activeTab === 'nearby' ? (
+    <VolunteerStateCard
+      icon="locate-outline"
+      message="No nearby reports requiring confirmation."
+      title="No Nearby Reports"
+    />
+  ) : (
+    <VolunteerStateCard
+      icon="time-outline"
+      message="No new community reports right now."
+      title="No Incoming Reports"
+    />
   );
 }
 
@@ -237,32 +378,8 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     backgroundColor: dashboardTheme.colors.surface
   },
-  emptyState: {
-    gap: 8,
-    padding: 20,
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.surface
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: dashboardTheme.colors.text
-  },
-  emptyBody: {
-    fontSize: 14,
-    lineHeight: 21,
-    color: dashboardTheme.colors.muted
-  },
-  loadingRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10
-  },
-  loadingText: {
-    fontSize: 14,
-    color: dashboardTheme.colors.muted
+  iconButtonDisabled: {
+    opacity: 0.6
   },
   pressed: {
     opacity: 0.82

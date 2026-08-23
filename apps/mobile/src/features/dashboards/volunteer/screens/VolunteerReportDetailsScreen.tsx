@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -12,6 +12,7 @@ import { StatusBadge } from '../../shared/components/StatusBadge';
 import { badgeToneForReportStatus } from '../../shared/utils';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { getCommunityReportById } from '../api/communityReportsApi';
+import { VolunteerStateCard } from '../components/VolunteerStateCard';
 import { volunteerBottomNavItems } from '../mockData';
 import { VolunteerReportDetailItem } from '../components/VolunteerReportDetailItem';
 import {
@@ -28,46 +29,35 @@ export function VolunteerReportDetailsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  useEffect(() => {
-    let mounted = true;
-
-    async function loadReport() {
-      if (!reportId || !accessToken) {
-        if (mounted) {
-          setReport(null);
-          setErrorMessage('This report is unavailable right now.');
-          setIsLoading(false);
-        }
-        return;
-      }
-
-      setIsLoading(true);
-      setErrorMessage(null);
-
-      try {
-        const response = await getCommunityReportById(reportId, accessToken);
-
-        if (mounted) {
-          setReport(mapCommunityReportToVolunteerReport(response.report));
-          setIsLoading(false);
-        }
-      } catch (error) {
-        if (mounted) {
-          setReport(null);
-          setErrorMessage(
-            error instanceof ApiClientError ? error.message : 'Unable to load this community report.'
-          );
-          setIsLoading(false);
-        }
-      }
+  const loadReport = useCallback(async () => {
+    if (!reportId || !accessToken) {
+      setReport(null);
+      setErrorMessage('This report is unavailable right now.');
+      setIsLoading(false);
+      return;
     }
 
-    void loadReport();
+    setIsLoading(true);
+    setErrorMessage(null);
 
-    return () => {
-      mounted = false;
-    };
+    try {
+      const response = await getCommunityReportById(reportId, accessToken);
+      setReport(mapCommunityReportToVolunteerReport(response.report));
+      setIsLoading(false);
+    } catch (error) {
+      setReport(null);
+      setErrorMessage(
+        error instanceof ApiClientError ? error.message : 'Unable to load this community report.'
+      );
+      setIsLoading(false);
+    }
   }, [accessToken, reportId]);
+
+  useEffect(() => {
+    void (async () => {
+      await loadReport();
+    })();
+  }, [loadReport]);
 
   if (isLoading) {
     return (
@@ -85,10 +75,12 @@ export function VolunteerReportDetailsScreen() {
           <View style={styles.headerSpacer} />
         </View>
 
-        <View style={styles.panel}>
-          <ActivityIndicator color={dashboardTheme.colors.info} size="small" />
-          <Text style={styles.panelBody}>Loading volunteer report details...</Text>
-        </View>
+        <VolunteerStateCard
+          icon="refresh-outline"
+          loading
+          message="Retrieving the latest volunteer-safe report details."
+          title="Loading Report Details"
+        />
       </DashboardScreen>
     );
   }
@@ -109,12 +101,16 @@ export function VolunteerReportDetailsScreen() {
           <View style={styles.headerSpacer} />
         </View>
 
-        <View style={styles.panel}>
-          <Text style={styles.panelTitle}>Report not found</Text>
-          <Text style={styles.panelBody}>
-            {errorMessage ?? 'This volunteer report preview is unavailable. Return to Community Reports and select another item.'}
-          </Text>
-        </View>
+        <VolunteerStateCard
+          actionLabel="Back to Reports"
+          icon="document-text-outline"
+          message={
+            errorMessage ??
+            'This report is no longer available for volunteer review or no longer requires confirmation.'
+          }
+          onActionPress={() => router.push('/volunteer/nearby')}
+          title="Report Not Available"
+        />
       </DashboardScreen>
     );
   }
