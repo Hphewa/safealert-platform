@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
   Pressable,
   RefreshControl,
@@ -9,43 +10,145 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../mockData';
+import { listPendingOfficerReports } from '../api/officerReportsApi';
 import { OfficerReportGroupCard } from '../components/OfficerReportGroupCard';
+import {
+  consumeReviewedOfficerReportIds,
+  subscribeToReviewedOfficerReportIds
+} from '../pendingReportsState';
 import {
   filterOfficerGroupedReports,
   formatOfficerReportSearchSummary,
-  officerGroupedReportSummaries,
+  mapSafeReportToOfficerGroupedReportSummary,
   officerReportFilterOptions,
+  type OfficerGroupedReportSummary,
   type OfficerReportHazardFilter
 } from '../reports';
 
+type OfficerReportsLoadStatus = 'idle' | 'loading' | 'refreshing' | 'success' | 'error';
+
 export function OfficerGroupedReportsScreen() {
   const router = useRouter();
+  const { accessToken } = useAuth();
   const [searchText, setSearchText] = useState('');
   const [hazardFilter, setHazardFilter] = useState<OfficerReportHazardFilter>('ALL');
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [reports, setReports] = useState<OfficerGroupedReportSummary[]>([]);
+  const [loadStatus, setLoadStatus] = useState<OfficerReportsLoadStatus>('idle');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const inFlightRef = useRef(false);
+  const latestRequestIdRef = useRef(0);
+  const locallyReviewedReportIdsRef = useRef(new Set<string>());
+
+  const removeReviewedReports = useCallback((reportIds: string[]) => {
+    for (const reportId of reportIds) {
+      locallyReviewedReportIdsRef.current.add(reportId);
+    }
+
+    setReports((currentReports) =>
+      currentReports.filter((report) => !locallyReviewedReportIdsRef.current.has(report.id))
+    );
+  }, []);
+
+  const loadReports = useCallback(
+    async (isRefresh = false) => {
+      if (inFlightRef.current) {
+        return;
+      }
+
+      if (!accessToken) {
+        setLoadStatus('error');
+        setErrorMessage('Your Officer session is unavailable. Please log in again.');
+        return;
+      }
+
+      const requestId = latestRequestIdRef.current + 1;
+      latestRequestIdRef.current = requestId;
+      inFlightRef.current = true;
+      setLoadStatus(isRefresh ? 'refreshing' : 'loading');
+      setErrorMessage(null);
+
+      try {
+        const response = await listPendingOfficerReports(accessToken);
+
+        if (latestRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        const mappedReports = response.reports.map((report) =>
+          mapSafeReportToOfficerGroupedReportSummary(report)
+        );
+
+        setReports(
+          mappedReports.filter((report) => !locallyReviewedReportIdsRef.current.has(report.id))
+        );
+
+        for (const reportId of locallyReviewedReportIdsRef.current) {
+          if (!mappedReports.some((report) => report.id === reportId)) {
+            locallyReviewedReportIdsRef.current.delete(reportId);
+          }
+        }
+        setLoadStatus('success');
+      } catch (error) {
+        if (latestRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        setLoadStatus('error');
+        setErrorMessage(
+          error instanceof ApiClientError || error instanceof Error
+            ? error.message
+            : 'Unable to load pending reports right now.'
+        );
+      } finally {
+        if (latestRequestIdRef.current === requestId) {
+          inFlightRef.current = false;
+        }
+      }
+    },
+    [accessToken]
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      const reviewedReportIds = consumeReviewedOfficerReportIds();
+
+      if (reviewedReportIds.length) {
+        removeReviewedReports(reviewedReportIds);
+      }
+
+      void loadReports();
+
+      return () => {
+        latestRequestIdRef.current += 1;
+        inFlightRef.current = false;
+      };
+    }, [loadReports, removeReviewedReports])
+  );
+
+  useEffect(
+    () =>
+      subscribeToReviewedOfficerReportIds((reportId) => {
+        removeReviewedReports([reportId]);
+      }),
+    [removeReviewedReports]
+  );
 
   const filteredReports = filterOfficerGroupedReports(
-    officerGroupedReportSummaries,
+    reports,
     searchText,
     hazardFilter
   );
-
-  const handleRefresh = () => {
-    if (isRefreshing) {
-      return;
-    }
-
-    setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 500);
-  };
+  const isLoading = loadStatus === 'loading' || loadStatus === 'refreshing';
+  const isRefreshing = loadStatus === 'refreshing';
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
@@ -71,10 +174,20 @@ export function OfficerGroupedReportsScreen() {
                 <Pressable
                   accessibilityLabel="Refresh reports"
                   accessibilityRole="button"
-                  onPress={handleRefresh}
-                  style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+                  accessibilityState={{ disabled: isLoading }}
+                  disabled={isLoading}
+                  onPress={() => void loadReports(true)}
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    isLoading && styles.iconButtonDisabled,
+                    pressed && !isLoading && styles.pressed
+                  ]}
                 >
-                  <DashboardGlyph color={dashboardTheme.colors.text} name="refresh-outline" size={18} />
+                  {isLoading ? (
+                    <ActivityIndicator color={dashboardTheme.colors.primary} size="small" />
+                  ) : (
+                    <DashboardGlyph color={dashboardTheme.colors.text} name="refresh-outline" size={18} />
+                  )}
                 </Pressable>
               </View>
 
@@ -133,26 +246,22 @@ export function OfficerGroupedReportsScreen() {
               <Text style={styles.summaryText}>
                 {formatOfficerReportSearchSummary(filteredReports.length)}
               </Text>
+              {errorMessage && reports.length ? (
+                <Text accessibilityLiveRegion="polite" style={styles.errorText}>{errorMessage}</Text>
+              ) : null}
             </View>
           }
           ListEmptyComponent={
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIconWrap}>
-                <DashboardGlyph
-                  color={dashboardTheme.colors.primaryStrong}
-                  name="document-text-outline"
-                  size={22}
-                />
-              </View>
-              <Text style={styles.emptyTitle}>No matching grouped reports</Text>
-              <Text style={styles.emptyBody}>
-                Try a different search term or hazard filter to review a different group.
-              </Text>
-            </View>
+            <OfficerReportsListState
+              errorMessage={errorMessage}
+              hasFilters={Boolean(searchText.trim()) || hazardFilter !== 'ALL'}
+              loadStatus={loadStatus}
+              onRetry={() => void loadReports(true)}
+            />
           }
           refreshControl={
             <RefreshControl
-              onRefresh={handleRefresh}
+              onRefresh={() => void loadReports(true)}
               refreshing={isRefreshing}
               tintColor={dashboardTheme.colors.primary}
             />
@@ -164,6 +273,61 @@ export function OfficerGroupedReportsScreen() {
         <BottomNavigation items={officerBottomNavItems} />
       </View>
     </SafeAreaView>
+  );
+}
+
+function OfficerReportsListState({
+  errorMessage,
+  hasFilters,
+  loadStatus,
+  onRetry
+}: {
+  errorMessage: string | null;
+  hasFilters: boolean;
+  loadStatus: OfficerReportsLoadStatus;
+  onRetry: () => void;
+}) {
+  const isInitialLoading =
+    loadStatus === 'idle' || loadStatus === 'loading' || loadStatus === 'refreshing';
+  const title = isInitialLoading
+    ? 'Loading Pending Reports'
+    : errorMessage
+      ? 'Unable to Load Reports'
+      : hasFilters
+        ? 'No Matching Reports'
+        : 'No Pending Reports';
+  const message = isInitialLoading
+    ? 'Retrieving reports awaiting official verification.'
+    : errorMessage ??
+      (hasFilters
+        ? 'Try a different search term or hazard filter.'
+        : 'There are no reports awaiting official verification right now.');
+
+  return (
+    <View style={styles.emptyState}>
+      <View style={styles.emptyIconWrap}>
+        {isInitialLoading ? (
+          <ActivityIndicator color={dashboardTheme.colors.primary} size="small" />
+        ) : (
+          <DashboardGlyph
+            color={errorMessage ? dashboardTheme.colors.critical : dashboardTheme.colors.primaryStrong}
+            name={errorMessage ? 'alert-circle-outline' : 'document-text-outline'}
+            size={22}
+          />
+        )}
+      </View>
+      <Text style={styles.emptyTitle}>{title}</Text>
+      <Text style={styles.emptyBody}>{message}</Text>
+      {errorMessage ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={onRetry}
+          style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </Pressable>
+      ) : null}
+    </View>
   );
 }
 
@@ -213,6 +377,9 @@ const styles = StyleSheet.create({
     borderColor: dashboardTheme.colors.border,
     borderRadius: 22,
     backgroundColor: dashboardTheme.colors.surface
+  },
+  iconButtonDisabled: {
+    opacity: 0.55
   },
   pressed: {
     opacity: 0.82
@@ -282,6 +449,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: dashboardTheme.colors.primaryStrong
   },
+  errorText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: dashboardTheme.colors.critical
+  },
   emptyState: {
     gap: 10,
     alignItems: 'center',
@@ -311,5 +483,18 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     textAlign: 'center',
     color: dashboardTheme.colors.muted
+  },
+  retryButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.primary
+  },
+  retryButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#ffffff'
   }
 });

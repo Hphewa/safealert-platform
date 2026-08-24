@@ -1,7 +1,10 @@
-import { useState, type ReactNode } from 'react';
-import { Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { REPORT_REJECTION_REASON_MAX_LENGTH } from '@safealert/contracts';
+
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ApiClientError } from '@/services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
@@ -10,14 +13,18 @@ import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { badgeToneForReportStatus } from '../../shared/utils';
 import { officerBottomNavItems } from '../mockData';
+import { getPendingOfficerReportById, reviewOfficerReport } from '../api/officerReportsApi';
+import { recordReviewedOfficerReportId } from '../pendingReportsState';
 import {
-  getOfficerReportReviewRecord,
+  mapSafeReportToOfficerReviewRecord,
   statusLabelForOfficer,
   validateOfficerRejectionReason,
-  type OfficerReportChecklistKey
+  type OfficerReportChecklistKey,
+  type OfficerReportReviewRecord
 } from '../reports';
 
-type OfficerReviewAction = 'idle' | 'verified' | 'rejecting' | 'rejected' | 'more-info';
+type OfficerReviewAction = 'idle' | 'verifying' | 'rejecting' | 'more-info';
+type OfficerReportLoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
 const checklistItems: ReadonlyArray<{
   key: OfficerReportChecklistKey;
@@ -53,28 +60,197 @@ const checklistItems: ReadonlyArray<{
 
 export function OfficerReportReviewScreen() {
   const router = useRouter();
+  const { accessToken } = useAuth();
   const params = useLocalSearchParams<{ reportId?: string | string[] }>();
   const reportId = Array.isArray(params.reportId) ? params.reportId[0] : params.reportId;
-  const report = reportId ? getOfficerReportReviewRecord(reportId) : null;
+  const [report, setReport] = useState<OfficerReportReviewRecord | null>(null);
+  const [loadStatus, setLoadStatus] = useState<OfficerReportLoadStatus>('idle');
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedAction, setSelectedAction] = useState<OfficerReviewAction>('idle');
   const [rejectionReason, setRejectionReason] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const latestRequestIdRef = useRef(0);
+  const latestReviewRequestIdRef = useRef(0);
+  const reviewInFlightRef = useRef(false);
+  const isMountedRef = useRef(false);
+  const isFocusedRef = useRef(false);
+  const activeReportIdRef = useRef(reportId);
+  activeReportIdRef.current = reportId;
   const rejectionValidation = validateOfficerRejectionReason(rejectionReason);
 
-  const cancelRejection = () => {
-    setRejectionReason('');
-    setSelectedAction('idle');
-  };
-
-  const confirmRejection = () => {
-    if (!rejectionValidation.isValid) {
+  const loadReport = useCallback(async () => {
+    if (!reportId) {
+      setLoadStatus('error');
+      setLoadError('The report route is invalid.');
       return;
     }
 
-    setRejectionReason(rejectionValidation.normalizedReason);
-    setSelectedAction('rejected');
+    if (!accessToken) {
+      setLoadStatus('error');
+      setLoadError('Your Officer session is unavailable. Please log in again.');
+      return;
+    }
+
+    const requestId = latestRequestIdRef.current + 1;
+    latestRequestIdRef.current = requestId;
+    setReport(null);
+    setSelectedAction('idle');
+    setRejectionReason('');
+    setActionError(null);
+    setLoadStatus('loading');
+    setLoadError(null);
+
+    try {
+      const response = await getPendingOfficerReportById(reportId, accessToken);
+
+      if (latestRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setReport(mapSafeReportToOfficerReviewRecord(response.report));
+      setLoadStatus('success');
+    } catch (error) {
+      if (latestRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setReport(null);
+      setLoadStatus('error');
+      setLoadError(
+        error instanceof ApiClientError || error instanceof Error
+          ? error.message
+          : 'Unable to load this pending report.'
+      );
+    }
+  }, [accessToken, reportId]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      latestRequestIdRef.current += 1;
+      latestReviewRequestIdRef.current += 1;
+    };
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      isFocusedRef.current = true;
+      void loadReport();
+
+      return () => {
+        isFocusedRef.current = false;
+        latestRequestIdRef.current += 1;
+        latestReviewRequestIdRef.current += 1;
+      };
+    }, [loadReport])
+  );
+
+  const cancelRejection = () => {
+    setRejectionReason('');
+    setActionError(null);
+    setSelectedAction('idle');
+  };
+
+  const submitReview = async (action: 'VERIFY' | 'REJECT') => {
+    if (reviewInFlightRef.current || !reportId || !accessToken) {
+      return;
+    }
+
+    if (action === 'REJECT' && !rejectionValidation.isValid) {
+      return;
+    }
+
+    reviewInFlightRef.current = true;
+    setIsSubmitting(true);
+    setActionError(null);
+    const reviewRequestId = latestReviewRequestIdRef.current + 1;
+    latestReviewRequestIdRef.current = reviewRequestId;
+    const submittedReportId = reportId;
+
+    try {
+      const response = await reviewOfficerReport(
+        reportId,
+        action === 'VERIFY'
+          ? { action: 'VERIFY' }
+          : {
+              action: 'REJECT',
+              rejectionReason: rejectionValidation.normalizedReason
+            },
+        accessToken
+      );
+      const expectedStatus = action === 'VERIFY' ? 'VERIFIED' : 'REJECTED';
+
+      if (response.report.status !== expectedStatus) {
+        throw new Error('The server returned an unexpected report status. Refresh and try again.');
+      }
+
+      recordReviewedOfficerReportId(submittedReportId);
+
+      if (isMountedRef.current && activeReportIdRef.current === submittedReportId) {
+        latestRequestIdRef.current += 1;
+        setReport(null);
+        setLoadStatus('error');
+        setLoadError(
+          action === 'VERIFY'
+            ? 'This report was verified and is no longer awaiting review.'
+            : 'This report was rejected and is no longer awaiting review.'
+        );
+      }
+
+      if (
+        latestReviewRequestIdRef.current !== reviewRequestId ||
+        !isFocusedRef.current ||
+        activeReportIdRef.current !== submittedReportId
+      ) {
+        return;
+      }
+
+      Alert.alert(
+        action === 'VERIFY' ? 'Report Verified' : 'Report Rejected',
+        action === 'VERIFY'
+          ? 'The report was verified and removed from the pending queue.'
+          : 'The report was rejected and removed from the pending queue.',
+        [
+          {
+            text: 'Return to Pending Reports',
+            onPress: () => {
+              if (
+                isFocusedRef.current &&
+                latestReviewRequestIdRef.current === reviewRequestId &&
+                activeReportIdRef.current === submittedReportId
+              ) {
+                router.dismissTo('/officer/reports');
+              }
+            }
+          }
+        ]
+      );
+    } catch (error) {
+      if (
+        latestReviewRequestIdRef.current === reviewRequestId &&
+        isFocusedRef.current &&
+        activeReportIdRef.current === submittedReportId
+      ) {
+        setActionError(
+          error instanceof ApiClientError || error instanceof Error
+            ? error.message
+            : 'Unable to update this report right now.'
+        );
+      }
+    } finally {
+      reviewInFlightRef.current = false;
+
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
+    }
   };
 
   if (!report) {
+    const isLoading = loadStatus === 'idle' || loadStatus === 'loading';
+
     return (
       <DashboardScreen bottomNavItems={officerBottomNavItems} contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
@@ -95,19 +271,34 @@ export function OfficerReportReviewScreen() {
 
         <View style={styles.noticeCard}>
           <View style={styles.noticeIconWrap}>
-            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="document-text-outline" size={22} />
+            {isLoading ? (
+              <ActivityIndicator color={dashboardTheme.colors.primary} size="small" />
+            ) : (
+              <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={22} />
+            )}
           </View>
-          <Text style={styles.noticeTitle}>Report not available</Text>
+          <Text style={styles.noticeTitle}>{isLoading ? 'Loading Report' : 'Report Not Available'}</Text>
           <Text style={styles.noticeBody}>
-            This report group cannot be loaded right now or the route id is invalid.
+            {isLoading ? 'Retrieving the latest pending report details.' : loadError}
           </Text>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => router.back()}
-            style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
-          >
-            <Text style={styles.primaryButtonText}>Back</Text>
-          </Pressable>
+          {!isLoading ? (
+            <View style={styles.noticeActions}>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => router.back()}
+                style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.cancelButtonText}>Back</Text>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => void loadReport()}
+                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.primaryButtonText}>Retry</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
       </DashboardScreen>
     );
@@ -164,6 +355,14 @@ export function OfficerReportReviewScreen() {
               style={styles.mediaPreview}
             />
             {report.residentPhotoLabel ? <Text style={styles.caption}>{report.residentPhotoLabel}</Text> : null}
+          </View>
+        ) : report.residentMediaReference ? (
+          <View style={styles.mediaReferenceCard}>
+            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="camera-outline" size={18} />
+            <View style={styles.mediaReferenceBody}>
+              <Text style={styles.mediaReferenceTitle}>Resident photo evidence reference</Text>
+              <Text style={styles.mediaReferenceText}>{report.residentMediaReference}</Text>
+            </View>
           </View>
         ) : (
           <Text style={styles.emptyCopy}>No resident photo evidence is attached to this report.</Text>
@@ -257,30 +456,93 @@ export function OfficerReportReviewScreen() {
       <View style={styles.actionCard}>
         <Text style={styles.sectionTitle}>Officer Actions</Text>
         <Text style={styles.helperText}>
-          These actions only change local screen state for now. Verification and rejection APIs will be connected later.
+          Submit an official review decision. The report changes only after the server confirms the action.
         </Text>
+        {actionError ? (
+          <View accessibilityLiveRegion="polite" style={styles.actionErrorBanner}>
+            <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={18} />
+            <Text style={styles.actionErrorText}>{actionError}</Text>
+          </View>
+        ) : null}
         <View style={styles.actionButtonStack}>
           <Pressable
             accessibilityRole="button"
-            onPress={() => setSelectedAction('verified')}
+            accessibilityState={{ disabled: isSubmitting }}
+            disabled={isSubmitting}
+            onPress={() => {
+              setActionError(null);
+              setSelectedAction('verifying');
+            }}
             style={({ pressed }) => [
               styles.primaryButton,
-              selectedAction === 'verified' && styles.primaryButtonSelected,
-              pressed && styles.pressed
+              selectedAction === 'verifying' && styles.primaryButtonSelected,
+              isSubmitting && styles.actionButtonDisabled,
+              pressed && !isSubmitting && styles.pressed
             ]}
           >
             <DashboardGlyph color="#ffffff" name="checkmark-done-outline" size={16} />
             <Text style={styles.primaryButtonText}>Mark Verified</Text>
           </Pressable>
 
+          {selectedAction === 'verifying' ? (
+            <View style={styles.verificationPanel}>
+              <View style={styles.confirmationCopy}>
+                <Text style={styles.fieldLabel}>Confirm verification</Text>
+                <Text style={styles.helperText}>
+                  This confirms the report is reliable. Risk assessment remains a separate future step.
+                </Text>
+              </View>
+              <View style={styles.confirmationActions}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: isSubmitting }}
+                  disabled={isSubmitting}
+                  onPress={() => {
+                    setActionError(null);
+                    setSelectedAction('idle');
+                  }}
+                  style={({ pressed }) => [
+                    styles.cancelButton,
+                    isSubmitting && styles.actionButtonDisabled,
+                    pressed && !isSubmitting && styles.pressed
+                  ]}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: isSubmitting }}
+                  disabled={isSubmitting}
+                  onPress={() => void submitReview('VERIFY')}
+                  style={({ pressed }) => [
+                    styles.confirmVerifyButton,
+                    isSubmitting && styles.actionButtonDisabled,
+                    pressed && !isSubmitting && styles.pressed
+                  ]}
+                >
+                  {isSubmitting ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <Text style={styles.confirmVerifyButtonText}>Confirm Verification</Text>
+                  )}
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+
           <Pressable
             accessibilityRole="button"
-            onPress={() => setSelectedAction('rejecting')}
+            accessibilityState={{ disabled: isSubmitting }}
+            disabled={isSubmitting}
+            onPress={() => {
+              setActionError(null);
+              setSelectedAction('rejecting');
+            }}
             style={({ pressed }) => [
               styles.destructiveButton,
-              (selectedAction === 'rejecting' || selectedAction === 'rejected') &&
-                styles.destructiveButtonSelected,
-              pressed && styles.pressed
+              selectedAction === 'rejecting' && styles.destructiveButtonSelected,
+              isSubmitting && styles.actionButtonDisabled,
+              pressed && !isSubmitting && styles.pressed
             ]}
           >
             <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={16} />
@@ -321,30 +583,40 @@ export function OfficerReportReviewScreen() {
               <View style={styles.confirmationActions}>
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityState={{ disabled: isSubmitting }}
+                  disabled={isSubmitting}
                   onPress={cancelRejection}
-                  style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+                  style={({ pressed }) => [
+                    styles.cancelButton,
+                    isSubmitting && styles.actionButtonDisabled,
+                    pressed && !isSubmitting && styles.pressed
+                  ]}
                 >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
                 <Pressable
                   accessibilityRole="button"
-                  accessibilityState={{ disabled: !rejectionValidation.isValid }}
-                  disabled={!rejectionValidation.isValid}
-                  onPress={confirmRejection}
+                  accessibilityState={{ disabled: !rejectionValidation.isValid || isSubmitting }}
+                  disabled={!rejectionValidation.isValid || isSubmitting}
+                  onPress={() => void submitReview('REJECT')}
                   style={({ pressed }) => [
                     styles.confirmRejectButton,
-                    !rejectionValidation.isValid && styles.confirmRejectButtonDisabled,
-                    pressed && rejectionValidation.isValid && styles.pressed
+                    (!rejectionValidation.isValid || isSubmitting) && styles.confirmRejectButtonDisabled,
+                    pressed && rejectionValidation.isValid && !isSubmitting && styles.pressed
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.confirmRejectButtonText,
-                      !rejectionValidation.isValid && styles.confirmRejectButtonTextDisabled
-                    ]}
-                  >
-                    Confirm Rejection
-                  </Text>
+                  {isSubmitting ? (
+                    <ActivityIndicator color="#ffffff" size="small" />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.confirmRejectButtonText,
+                        !rejectionValidation.isValid && styles.confirmRejectButtonTextDisabled
+                      ]}
+                    >
+                      Confirm Rejection
+                    </Text>
+                  )}
                 </Pressable>
               </View>
             </View>
@@ -352,11 +624,17 @@ export function OfficerReportReviewScreen() {
 
           <Pressable
             accessibilityRole="button"
-            onPress={() => setSelectedAction('more-info')}
+            accessibilityState={{ disabled: isSubmitting }}
+            disabled={isSubmitting}
+            onPress={() => {
+              setActionError(null);
+              setSelectedAction('more-info');
+            }}
             style={({ pressed }) => [
               styles.secondaryButton,
               selectedAction === 'more-info' && styles.secondaryButtonSelected,
-              pressed && styles.pressed
+              isSubmitting && styles.actionButtonDisabled,
+              pressed && !isSubmitting && styles.pressed
             ]}
           >
             <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="help-circle-outline" size={16} />
@@ -367,9 +645,6 @@ export function OfficerReportReviewScreen() {
         <View style={styles.actionStateBanner}>
           <Text style={styles.actionStateLabel}>Selected action</Text>
           <Text style={styles.actionStateValue}>{actionLabelMap[selectedAction]}</Text>
-          {selectedAction === 'rejected' ? (
-            <Text style={styles.actionStateReason}>Reason: {rejectionReason}</Text>
-          ) : null}
         </View>
       </View>
     </DashboardScreen>
@@ -396,9 +671,8 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
 
 const actionLabelMap: Record<OfficerReviewAction, string> = {
   idle: 'Awaiting officer decision',
-  verified: 'Mark Verified selected',
+  verifying: 'Verification confirmation required',
   rejecting: 'Rejection reason required',
-  rejected: 'Rejection confirmed',
   'more-info': 'Request More Info selected'
 };
 
@@ -534,6 +808,28 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.surfaceMuted
   },
+  mediaReferenceCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  mediaReferenceBody: {
+    flex: 1,
+    gap: 3
+  },
+  mediaReferenceTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  mediaReferenceText: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: dashboardTheme.colors.muted
+  },
   caption: {
     fontSize: 13,
     color: dashboardTheme.colors.muted
@@ -668,6 +964,25 @@ const styles = StyleSheet.create({
   actionButtonStack: {
     gap: 12
   },
+  actionErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#f0c6c1',
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.criticalSoft
+  },
+  actionErrorText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    color: dashboardTheme.colors.critical
+  },
+  actionButtonDisabled: {
+    opacity: 0.58
+  },
   primaryButton: {
     minHeight: 52,
     flexDirection: 'row',
@@ -703,6 +1018,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: dashboardTheme.colors.critical
+  },
+  verificationPanel: {
+    gap: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#b8dfc1',
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.successSoft
+  },
+  confirmationCopy: {
+    gap: 5
   },
   rejectionPanel: {
     gap: 10,
@@ -805,6 +1131,20 @@ const styles = StyleSheet.create({
   confirmRejectButtonTextDisabled: {
     color: '#8f7774'
   },
+  confirmVerifyButton: {
+    minHeight: 46,
+    flexGrow: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.success
+  },
+  confirmVerifyButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#ffffff'
+  },
   secondaryButton: {
     minHeight: 52,
     flexDirection: 'row',
@@ -841,11 +1181,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: dashboardTheme.colors.text
   },
-  actionStateReason: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: dashboardTheme.colors.muted
-  },
   noticeCard: {
     gap: 12,
     alignItems: 'center',
@@ -855,6 +1190,12 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.surface,
     ...cardShadow
+  },
+  noticeActions: {
+    width: '100%',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10
   },
   noticeIconWrap: {
     width: 56,

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import type { SafeReport } from '@safealert/contracts';
 
 import {
   filterOfficerGroupedReports,
+  mapSafeReportToOfficerGroupedReportSummary,
+  mapSafeReportToOfficerReviewRecord,
   validateOfficerRejectionReason,
   type OfficerGroupedReportSummary
 } from './reports';
@@ -43,11 +46,72 @@ const sampleReports: OfficerGroupedReportSummary[] = [
   }
 ];
 
+const safePendingReport: SafeReport = {
+  id: 'real-pending-report',
+  residentId: 'resident-123',
+  hazardType: 'FLOOD',
+  description: 'Flood water is crossing the access road near the bridge.',
+  severity: 'HIGH',
+  location: {
+    type: 'Point',
+    coordinates: [79.8612, 6.9271]
+  },
+  mediaReference: 'https://example.com/flood-evidence.jpg',
+  status: 'PENDING',
+  createdAt: '2026-08-24T09:00:00.000Z',
+  updatedAt: '2026-08-24T09:30:00.000Z'
+};
+
 describe('filterOfficerGroupedReports', () => {
   it('matches a report by search text and hazard filter', () => {
     const results = filterOfficerGroupedReports(sampleReports, 'kelani', 'FLOOD');
 
     expect(results.map((report) => report.id)).toEqual(['kelani-river-side']);
+  });
+});
+
+describe('real Officer report mapping', () => {
+  it('maps a pending API report into searchable list information', () => {
+    const summary = mapSafeReportToOfficerGroupedReportSummary(
+      safePendingReport,
+      new Date('2026-08-24T10:00:00.000Z')
+    );
+
+    expect(summary).toEqual(
+      expect.objectContaining({
+        id: 'real-pending-report',
+        locationLabel: '6.927100, 79.861200',
+        latestUpdateLabel: '30m ago',
+        communityReportsCount: 1,
+        communityReportsLabel: '1 Community Report',
+        href: '/officer/reports/real-pending-report'
+      })
+    );
+    expect(summary.searchText).toContain('flood water is crossing the access road');
+  });
+
+  it('maps real resident evidence and does not invent volunteer evidence', () => {
+    const report = mapSafeReportToOfficerReviewRecord(
+      safePendingReport,
+      new Date('2026-08-24T10:00:00.000Z')
+    );
+
+    expect(report).toEqual(
+      expect.objectContaining({
+        residentDescription: 'Flood water is crossing the access road near the bridge.',
+        residentPhotoUrl: 'https://example.com/flood-evidence.jpg',
+        locationDetails: 'Coordinates: 6.927100, 79.861200',
+        volunteerEvidence: [],
+        checklist: {
+          locationConfirmed: false,
+          timeValid: false,
+          multipleReports: false,
+          photoEvidence: true,
+          fieldUpdate: false
+        }
+      })
+    );
+    expect(report.timeline.map((event) => event.title)).toEqual(['Report submitted', 'Photo added']);
   });
 });
 

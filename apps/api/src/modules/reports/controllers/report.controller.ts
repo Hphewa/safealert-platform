@@ -63,6 +63,32 @@ export function createReportController(reportService: ReportService) {
     response.status(200).json(result);
   });
 
+  const listPendingOfficerReports: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const result = await reportService.listPendingReportsForOfficer();
+
+    response.status(200).json(result);
+  });
+
+  const getPendingOfficerReportById: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const reportId = request.params.reportId;
+
+    if (!reportId) {
+      throw new ApiError(400, 'INVALID_REPORT_ID', 'Report id is required.');
+    }
+
+    const result = await reportService.getPendingReportForOfficer(reportId);
+
+    response.status(200).json(result);
+  });
+
   const review: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
@@ -85,6 +111,8 @@ export function createReportController(reportService: ReportService) {
     create,
     listCommunity,
     getCommunityById,
+    listPendingOfficerReports,
+    getPendingOfficerReportById,
     review
   };
 }

@@ -120,6 +120,14 @@ export type GetCommunityReportResponse = {
   report: CommunityReportSummary;
 };
 
+export type GetPendingOfficerReportsResponse = {
+  reports: SafeReport[];
+};
+
+export type GetPendingOfficerReportResponse = {
+  report: SafeReport;
+};
+
 export const RESPONSE_STATUSES = [
   'NEW',
   'ASSIGNED',

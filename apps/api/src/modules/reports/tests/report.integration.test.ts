@@ -542,6 +542,115 @@ describe('report API', () => {
     expect(response.body.report.residentId).toBeUndefined();
   });
 
+  it('lists only pending reports for an authenticated disaster officer', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-pending-list@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'officer-pending-report',
+      residentId: 'resident-for-officer',
+      status: 'PENDING',
+      createdAt: '2026-08-23T11:30:00.000Z',
+      updatedAt: '2026-08-23T11:35:00.000Z',
+      description: 'Flood water is crossing the access road.',
+      mediaReference: 'https://example.com/evidence.jpg'
+    });
+    seedReport(reportRepository, {
+      id: 'officer-verified-report',
+      status: 'VERIFIED',
+      createdAt: '2026-08-23T11:20:00.000Z'
+    });
+
+    const response = await request(app)
+      .get('/api/v1/reports/officer/pending')
+      .set('Authorization', `Bearer ${officerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.reports).toEqual([
+      expect.objectContaining({
+        id: 'officer-pending-report',
+        residentId: 'resident-for-officer',
+        status: 'PENDING',
+        description: 'Flood water is crossing the access road.',
+        mediaReference: 'https://example.com/evidence.jpg',
+        updatedAt: '2026-08-23T11:35:00.000Z'
+      })
+    ]);
+  });
+
+  it('returns pending report details for an authenticated disaster officer', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-pending-detail@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'officer-report-detail',
+      residentId: 'resident-detail-owner',
+      status: 'PENDING',
+      createdAt: '2026-08-23T11:45:00.000Z',
+      description: 'Debris has blocked both lanes near the bridge.'
+    });
+
+    const response = await request(app)
+      .get('/api/v1/reports/officer/officer-report-detail')
+      .set('Authorization', `Bearer ${officerToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.report).toEqual(
+      expect.objectContaining({
+        id: 'officer-report-detail',
+        residentId: 'resident-detail-owner',
+        status: 'PENDING',
+        description: 'Debris has blocked both lanes near the bridge.'
+      })
+    );
+  });
+
+  it('does not return a reviewed report through the officer pending detail endpoint', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-reviewed-detail@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'officer-reviewed-detail',
+      status: 'VERIFIED',
+      createdAt: '2026-08-23T11:50:00.000Z'
+    });
+
+    const response = await request(app)
+      .get('/api/v1/reports/officer/officer-reviewed-detail')
+      .set('Authorization', `Bearer ${officerToken}`);
+
+    expect(response.status).toBe(404);
+  });
+
+  it('protects officer report reads with authentication and disaster officer RBAC', async () => {
+    const { app, authRepository } = createTestContext();
+    const residentToken = await createVolunteerToken(
+      authRepository,
+      'RESIDENT',
+      'resident-officer-read-attempt@example.com'
+    );
+
+    const unauthenticated = await request(app).get('/api/v1/reports/officer/pending');
+    const forbidden = await request(app)
+      .get('/api/v1/reports/officer/pending')
+      .set('Authorization', `Bearer ${residentToken}`);
+
+    expect(unauthenticated.status).toBe(401);
+    expect(forbidden.status).toBe(403);
+  });
+
   it('verifies a pending report for an authenticated disaster officer', async () => {
     const { app, authRepository, reportRepository } = createTestContext();
     const officerToken = await createVolunteerToken(

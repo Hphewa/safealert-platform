@@ -23,6 +23,18 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
     authorizeRoles('COMMUNITY_VOLUNTEER'),
     controller.getCommunityById
   );
+  router.get(
+    '/officer/pending',
+    authenticate(config),
+    authorizeRoles('DISASTER_OFFICER'),
+    controller.listPendingOfficerReports
+  );
+  router.get(
+    '/officer/:reportId',
+    authenticate(config),
+    authorizeRoles('DISASTER_OFFICER'),
+    controller.getPendingOfficerReportById
+  );
   router.patch(
     '/:reportId/verification',
     authenticate(config),

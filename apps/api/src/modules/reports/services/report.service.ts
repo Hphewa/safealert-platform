@@ -4,6 +4,8 @@ import type {
   CreateReportResponse,
   GetCommunityReportResponse,
   GetCommunityReportsResponse,
+  GetPendingOfficerReportResponse,
+  GetPendingOfficerReportsResponse,
   ReportReviewRequest,
   ReviewReportResponse
 } from '@safealert/contracts';
@@ -23,6 +25,7 @@ export type CommunityReportRetrievalOptions =
     };
 
 const volunteerEligibleStatuses = ['PENDING'] as const;
+const officerPendingStatuses = ['PENDING'] as const;
 
 export class ReportService {
   constructor(private readonly repository: ReportRepository) {}
@@ -79,6 +82,22 @@ export class ReportService {
 
     if (!report) {
       throw new ApiError(404, 'REPORT_NOT_FOUND', 'Community report not found.');
+    }
+
+    return { report };
+  }
+
+  async listPendingReportsForOfficer(): Promise<GetPendingOfficerReportsResponse> {
+    return {
+      reports: await this.repository.findReportsByStatuses([...officerPendingStatuses])
+    };
+  }
+
+  async getPendingReportForOfficer(reportId: string): Promise<GetPendingOfficerReportResponse> {
+    const report = await this.repository.findReportById(reportId);
+
+    if (!report || report.status !== 'PENDING') {
+      throw new ApiError(404, 'REPORT_NOT_FOUND', 'Pending report not found.');
     }
 
     return { report };
