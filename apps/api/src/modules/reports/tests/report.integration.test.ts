@@ -667,6 +667,243 @@ describe('report API', () => {
     );
   });
 
+  it('completes the Officer pending report verification flow', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officer = await createAuthenticatedUser(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-complete-verify-flow@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'complete-verify-flow',
+      residentId: 'resident-verify-evidence-owner',
+      hazardType: 'FLOOD',
+      description: 'Flood water is covering the approach road beside the river.',
+      severity: 'HIGH',
+      location: {
+        type: 'Point',
+        coordinates: [79.8612, 6.9271]
+      },
+      mediaReference: 'media/reports/complete-verify-evidence.jpg',
+      status: 'PENDING',
+      createdAt: '2026-08-23T11:46:00.000Z',
+      updatedAt: '2026-08-23T11:48:00.000Z'
+    });
+    seedReport(reportRepository, {
+      id: 'verify-flow-pending-control',
+      status: 'PENDING',
+      createdAt: '2026-08-23T11:00:00.000Z'
+    });
+
+    const pendingBeforeReview = await request(app)
+      .get('/api/v1/reports/officer/pending')
+      .set('Authorization', `Bearer ${officer.token}`);
+    const detailsBeforeReview = await request(app)
+      .get('/api/v1/reports/officer/complete-verify-flow')
+      .set('Authorization', `Bearer ${officer.token}`);
+
+    expect(pendingBeforeReview.status).toBe(200);
+    expect(pendingBeforeReview.body.reports).toHaveLength(2);
+    expect(pendingBeforeReview.body.reports).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+        id: 'complete-verify-flow',
+        hazardType: 'FLOOD',
+        description: 'Flood water is covering the approach road beside the river.',
+        severity: 'HIGH',
+        location: {
+          type: 'Point',
+          coordinates: [79.8612, 6.9271]
+        },
+        updatedAt: '2026-08-23T11:48:00.000Z'
+        })
+      ])
+    );
+    expect(detailsBeforeReview.status).toBe(200);
+    expect(detailsBeforeReview.body.report).toEqual(
+      expect.objectContaining({
+        residentId: 'resident-verify-evidence-owner',
+        description: 'Flood water is covering the approach road beside the river.',
+        mediaReference: 'media/reports/complete-verify-evidence.jpg',
+        status: 'PENDING'
+      })
+    );
+
+    const reviewStartedAt = Date.now();
+    const reviewResponse = await request(app)
+      .patch('/api/v1/reports/complete-verify-flow/verification')
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({ action: 'VERIFY' });
+    const reviewCompletedAt = Date.now();
+    const pendingAfterReview = await request(app)
+      .get('/api/v1/reports/officer/pending')
+      .set('Authorization', `Bearer ${officer.token}`);
+    const detailsAfterReview = await request(app)
+      .get('/api/v1/reports/officer/complete-verify-flow')
+      .set('Authorization', `Bearer ${officer.token}`);
+    const storedReport = await reportRepository.findReportById('complete-verify-flow');
+    const verifiedAt = reviewResponse.body.report.verifiedAt as string;
+    const verifiedAtMs = Date.parse(verifiedAt);
+
+    expect(reviewResponse.status).toBe(200);
+    expect(verifiedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(verifiedAtMs).toBeGreaterThanOrEqual(reviewStartedAt);
+    expect(verifiedAtMs).toBeLessThanOrEqual(reviewCompletedAt);
+    expect(reviewResponse.body.report.updatedAt).toBe(verifiedAt);
+    expect(reviewResponse.body.report.verificationHistory).toEqual([
+      {
+        action: 'VERIFY',
+        verifiedById: officer.user.id,
+        verifiedAt
+      }
+    ]);
+    expect(pendingAfterReview.status).toBe(200);
+    expect(pendingAfterReview.body.reports.map((report: SafeReport) => report.id)).toEqual([
+      'verify-flow-pending-control'
+    ]);
+    expect(detailsAfterReview.status).toBe(404);
+    expect(storedReport).toEqual({
+      id: 'complete-verify-flow',
+      residentId: 'resident-verify-evidence-owner',
+      hazardType: 'FLOOD',
+      description: 'Flood water is covering the approach road beside the river.',
+      severity: 'HIGH',
+      location: {
+        type: 'Point',
+        coordinates: [79.8612, 6.9271]
+      },
+      mediaReference: 'media/reports/complete-verify-evidence.jpg',
+      status: 'VERIFIED',
+      createdAt: '2026-08-23T11:46:00.000Z',
+      updatedAt: verifiedAt,
+      verifiedById: officer.user.id,
+      verifiedAt,
+      verificationHistory: [
+        {
+          action: 'VERIFY',
+          verifiedById: officer.user.id,
+          verifiedAt
+        }
+      ]
+    });
+  });
+
+  it('completes the Officer rejection flow only after a valid reason', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officer = await createAuthenticatedUser(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-complete-reject-flow@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'complete-reject-flow',
+      residentId: 'resident-reject-evidence-owner',
+      hazardType: 'BLOCKED_ROAD',
+      description: 'A resident reported a fallen tree blocking both traffic lanes.',
+      severity: 'MODERATE',
+      location: {
+        type: 'Point',
+        coordinates: [80.6337, 7.2906]
+      },
+      mediaReference: 'media/reports/complete-reject-evidence.jpg',
+      status: 'PENDING',
+      createdAt: '2026-08-23T11:49:00.000Z'
+    });
+    seedReport(reportRepository, {
+      id: 'reject-flow-pending-control',
+      status: 'PENDING',
+      createdAt: '2026-08-23T11:01:00.000Z'
+    });
+
+    const invalidReasonResponse = await request(app)
+      .patch('/api/v1/reports/complete-reject-flow/verification')
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({ action: 'REJECT', rejectionReason: '   ' });
+    const reportAfterInvalidReason = await reportRepository.findReportById('complete-reject-flow');
+
+    expect(invalidReasonResponse.status).toBe(400);
+    expect(invalidReasonResponse.body.error).toEqual(
+      expect.objectContaining({
+        code: 'VALIDATION_ERROR',
+        message: 'Rejection reason is required.'
+      })
+    );
+    expect(reportAfterInvalidReason?.status).toBe('PENDING');
+    expect(reportAfterInvalidReason).not.toHaveProperty('rejectedById');
+    expect(reportAfterInvalidReason).not.toHaveProperty('rejectedAt');
+    expect(reportAfterInvalidReason).not.toHaveProperty('rejectionReason');
+    expect(reportAfterInvalidReason).not.toHaveProperty('verificationHistory');
+
+    const reviewStartedAt = Date.now();
+    const reviewResponse = await request(app)
+      .patch('/api/v1/reports/complete-reject-flow/verification')
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({
+        action: 'REJECT',
+        rejectionReason: '  The photo shows a different road and no obstruction.  '
+      });
+    const reviewCompletedAt = Date.now();
+    const pendingAfterReview = await request(app)
+      .get('/api/v1/reports/officer/pending')
+      .set('Authorization', `Bearer ${officer.token}`);
+    const detailsAfterReview = await request(app)
+      .get('/api/v1/reports/officer/complete-reject-flow')
+      .set('Authorization', `Bearer ${officer.token}`);
+    const storedReport = await reportRepository.findReportById('complete-reject-flow');
+    const rejectedAt = reviewResponse.body.report.rejectedAt as string;
+    const rejectedAtMs = Date.parse(rejectedAt);
+
+    expect(reviewResponse.status).toBe(200);
+    expect(rejectedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(rejectedAtMs).toBeGreaterThanOrEqual(reviewStartedAt);
+    expect(rejectedAtMs).toBeLessThanOrEqual(reviewCompletedAt);
+    expect(reviewResponse.body.report.updatedAt).toBe(rejectedAt);
+    expect(reviewResponse.body.report.rejectionReason).toBe(
+      'The photo shows a different road and no obstruction.'
+    );
+    expect(reviewResponse.body.report.verificationHistory).toEqual([
+      {
+        action: 'REJECT',
+        rejectedById: officer.user.id,
+        rejectedAt,
+        rejectionReason: 'The photo shows a different road and no obstruction.'
+      }
+    ]);
+    expect(pendingAfterReview.status).toBe(200);
+    expect(pendingAfterReview.body.reports.map((report: SafeReport) => report.id)).toEqual([
+      'reject-flow-pending-control'
+    ]);
+    expect(detailsAfterReview.status).toBe(404);
+    expect(storedReport).toEqual({
+      id: 'complete-reject-flow',
+      residentId: 'resident-reject-evidence-owner',
+      hazardType: 'BLOCKED_ROAD',
+      description: 'A resident reported a fallen tree blocking both traffic lanes.',
+      severity: 'MODERATE',
+      location: {
+        type: 'Point',
+        coordinates: [80.6337, 7.2906]
+      },
+      mediaReference: 'media/reports/complete-reject-evidence.jpg',
+      status: 'REJECTED',
+      createdAt: '2026-08-23T11:49:00.000Z',
+      updatedAt: rejectedAt,
+      rejectedById: officer.user.id,
+      rejectedAt,
+      rejectionReason: 'The photo shows a different road and no obstruction.',
+      verificationHistory: [
+        {
+          action: 'REJECT',
+          rejectedById: officer.user.id,
+          rejectedAt,
+          rejectionReason: 'The photo shows a different road and no obstruction.'
+        }
+      ]
+    });
+  });
+
   it('does not return a reviewed report through the officer pending detail endpoint', async () => {
     const { app, authRepository, reportRepository } = createTestContext();
     const officerToken = await createVolunteerToken(
