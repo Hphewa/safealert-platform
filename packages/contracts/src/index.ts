@@ -139,6 +139,68 @@ export const RESPONSE_STATUSES = [
 
 export type ResponseStatus = (typeof RESPONSE_STATUSES)[number];
 
+export const EMERGENCY_ASSISTANCE_TYPES = [
+  'RESCUE_EVACUATION',
+  'MEDICAL_ASSISTANCE',
+  'FLOOD_ASSISTANCE',
+  'SHELTER_RELOCATION',
+  'OTHER'
+] as const;
+
+export type EmergencyAssistanceType = (typeof EMERGENCY_ASSISTANCE_TYPES)[number];
+
+export const ROAD_ACCESSIBILITIES = ['ACCESSIBLE', 'LIMITED', 'BLOCKED', 'UNKNOWN'] as const;
+
+export type RoadAccessibility = (typeof ROAD_ACCESSIBILITIES)[number];
+
+export type VulnerablePeopleCounts = {
+  children: number;
+  elderlyPeople: number;
+  personsWithDisabilities: number;
+  pregnantPersons: number;
+};
+
+export type ResponseRequestContact = {
+  name: string;
+  phoneNumber: string;
+  email?: string;
+};
+
+export type CreateResponseRequestRequest = {
+  assistanceType: EmergencyAssistanceType;
+  location: GeoJsonPoint;
+  affectedPeople: number;
+  medicalNeeds: boolean;
+  injuredPeople: number;
+  vulnerablePeople: VulnerablePeopleCounts;
+  roadAccessibility: RoadAccessibility;
+  contact: ResponseRequestContact;
+  description: string;
+  specialRequirements?: string;
+};
+
+export type SafeResponseRequest = {
+  id: string;
+  residentId: string;
+  assistanceType: EmergencyAssistanceType;
+  location: GeoJsonPoint;
+  affectedPeople: number;
+  medicalNeeds: boolean;
+  injuredPeople: number;
+  vulnerablePeople: VulnerablePeopleCounts;
+  roadAccessibility: RoadAccessibility;
+  contact: ResponseRequestContact;
+  description: string;
+  specialRequirements?: string;
+  status: ResponseStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateResponseRequestResponse = {
+  responseRequest: SafeResponseRequest;
+};
+
 export const SYNC_OPERATION_TYPES = [
   'REPORT_CREATE',
   'FIELD_CONFIRMATION_CREATE',
