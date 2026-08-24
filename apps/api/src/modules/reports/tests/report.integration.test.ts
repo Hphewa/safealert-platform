@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { SafeReport } from '@safealert/contracts';
+import type { ReportReviewRequest, SafeReport, UserRole } from '@safealert/contracts';
 
 import { createApp } from '../../../app.js';
 import { loadConfig, type ApiConfig } from '../../../config/env.js';
@@ -37,7 +37,7 @@ async function registerResident(app: ReturnType<typeof createApp>) {
 
 async function createVolunteerToken(
   authRepository: InMemoryAuthRepository,
-  role: 'COMMUNITY_VOLUNTEER' | 'DISASTER_OFFICER' | 'RESIDENT',
+  role: UserRole,
   email: string
 ) {
   const user = await authRepository.createUser({
@@ -55,7 +55,7 @@ async function createVolunteerToken(
 
 async function createAuthenticatedUser(
   authRepository: InMemoryAuthRepository,
-  role: 'COMMUNITY_VOLUNTEER' | 'DISASTER_OFFICER' | 'RESIDENT',
+  role: UserRole,
   email: string
 ) {
   const user = await authRepository.createUser({
@@ -108,6 +108,19 @@ const validReportPayload = {
   mediaReference: 'media/reports/flood-photo.jpg'
 };
 
+const forbiddenReportReviewCases = [
+  ['RESIDENT', 'VERIFY', { action: 'VERIFY' }],
+  ['COMMUNITY_VOLUNTEER', 'VERIFY', { action: 'VERIFY' }],
+  ['EMERGENCY_RESPONDER', 'VERIFY', { action: 'VERIFY' }],
+  ['RESIDENT', 'REJECT', { action: 'REJECT', rejectionReason: 'The evidence is unreliable.' }],
+  [
+    'COMMUNITY_VOLUNTEER',
+    'REJECT',
+    { action: 'REJECT', rejectionReason: 'The evidence is unreliable.' }
+  ],
+  ['EMERGENCY_RESPONDER', 'REJECT', { action: 'REJECT', rejectionReason: 'The evidence is unreliable.' }]
+] as const satisfies ReadonlyArray<readonly [UserRole, ReportReviewRequest['action'], ReportReviewRequest]>;
+
 describe('report API', () => {
   beforeEach(() => {
     delete process.env.JWT_ACCESS_EXPIRES_IN;
@@ -140,6 +153,47 @@ describe('report API', () => {
     );
     expect(response.body.report.residentId).not.toBe(validReportPayload.residentId);
   });
+
+  it.each([
+    [
+      'VERIFIED',
+      {
+        verifiedById: 'client-supplied-officer-id',
+        verifiedAt: '2000-01-01T00:00:00.000Z'
+      }
+    ],
+    [
+      'REJECTED',
+      {
+        rejectedById: 'client-supplied-officer-id',
+        rejectedAt: '2000-01-01T00:00:00.000Z',
+        rejectionReason: 'Client supplied rejection reason.'
+      }
+    ]
+  ] as const)(
+    'does not allow resident report creation to set %s status or audit identity',
+    async (status, auditFields) => {
+      const { app } = createTestContext();
+      const resident = await registerResident(app);
+
+      const response = await request(app)
+        .post('/api/v1/reports')
+        .set('Authorization', `Bearer ${resident.body.accessToken}`)
+        .send({
+          ...validReportPayload,
+          status,
+          ...auditFields
+        });
+
+      expect(response.status).toBe(201);
+      expect(response.body.report.status).toBe('PENDING');
+      expect(response.body.report.verifiedById).toBeUndefined();
+      expect(response.body.report.verifiedAt).toBeUndefined();
+      expect(response.body.report.rejectedById).toBeUndefined();
+      expect(response.body.report.rejectedAt).toBeUndefined();
+      expect(response.body.report.rejectionReason).toBeUndefined();
+    }
+  );
 
   it('accepts each supported resident hazard type', async () => {
     const { app } = createTestContext();
@@ -651,9 +705,86 @@ describe('report API', () => {
     expect(forbidden.status).toBe(403);
   });
 
+  it.each(forbiddenReportReviewCases)(
+    'returns 403 when a %s user attempts to %s a report',
+    async (role, action, reviewRequest) => {
+      const { app, authRepository, reportRepository } = createTestContext();
+      const reportId = `forbidden-${role.toLowerCase()}-${action.toLowerCase()}`;
+      const token = await createVolunteerToken(
+        authRepository,
+        role,
+        `${role.toLowerCase()}-${action.toLowerCase()}-review-attempt@example.com`
+      );
+
+      seedReport(reportRepository, {
+        id: reportId,
+        status: 'PENDING',
+        createdAt: '2026-08-23T11:55:00.000Z'
+      });
+
+      const response = await request(app)
+        .patch(`/api/v1/reports/${reportId}/verification`)
+        .set('Authorization', `Bearer ${token}`)
+        .send(reviewRequest);
+      const unchangedReport = await reportRepository.findReportById(reportId);
+
+      expect(response.status).toBe(403);
+      expect(response.body.error).toEqual({
+        code: 'FORBIDDEN',
+        message: 'You are not allowed to perform this action.'
+      });
+      expect(unchangedReport).toEqual(
+        expect.objectContaining({
+          id: reportId,
+          status: 'PENDING'
+        })
+      );
+      expect(unchangedReport?.verifiedById).toBeUndefined();
+      expect(unchangedReport?.rejectedById).toBeUndefined();
+      expect(unchangedReport?.verificationHistory).toBeUndefined();
+    }
+  );
+
+  it('does not expose a generic report update route that can bypass review authorization', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const residentToken = await createVolunteerToken(
+      authRepository,
+      'RESIDENT',
+      'resident-generic-update-attempt@example.com'
+    );
+    const reportId = 'generic-status-update-attempt';
+
+    seedReport(reportRepository, {
+      id: reportId,
+      status: 'PENDING',
+      createdAt: '2026-08-23T11:58:00.000Z'
+    });
+
+    const patchResponse = await request(app)
+      .patch(`/api/v1/reports/${reportId}`)
+      .set('Authorization', `Bearer ${residentToken}`)
+      .send({ status: 'VERIFIED' });
+    const putResponse = await request(app)
+      .put(`/api/v1/reports/${reportId}`)
+      .set('Authorization', `Bearer ${residentToken}`)
+      .send({ status: 'REJECTED' });
+    const unchangedReport = await reportRepository.findReportById(reportId);
+
+    expect(patchResponse.status).toBe(404);
+    expect(putResponse.status).toBe(404);
+    expect(unchangedReport).toEqual(
+      expect.objectContaining({
+        id: reportId,
+        status: 'PENDING'
+      })
+    );
+    expect(unchangedReport?.verifiedById).toBeUndefined();
+    expect(unchangedReport?.rejectedById).toBeUndefined();
+  });
+
   it('verifies a pending report for an authenticated disaster officer', async () => {
     const { app, authRepository, reportRepository } = createTestContext();
-    const officerToken = await createVolunteerToken(
+    const officer = await createAuthenticatedUser(
       authRepository,
       'DISASTER_OFFICER',
       'officer-verify@example.com'
@@ -669,7 +800,7 @@ describe('report API', () => {
 
     const response = await request(app)
       .patch('/api/v1/reports/verify-me/verification')
-      .set('Authorization', `Bearer ${officerToken}`)
+      .set('Authorization', `Bearer ${officer.token}`)
       .send({ action: 'VERIFY' });
 
     expect(response.status).toBe(200);
@@ -678,15 +809,64 @@ describe('report API', () => {
         id: 'verify-me',
         status: 'VERIFIED',
         updatedAt: expect.any(String),
-        verifiedById: expect.any(String),
+        verifiedById: officer.user.id,
         verifiedAt: expect.any(String),
         verificationHistory: [
           expect.objectContaining({
             action: 'VERIFY',
-            verifiedById: expect.any(String),
+            verifiedById: officer.user.id,
             verifiedAt: expect.any(String)
           })
         ]
+      })
+    );
+  });
+
+  it('ignores client-supplied verification status, identity, and timestamps', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const officer = await createAuthenticatedUser(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-verify-overpost@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'verify-overpost',
+      status: 'PENDING',
+      createdAt: '2026-08-23T12:05:00.000Z'
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/reports/verify-overpost/verification')
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({
+        action: 'VERIFY',
+        status: 'REJECTED',
+        verifiedById: 'client-supplied-officer-id',
+        verifiedAt: '2000-01-01T00:00:00.000Z',
+        rejectedById: 'client-supplied-rejecting-officer-id'
+      });
+    const storedReport = await reportRepository.findReportById('verify-overpost');
+
+    expect(response.status).toBe(200);
+    expect(response.body.report.status).toBe('VERIFIED');
+    expect(response.body.report.verifiedById).toBe(officer.user.id);
+    expect(response.body.report.verifiedAt).toEqual(expect.any(String));
+    expect(response.body.report.verifiedAt).not.toBe('2000-01-01T00:00:00.000Z');
+    expect(response.body.report.rejectedById).toBeUndefined();
+    expect(response.body.report.verificationHistory).toEqual([
+      {
+        action: 'VERIFY',
+        verifiedById: officer.user.id,
+        verifiedAt: response.body.report.verifiedAt
+      }
+    ]);
+    expect(storedReport).toEqual(
+      expect.objectContaining({
+        status: 'VERIFIED',
+        verifiedById: officer.user.id,
+        verifiedAt: response.body.report.verifiedAt,
+        verificationHistory: response.body.report.verificationHistory
       })
     );
   });
@@ -707,28 +887,35 @@ describe('report API', () => {
     expect(response.status).toBe(404);
   });
 
-  it('rejects verification when the report is not pending', async () => {
-    const { app, authRepository, reportRepository } = createTestContext();
-    const officerToken = await createVolunteerToken(
-      authRepository,
-      'DISASTER_OFFICER',
-      'officer-invalid-state@example.com'
-    );
+  it.each(['VERIFIED', 'REJECTED'] as const)(
+    'rejects verification when the report is already %s',
+    async (status) => {
+      const { app, authRepository, reportRepository } = createTestContext();
+      const officerToken = await createVolunteerToken(
+        authRepository,
+        'DISASTER_OFFICER',
+        `officer-verify-${status.toLowerCase()}@example.com`
+      );
+      const reportId = `verify-invalid-${status.toLowerCase()}`;
 
-    seedReport(reportRepository, {
-      id: 'already-verified',
-      status: 'VERIFIED',
-      createdAt: '2026-08-23T12:10:00.000Z',
-      updatedAt: '2026-08-23T12:10:00.000Z'
-    });
+      seedReport(reportRepository, {
+        id: reportId,
+        status,
+        createdAt: '2026-08-23T12:10:00.000Z',
+        updatedAt: '2026-08-23T12:10:00.000Z'
+      });
 
-    const response = await request(app)
-      .patch('/api/v1/reports/already-verified/verification')
-      .set('Authorization', `Bearer ${officerToken}`)
-      .send({ action: 'VERIFY' });
+      const response = await request(app)
+        .patch(`/api/v1/reports/${reportId}/verification`)
+        .set('Authorization', `Bearer ${officerToken}`)
+        .send({ action: 'VERIFY' });
+      const unchangedReport = await reportRepository.findReportById(reportId);
 
-    expect(response.status).toBe(409);
-  });
+      expect(response.status).toBe(409);
+      expect(unchangedReport?.status).toBe(status);
+      expect(unchangedReport?.verificationHistory).toBeUndefined();
+    }
+  );
 
   it('requires authentication to verify a report', async () => {
     const { app } = createTestContext();
@@ -764,8 +951,12 @@ describe('report API', () => {
       .send({
         action: 'REJECT',
         rejectionReason: '  The submitted photo shows an unrelated location.  ',
-        rejectedById: 'client-supplied-officer-id'
+        status: 'VERIFIED',
+        rejectedById: 'client-supplied-officer-id',
+        rejectedAt: '2000-01-01T00:00:00.000Z',
+        verifiedById: 'client-supplied-verifying-officer-id'
       });
+    const storedReport = await reportRepository.findReportById('reject-me');
 
     expect(response.status).toBe(200);
     expect(response.body.report).toEqual(
@@ -777,16 +968,29 @@ describe('report API', () => {
         status: 'REJECTED',
         updatedAt: expect.any(String),
         rejectedById: officer.user.id,
-        rejectedAt: expect.any(String),
+        rejectedAt: response.body.report.rejectedAt,
         rejectionReason: 'The submitted photo shows an unrelated location.',
         verificationHistory: [
           expect.objectContaining({
             action: 'REJECT',
             rejectedById: officer.user.id,
-            rejectedAt: expect.any(String),
+            rejectedAt: response.body.report.rejectedAt,
             rejectionReason: 'The submitted photo shows an unrelated location.'
           })
         ]
+      })
+    );
+    expect(response.body.report.rejectedById).not.toBe('client-supplied-officer-id');
+    expect(response.body.report.rejectedAt).toEqual(expect.any(String));
+    expect(response.body.report.rejectedAt).not.toBe('2000-01-01T00:00:00.000Z');
+    expect(response.body.report.verifiedById).toBeUndefined();
+    expect(storedReport).toEqual(
+      expect.objectContaining({
+        status: 'REJECTED',
+        rejectedById: officer.user.id,
+        rejectedAt: response.body.report.rejectedAt,
+        rejectionReason: 'The submitted photo shows an unrelated location.',
+        verificationHistory: response.body.report.verificationHistory
       })
     );
   });
@@ -828,8 +1032,13 @@ describe('report API', () => {
         .patch(`/api/v1/reports/reject-invalid-${status.toLowerCase()}/verification`)
         .set('Authorization', `Bearer ${officerToken}`)
         .send({ action: 'REJECT', rejectionReason: 'The evidence is unreliable.' });
+      const unchangedReport = await reportRepository.findReportById(
+        `reject-invalid-${status.toLowerCase()}`
+      );
 
       expect(response.status).toBe(409);
+      expect(unchangedReport?.status).toBe(status);
+      expect(unchangedReport?.verificationHistory).toBeUndefined();
     }
   );
 
