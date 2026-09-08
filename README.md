@@ -1,6 +1,6 @@
 # SafeAlert Platform
 
-SafeAlert is a mobile disaster and flood warning, reporting, verification, rescue coordination, and safety alert platform. This repository is currently in the foundation stage: monorepo structure, TypeScript setup, Expo mobile app shell, Express API shell, shared contracts, and project documentation.
+SafeAlert is a mobile disaster and flood warning, reporting, verification, rescue coordination, and safety alert platform. This repository is currently in the foundation stage: monorepo structure, TypeScript setup, Expo mobile app shell, Express API shell, shared contracts, authentication/session/RBAC foundation, and project documentation.
 
 ## Architecture Overview
 
@@ -10,7 +10,7 @@ SafeAlert uses one React Native mobile app for all roles and one backend API:
 React Native + Expo mobile app
   -> REST API /api/v1
   -> Node.js + Express backend
-  -> MongoDB later
+  -> MongoDB
 ```
 
 The mobile app must never connect directly to MongoDB. Shared role/status strings live in `@safealert/contracts` so the frontend and backend do not drift apart.
@@ -21,8 +21,9 @@ The mobile app must never connect directly to MongoDB. Shared role/status string
 - TypeScript
 - Expo, React Native, Expo Router
 - Node.js, Express
+- MongoDB and Mongoose
 - ESLint
-- Planned later: MongoDB, Expo Location, maps, image picking, push notifications, SecureStore, SQLite sync
+- Planned later: Expo Location, maps, image picking, push notifications, SQLite sync
 
 ## Repository Structure
 
@@ -66,11 +67,14 @@ npm run mobile
 npm run api
 npm run typecheck
 npm run lint
+npm --workspace @safealert/api test
 ```
 
 `npm run mobile` starts Expo from `apps/mobile`.
 
 `npm run api` starts the Express API in watch mode from `apps/api`.
+
+The API requires `apps/api/.env` with `MONGODB_URI`, JWT secrets, and token expiration settings. The mobile app reads `EXPO_PUBLIC_API_URL` from `apps/mobile/.env`; treat that value as public/client-visible.
 
 The API health endpoint is:
 
@@ -94,4 +98,4 @@ Expected response:
 
 ## Current Scope
 
-This foundation does not implement authentication, role dashboards, hazard reporting, verification, responder workflows, notifications, maps, media uploads, MongoDB, or offline sync. Those are separate milestones.
+This foundation includes authentication/session/RBAC setup and temporary protected role home placeholders. It does not implement hazard reporting, verification workflows, responder request management, notifications, maps, media uploads, or offline sync. Those are separate milestones.

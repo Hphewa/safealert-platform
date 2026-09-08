@@ -11,7 +11,7 @@ SafeAlert has four user roles in one shared mobile application:
 - `DISASTER_OFFICER`
 - `EMERGENCY_RESPONDER`
 
-Authentication and role-based navigation will be implemented later. Do not create separate apps or duplicated infrastructure per role.
+Authentication and role-based navigation use one shared authentication system. Do not create separate apps or duplicated infrastructure per role.
 
 ## Resident Flow Summary
 

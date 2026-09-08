@@ -6,7 +6,23 @@
     "orientation": "portrait",
     "scheme": "safealert",
     "userInterfaceStyle": "automatic",
-    "plugins": ["expo-router"],
+    "plugins": [
+      "expo-router",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow SafeAlert to use your location when reporting nearby hazards."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow SafeAlert to select a photo as optional hazard evidence.",
+          "cameraPermission": "Allow SafeAlert to take a photo as optional hazard evidence."
+        }
+      ],
+      "expo-secure-store"
+    ],
     "extra": {
       "apiUrl": "http://localhost:4000/api/v1"
     }
