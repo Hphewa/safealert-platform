@@ -45,12 +45,12 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 32,
     fontWeight: '700',
-    color: '#0f172a'
+    color: '#111827'
   },
   subtitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#0369a1'
+    color: '#2563eb'
   },
   body: {
     maxWidth: 360,

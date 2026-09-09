@@ -970,7 +970,7 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: dashboardTheme.radius.sm,
     backgroundColor: dashboardTheme.colors.criticalSoft
   },
@@ -1008,11 +1008,11 @@ const styles = StyleSheet.create({
     gap: 8,
     borderRadius: dashboardTheme.radius.md,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
-    backgroundColor: '#fff5f4'
+    borderColor: dashboardTheme.colors.criticalSoft,
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   destructiveButtonSelected: {
-    backgroundColor: '#ffe7e4'
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   destructiveButtonText: {
     fontSize: 16,
@@ -1023,7 +1023,7 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#b8dfc1',
+    borderColor: dashboardTheme.colors.successSoft,
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.successSoft
   },
@@ -1034,9 +1034,9 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: dashboardTheme.radius.md,
-    backgroundColor: '#fffafa'
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   fieldLabelRow: {
     flexDirection: 'row',
@@ -1068,7 +1068,7 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.text
   },
   reasonInputError: {
-    borderColor: '#e7a29b'
+    borderColor: dashboardTheme.colors.critical
   },
   fieldMetaRow: {
     flexDirection: 'row',
@@ -1121,7 +1121,7 @@ const styles = StyleSheet.create({
     backgroundColor: dashboardTheme.colors.critical
   },
   confirmRejectButtonDisabled: {
-    backgroundColor: '#ead9d7'
+    backgroundColor: dashboardTheme.colors.surfaceMuted
   },
   confirmRejectButtonText: {
     fontSize: 15,
@@ -1129,7 +1129,7 @@ const styles = StyleSheet.create({
     color: '#ffffff'
   },
   confirmRejectButtonTextDisabled: {
-    color: '#8f7774'
+    color: dashboardTheme.colors.muted
   },
   confirmVerifyButton: {
     minHeight: 46,

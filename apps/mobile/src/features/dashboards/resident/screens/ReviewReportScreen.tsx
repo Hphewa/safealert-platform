@@ -405,7 +405,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.md,
-    backgroundColor: '#f3fffe'
+    backgroundColor: dashboardTheme.colors.primarySoft
   },
   locationPreviewTitle: {
     fontSize: 14,
@@ -475,9 +475,9 @@ const styles = StyleSheet.create({
     gap: 6,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: dashboardTheme.radius.sm,
-    backgroundColor: '#fff5f4'
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   errorText: {
     fontSize: 14,
@@ -491,7 +491,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: dashboardTheme.radius.sm,
     backgroundColor: dashboardTheme.colors.surface
   },

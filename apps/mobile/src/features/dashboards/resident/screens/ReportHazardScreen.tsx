@@ -678,9 +678,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 12,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: dashboardTheme.radius.sm,
-    backgroundColor: '#fff5f4'
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   retryButtonText: {
     fontSize: 13,
@@ -743,9 +743,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: dashboardTheme.radius.sm,
-    backgroundColor: '#fff5f4'
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   removePhotoButtonText: {
     fontSize: 15,

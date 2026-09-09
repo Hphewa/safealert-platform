@@ -63,7 +63,7 @@ const styles = StyleSheet.create({
   },
   cardSelected: {
     borderColor: dashboardTheme.colors.primary,
-    backgroundColor: '#f3fffe'
+    backgroundColor: dashboardTheme.colors.primarySoft
   },
   cardPressed: {
     opacity: 0.82

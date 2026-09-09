@@ -15,7 +15,7 @@ export function RoleRouteLayout({ allowedRole }: RoleRouteLayoutProps) {
   if (status === 'loading') {
     return (
       <View style={styles.loadingScreen}>
-        <ActivityIndicator size="large" color="#0f766e" />
+        <ActivityIndicator size="large" color="#2563eb" />
       </View>
     );
   }
@@ -36,6 +36,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#eef4f8'
+    backgroundColor: '#f8fafc'
   }
 });
