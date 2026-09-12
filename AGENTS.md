@@ -18,6 +18,9 @@ This file is a short navigation and rules guide. Keep detailed product and archi
 - Store mobile auth tokens only in Expo SecureStore.
 - Public registration creates `RESIDENT` users only.
 - Never put backend secrets into `EXPO_PUBLIC_*`.
+- Keep the mobile app compatible with Expo Go SDK 57.
+- Do not upgrade or downgrade Expo, React, React Native, Expo Router, or Expo native modules unless explicitly required.
+- When changing mobile dependencies, use `npx expo install` and verify with `npx expo install --check`.
 - Store mobile auth tokens only in Expo SecureStore.
 - Public registration creates `RESIDENT` users only.
 - Avoid introducing major dependencies without justification.
