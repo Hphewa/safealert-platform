@@ -9,6 +9,7 @@ import {
 import type { Href } from 'expo-router';
 
 import type { BadgeTone, DashboardIconName } from '../shared/types';
+import { reportEvidenceUri } from '../shared/api/reportEvidence';
 
 export const officerReportHazardFilters = ['ALL', 'FLOOD', 'BLOCKED_ROAD', 'LANDSLIDE', 'OTHER'] as const;
 
@@ -218,7 +219,7 @@ export function mapSafeReportToOfficerReviewRecord(
 ): OfficerReportReviewRecord {
   const summary = mapSafeReportToOfficerGroupedReportSummary(report, now);
   const hasPhotoEvidence = Boolean(report.mediaReference);
-  const canDisplayPhoto = report.mediaReference ? isDisplayableMediaUri(report.mediaReference) : false;
+  const photoUrl = reportEvidenceUri(report);
   const timeline: OfficerReportTimelineEvent[] = [
     {
       id: `${report.id}-submitted`,
@@ -243,9 +244,9 @@ export function mapSafeReportToOfficerReviewRecord(
     ...summary,
     reportedTimeLabel: formatOfficerRelativeTime(report.createdAt, now),
     residentDescription: report.description,
-    ...(canDisplayPhoto && report.mediaReference
+    ...(photoUrl
       ? {
-          residentPhotoUrl: report.mediaReference,
+          residentPhotoUrl: photoUrl,
           residentPhotoLabel: 'Resident photo evidence'
         }
       : {}),
@@ -308,8 +309,4 @@ function iconForOfficerHazard(hazardType: HazardType): DashboardIconName {
     case 'OTHER':
       return 'alert-circle-outline';
   }
-}
-
-function isDisplayableMediaUri(mediaReference: string) {
-  return /^(https?:|data:image\/)/i.test(mediaReference);
 }

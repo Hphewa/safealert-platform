@@ -45,7 +45,14 @@ export type CreateReportRequest = {
   severity: ReportSeverity;
   location: GeoJsonPoint;
   mediaReference?: string;
+  photo?: { base64: string };
 };
+
+export const REPORT_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+export const REPORT_PHOTO_MAX_BASE64_LENGTH = 4 * Math.ceil(REPORT_PHOTO_MAX_BYTES / 3);
+export const REPORT_EVIDENCE_REFERENCE_PREFIX = 'report-evidence/';
+
+export type GetReportEvidenceResponse = { dataUri: string };
 
 export type SafeReport = {
   id: string;

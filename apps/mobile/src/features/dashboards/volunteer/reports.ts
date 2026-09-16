@@ -7,6 +7,7 @@ import type {
 import type { Href } from 'expo-router';
 
 import type { DashboardIconName } from '../shared/types';
+import { reportEvidenceUri } from '../shared/api/reportEvidence';
 
 export type VolunteerReportListKey = 'nearby' | 'incoming';
 
@@ -60,7 +61,7 @@ export function mapCommunityReportToVolunteerReport(report: CommunityReportSumma
     descriptionPreview: createDescriptionPreview(report.description),
     description: report.description,
     status: report.status,
-    mediaUrl: report.mediaReference,
+    mediaUrl: reportEvidenceUri(report),
     icon: hazardTypeIcons[report.hazardType],
     href: `/volunteer/reports/${report.id}`
   };

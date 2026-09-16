@@ -51,6 +51,7 @@ declare module 'expo-image-picker' {
 
   export type ImagePickerAsset = {
     uri: string;
+    base64?: string | null;
     width?: number;
     height?: number;
     type?: string;
@@ -74,11 +75,13 @@ declare module 'expo-image-picker' {
   export function requestMediaLibraryPermissionsAsync(): Promise<ImagePickerPermissionResponse>;
   export function requestCameraPermissionsAsync(): Promise<ImagePickerPermissionResponse>;
   export function launchImageLibraryAsync(options?: {
+    base64?: boolean;
     allowsEditing?: boolean;
     mediaTypes?: MediaTypeOptions;
     quality?: number;
   }): Promise<ImagePickerResult>;
   export function launchCameraAsync(options?: {
+    base64?: boolean;
     allowsEditing?: boolean;
     mediaTypes?: MediaTypeOptions;
     quality?: number;

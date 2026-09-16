@@ -20,6 +20,16 @@ export function errorHandler(
 ) {
   void _next;
 
+  if (typeof error === 'object' && error !== null && 'type' in error && error.type === 'entity.too.large') {
+    response.status(413).json({
+      error: {
+        code: 'PAYLOAD_TOO_LARGE',
+        message: 'The request is too large. Report photos must be 5 MB or smaller.'
+      }
+    });
+    return;
+  }
+
   if (error instanceof ZodError) {
     response.status(400).json({
       error: {

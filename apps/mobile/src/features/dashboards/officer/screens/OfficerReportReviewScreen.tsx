@@ -7,6 +7,7 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
+import { ReportEvidenceImage } from '../../shared/components/ReportEvidenceImage';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
@@ -349,9 +350,9 @@ export function OfficerReportReviewScreen() {
         </View>
         {report.residentPhotoUrl ? (
           <View style={styles.mediaBlock}>
-            <Image
+            <ReportEvidenceImage
               accessibilityLabel={report.residentPhotoLabel ?? 'Resident photo evidence'}
-              source={{ uri: report.residentPhotoUrl }}
+              uri={report.residentPhotoUrl}
               style={styles.mediaPreview}
             />
             {report.residentPhotoLabel ? <Text style={styles.caption}>{report.residentPhotoLabel}</Text> : null}
@@ -360,8 +361,8 @@ export function OfficerReportReviewScreen() {
           <View style={styles.mediaReferenceCard}>
             <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="camera-outline" size={18} />
             <View style={styles.mediaReferenceBody}>
-              <Text style={styles.mediaReferenceTitle}>Resident photo evidence reference</Text>
-              <Text style={styles.mediaReferenceText}>{report.residentMediaReference}</Text>
+              <Text style={styles.mediaReferenceTitle}>Photo unavailable</Text>
+              <Text style={styles.mediaReferenceText}>This older report contains a photo reference, but no viewable image was uploaded.</Text>
             </View>
           </View>
         ) : (

@@ -9,6 +9,7 @@ export type ApiConfig = {
   jwtAccessExpiresIn: string;
   jwtRefreshSecret: string;
   jwtRefreshExpiresIn: string;
+  reportEvidenceDirectory?: string | undefined;
 };
 
 function readPort(value: string | undefined) {
@@ -43,6 +44,7 @@ export function loadConfig(): ApiConfig {
     jwtAccessSecret: process.env.JWT_ACCESS_SECRET ?? defaultDevelopmentAccessSecret,
     jwtAccessExpiresIn: process.env.JWT_ACCESS_EXPIRES_IN ?? '15m',
     jwtRefreshSecret: process.env.JWT_REFRESH_SECRET ?? defaultDevelopmentRefreshSecret,
-    jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '30d'
+    jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN ?? '30d',
+    reportEvidenceDirectory: process.env.REPORT_EVIDENCE_DIRECTORY || undefined
   };
 }

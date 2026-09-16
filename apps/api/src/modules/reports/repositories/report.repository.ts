@@ -6,7 +6,7 @@ import type {
   SafeReport
 } from '@safealert/contracts';
 
-export type CreateReportInput = CreateReportRequest & {
+export type CreateReportInput = Omit<CreateReportRequest, 'photo'> & {
   residentId: string;
   status: 'PENDING';
 };

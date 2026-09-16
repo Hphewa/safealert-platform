@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import { json, Router } from 'express';
+import { REPORT_PHOTO_MAX_BASE64_LENGTH } from '@safealert/contracts';
 
 import type { ApiConfig } from '../../../config/env.js';
 import { authenticate } from '../../../middleware/authenticate.js';
@@ -10,7 +11,11 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
   const router = Router();
   const controller = createReportController(reportService);
 
-  router.post('/', authenticate(config), authorizeRoles('RESIDENT'), controller.create);
+  router.post('/', authenticate(config), authorizeRoles('RESIDENT'),
+    json({ limit: REPORT_PHOTO_MAX_BASE64_LENGTH + 16 * 1024 }), controller.create);
+  router.use(json());
+  router.get('/:reportId/evidence', authenticate(config),
+    authorizeRoles('RESIDENT', 'DISASTER_OFFICER', 'COMMUNITY_VOLUNTEER'), controller.getEvidence);
   router.get(
     '/community',
     authenticate(config),

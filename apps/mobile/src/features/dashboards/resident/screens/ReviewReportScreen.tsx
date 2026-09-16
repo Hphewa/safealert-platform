@@ -69,7 +69,8 @@ export function ReviewReportScreen() {
     setSubmitState({ status: 'submitting', message: null });
 
     try {
-      const response = await createResidentReport(payload, accessToken);
+      const response = await createResidentReport(payload, accessToken,
+        draft.photoEvidence.status === 'LOCAL_SELECTED' ? draft.photoEvidence.selected : undefined);
       setSubmittedReport(response.report);
       resetDraft();
       router.replace('/resident/report-submitted');
@@ -151,7 +152,7 @@ export function ReviewReportScreen() {
               style={styles.photoPreview}
             />
             <Text style={styles.helperText}>
-              Photo selected locally. No media upload service exists yet, so this local device URI is not sent to the API.
+              This photo will be attached to your report for review.
             </Text>
           </View>
         ) : (
@@ -279,10 +280,10 @@ function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'mess
       };
     }
 
-    if (error.status === 400) {
+    if (error.status === 400 || error.status === 413) {
       return {
         reason: 'validation',
-        message: 'Some report details are invalid. Please edit the report and try again.'
+        message: error.message
       };
     }
 

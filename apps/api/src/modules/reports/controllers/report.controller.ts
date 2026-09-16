@@ -23,6 +23,7 @@ export function createReportController(reportService: ReportService) {
       description: parsedInput.description,
       severity: parsedInput.severity,
       location: parsedInput.location,
+      ...(parsedInput.photo ? { photo: parsedInput.photo } : {}),
       ...(parsedInput.mediaReference ? { mediaReference: parsedInput.mediaReference } : {})
     };
     const result = await reportService.createResidentReport(request.auth.id, input);
@@ -61,6 +62,18 @@ export function createReportController(reportService: ReportService) {
     const result = await reportService.getCommunityReportForVolunteer(reportId);
 
     response.status(200).json(result);
+  });
+
+  const getEvidence: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+    const reportId = request.params.reportId;
+    if (!reportId) {
+      throw new ApiError(400, 'INVALID_REPORT_ID', 'Report id is required.');
+    }
+    const result = await reportService.getReportEvidence(reportId, request.auth);
+    response.set('Cache-Control', 'private, no-store').json(result);
   });
 
   const listPendingOfficerReports: RequestHandler = asyncHandler(async (request, response) => {
@@ -109,6 +122,7 @@ export function createReportController(reportService: ReportService) {
 
   return {
     create,
+    getEvidence,
     listCommunity,
     getCommunityById,
     listPendingOfficerReports,

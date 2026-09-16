@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
 
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { ReportEvidenceImage } from '../../shared/components/ReportEvidenceImage';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
@@ -165,9 +166,9 @@ export function VolunteerReportDetailsScreen() {
         <Text style={styles.sectionTitle}>Photo Evidence</Text>
         {report.mediaUrl ? (
           <View style={styles.mediaBlock}>
-            <Image
+            <ReportEvidenceImage
               accessibilityLabel={`${report.hazardType} evidence preview`}
-              source={{ uri: report.mediaUrl }}
+              uri={report.mediaUrl}
               style={styles.mediaPreview}
             />
             <Text style={styles.caption}>Safe preview media is available for this report.</Text>

@@ -17,6 +17,7 @@ web-build/
 dist/
 build/
 coverage/
+apps/api/uploads/
 
 # Logs
 *.log

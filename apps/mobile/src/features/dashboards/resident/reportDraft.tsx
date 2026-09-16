@@ -36,6 +36,7 @@ export type ReportLocationState =
 
 export type SelectedPhotoEvidence = {
   localUri: string;
+  base64: string | null;
   width: number;
   height: number;
   fileName: string | null;

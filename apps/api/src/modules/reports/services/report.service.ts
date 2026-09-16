@@ -6,12 +6,15 @@ import type {
   GetCommunityReportsResponse,
   GetPendingOfficerReportResponse,
   GetPendingOfficerReportsResponse,
+  GetReportEvidenceResponse,
+  UserRole,
   ReportReviewRequest,
   ReviewReportResponse
 } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 
 import type { ReportRepository } from '../repositories/report.repository.js';
+import { ReportEvidenceStorage } from './reportEvidence.storage.js';
 
 export type CommunityReportRetrievalOptions =
   | {
@@ -28,23 +31,36 @@ const volunteerEligibleStatuses = ['PENDING'] as const;
 const officerPendingStatuses = ['PENDING'] as const;
 
 export class ReportService {
-  constructor(private readonly repository: ReportRepository) {}
+  constructor(
+    private readonly repository: ReportRepository,
+    private readonly evidenceStorage = new ReportEvidenceStorage()
+  ) {}
 
   async createResidentReport(
     residentId: string,
     input: CreateReportRequest
   ): Promise<CreateReportResponse> {
-    const report = await this.repository.createReport({
-      residentId,
-      hazardType: input.hazardType,
-      description: input.description,
-      severity: input.severity,
-      location: input.location,
-      ...(input.mediaReference ? { mediaReference: input.mediaReference } : {}),
-      status: 'PENDING'
-    });
-
-    return { report };
+    const uploadedReference = input.photo
+      ? await this.evidenceStorage.save(input.photo.base64)
+      : undefined;
+    const mediaReference = uploadedReference ?? input.mediaReference;
+    try {
+      const report = await this.repository.createReport({
+        residentId,
+        hazardType: input.hazardType,
+        description: input.description,
+        severity: input.severity,
+        location: input.location,
+        ...(mediaReference ? { mediaReference } : {}),
+        status: 'PENDING'
+      });
+      return { report };
+    } catch (error) {
+      if (uploadedReference) {
+        await this.evidenceStorage.remove(uploadedReference);
+      }
+      throw error;
+    }
   }
 
   async listCommunityReportsForVolunteer(
@@ -83,8 +99,22 @@ export class ReportService {
     if (!report) {
       throw new ApiError(404, 'REPORT_NOT_FOUND', 'Community report not found.');
     }
-
     return { report };
+  }
+
+  async getReportEvidence(
+    reportId: string, user: { id: string; role: UserRole }
+  ): Promise<GetReportEvidenceResponse> {
+    const report = await this.repository.findReportById(reportId);
+    if (!report) {
+      throw new ApiError(404, 'REPORT_NOT_FOUND', 'Report not found.');
+    }
+    if (user.role !== 'DISASTER_OFFICER' &&
+        !(user.role === 'RESIDENT' && report.residentId === user.id) &&
+        !(user.role === 'COMMUNITY_VOLUNTEER' && report.status === 'PENDING')) {
+      throw new ApiError(403, 'FORBIDDEN', 'You cannot view this report evidence.');
+    }
+    return { dataUri: await this.evidenceStorage.read(report.mediaReference) };
   }
 
   async listPendingReportsForOfficer(): Promise<GetPendingOfficerReportsResponse> {

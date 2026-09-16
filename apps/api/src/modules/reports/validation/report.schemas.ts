@@ -1,5 +1,7 @@
 import {
   HAZARD_TYPES,
+  REPORT_EVIDENCE_REFERENCE_PREFIX,
+  REPORT_PHOTO_MAX_BASE64_LENGTH,
   REPORT_REJECTION_REASON_MAX_LENGTH,
   REPORT_REJECTION_REASON_MIN_LENGTH,
   REPORT_SEVERITIES
@@ -27,8 +29,14 @@ export const createReportSchema = z.object({
     .max(1000, 'Description must be at most 1000 characters.'),
   severity: z.enum(REPORT_SEVERITIES),
   location: geoJsonPointSchema,
-  mediaReference: z.string().trim().min(1).max(500).optional()
-});
+  mediaReference: z.string().trim().min(1).max(500)
+    .refine((value) => !value.startsWith(REPORT_EVIDENCE_REFERENCE_PREFIX),
+      'Stored evidence must be uploaded with the report.')
+    .optional(),
+  photo: z.object({
+    base64: z.string().min(1).max(REPORT_PHOTO_MAX_BASE64_LENGTH, 'Photo must be 5 MB or smaller.')
+  }).optional()
+}).refine((value) => !(value.photo && value.mediaReference), 'Provide either a photo or a media reference.');
 
 export const communityReportQueryModes = ['incoming', 'nearby'] as const;
 

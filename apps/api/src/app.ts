@@ -14,6 +14,7 @@ import { createReportRouter } from './modules/reports/routes/report.routes.js';
 import { MongooseReportRepository } from './modules/reports/repositories/mongooseReport.repository.js';
 import type { ReportRepository } from './modules/reports/repositories/report.repository.js';
 import { ReportService } from './modules/reports/services/report.service.js';
+import { ReportEvidenceStorage } from './modules/reports/services/reportEvidence.storage.js';
 import { createResponseRequestRouter } from './modules/response-requests/routes/responseRequest.routes.js';
 import { MongooseResponseRequestRepository } from './modules/response-requests/repositories/mongooseResponseRequest.repository.js';
 import type { ResponseRequestRepository } from './modules/response-requests/repositories/responseRequest.repository.js';
@@ -36,12 +37,17 @@ export function createApp({
 }: CreateAppOptions) {
   const app = express();
   const authService = new AuthService(authRepository ?? new MongooseAuthRepository(), config);
-  const reportService = new ReportService(reportRepository ?? new MongooseReportRepository());
+  const reportService = new ReportService(
+    reportRepository ?? new MongooseReportRepository(),
+    new ReportEvidenceStorage(config.reportEvidenceDirectory)
+  );
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()
   );
 
   app.use(cors());
+  // Allow a bounded photo payload only on report creation, after authentication.
+  app.use('/api/v1/reports', createReportRouter(reportService, config));
   app.use(express.json());
 
   app.get('/api/v1/health', (_request, response) => {
@@ -53,7 +59,6 @@ export function createApp({
   });
 
   app.use('/api/v1/auth', createAuthRouter(authService, config));
-  app.use('/api/v1/reports', createReportRouter(reportService, config));
   app.use('/api/v1/response-requests', createResponseRequestRouter(responseRequestService, config));
 
   if (enableRbacTestRoutes) {

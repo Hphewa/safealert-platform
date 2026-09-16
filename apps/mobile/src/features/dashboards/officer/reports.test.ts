@@ -71,6 +71,14 @@ describe('filterOfficerGroupedReports', () => {
 });
 
 describe('real Officer report mapping', () => {
+  it('maps stored evidence to the protected report image endpoint', () => {
+    const report = mapSafeReportToOfficerReviewRecord({
+      ...safePendingReport,
+      mediaReference: 'report-evidence/2e5076d3-552b-446e-97f4-d1580bd6b764.png'
+    });
+    expect(report.residentPhotoUrl).toBe('/reports/real-pending-report/evidence');
+  });
+
   it('maps a pending API report into searchable list information', () => {
     const summary = mapSafeReportToOfficerGroupedReportSummary(
       safePendingReport,

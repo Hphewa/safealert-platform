@@ -166,6 +166,7 @@ export function ReportHazardScreen() {
       });
 
       const result = await ImagePicker.launchImageLibraryAsync({
+        base64: true,
         allowsEditing: false,
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.82
@@ -220,6 +221,7 @@ export function ReportHazardScreen() {
       });
 
       const result = await ImagePicker.launchCameraAsync({
+        base64: true,
         allowsEditing: false,
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         quality: 0.82
@@ -370,7 +372,7 @@ export function ReportHazardScreen() {
               <Text style={styles.detectedText}>Photo ready</Text>
               <Text style={styles.panelText}>{draft.photoEvidence.message}</Text>
               <Text style={styles.mongoHintText}>
-                Local image stays on this device until a media upload service stores it.
+                Your photo will be attached when you submit the report. Maximum size: 5 MB.
               </Text>
             </View>
           ) : (
@@ -520,6 +522,7 @@ function toSelectedPhotoEvidence(
 ): SelectedPhotoEvidence {
   return {
     localUri: asset.uri,
+    base64: asset.base64 ?? null,
     width: asset.width ?? 0,
     height: asset.height ?? 0,
     fileName: asset.fileName ?? null,
