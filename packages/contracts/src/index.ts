@@ -253,3 +253,24 @@ export type ApiErrorResponse = {
   };
 };
 
+export const UNABLE_TO_CONFIRM_REASONS = [
+  'Situation no longer exists',
+  'Location does not match',
+  'Report information is incorrect',
+  'Unable to access location',
+  'Other'
+] as const;
+export const FIELD_CONFIRMATION_REASON_MAX_LENGTH = 500;
+export type UnableToConfirmReason = (typeof UNABLE_TO_CONFIRM_REASONS)[number];
+export type CreateFieldConfirmationRequest =
+  | { outcome: 'CONFIRMED' }
+  | { outcome: 'UNABLE_TO_CONFIRM'; reason: UnableToConfirmReason; reasonDetails?: string };
+export type FieldConfirmation = CreateFieldConfirmationRequest & {
+  id: string;
+  reportId: string;
+  volunteerId: string;
+  status: 'PENDING';
+  createdAt: string;
+};
+export type CreateFieldConfirmationResponse = { confirmation: FieldConfirmation };
+export type GetFieldConfirmationsResponse = { confirmations: FieldConfirmation[] };

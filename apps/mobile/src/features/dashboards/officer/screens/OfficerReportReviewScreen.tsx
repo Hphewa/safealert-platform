@@ -4,6 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { REPORT_REJECTION_REASON_MAX_LENGTH } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { OfficerFieldConfirmations } from '../components/OfficerFieldConfirmations';
 import { ApiClientError } from '@/services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
@@ -369,6 +370,7 @@ export function OfficerReportReviewScreen() {
         )}
       </SectionCard>
 
+      <OfficerFieldConfirmations reportId={report.id} />
       <SectionCard title="Volunteer Field Information">
         {report.volunteerEvidence.length ? (
           <View style={styles.stack}>

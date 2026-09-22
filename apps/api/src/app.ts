@@ -1,4 +1,8 @@
 import cors from 'cors';
+import type { FieldConfirmationRepository } from './modules/field-confirmations/repositories/fieldConfirmation.repository.js';
+import { MongooseFieldConfirmationRepository } from './modules/field-confirmations/repositories/mongooseFieldConfirmation.repository.js';
+import { FieldConfirmationService } from './modules/field-confirmations/services/fieldConfirmation.service.js';
+import { createFieldConfirmationRouter } from './modules/field-confirmations/routes/fieldConfirmation.routes.js';
 import express from 'express';
 
 import { USER_ROLES } from '@safealert/contracts';
@@ -23,6 +27,7 @@ type CreateAppOptions = {
   config: ApiConfig;
   authRepository?: AuthRepository;
   reportRepository?: ReportRepository;
+  fieldConfirmationRepository?: FieldConfirmationRepository;
   responseRequestRepository?: ResponseRequestRepository;
   enableRbacTestRoutes?: boolean;
 };
@@ -31,6 +36,7 @@ export function createApp({
   config,
   authRepository,
   reportRepository,
+  fieldConfirmationRepository,
   responseRequestRepository,
   enableRbacTestRoutes = false
 }: CreateAppOptions) {
@@ -54,6 +60,9 @@ export function createApp({
 
   app.use('/api/v1/auth', createAuthRouter(authService, config));
   app.use('/api/v1/reports', createReportRouter(reportService, config));
+  app.use('/api/v1/field-confirmations', createFieldConfirmationRouter(
+    new FieldConfirmationService(fieldConfirmationRepository ?? new MongooseFieldConfirmationRepository(), reportService), config
+  ));
   app.use('/api/v1/response-requests', createResponseRequestRouter(responseRequestService, config));
 
   if (enableRbacTestRoutes) {

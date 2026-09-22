@@ -15,9 +15,15 @@ async function startServer() {
 
   const app = createApp({ config });
 
-  app.listen(config.port, () => {
-    console.log(`SafeAlert API listening on http://localhost:${config.port}`);
+  await new Promise<void>((resolve, reject) => {
+    const server = app.listen(config.port, () => resolve());
+    server.once('error', (error: NodeJS.ErrnoException) => {
+      reject(error.code === 'EADDRINUSE'
+        ? new Error(`Port ${config.port} is already in use. Stop the other API instance, then restart SafeAlert.`)
+        : error);
+    });
   });
+  console.log(`SafeAlert API listening on http://localhost:${config.port}`);
 }
 
 startServer().catch((error) => {

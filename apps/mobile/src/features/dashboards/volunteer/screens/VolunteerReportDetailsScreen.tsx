@@ -181,12 +181,12 @@ export function VolunteerReportDetailsScreen() {
         <View style={styles.actionCopy}>
           <Text style={styles.actionTitle}>Confirm in Field</Text>
           <Text style={styles.actionBody}>
-            Field confirmation submission will be added in a later volunteer story. The original resident report stays read-only here.
+            Confirm the current situation or flag why you are unable to confirm it for Disaster Officer review.
           </Text>
         </View>
         <Pressable
           accessibilityRole="button"
-          onPress={() => router.push('/volunteer/confirmations')}
+          onPress={() => router.push({ pathname: '/volunteer/reports/[reportId]/confirm', params: { reportId: report.id } })}
           style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
         >
           <Text style={styles.primaryButtonText}>Confirm in Field</Text>
