@@ -21,4 +21,7 @@ export class MongooseFieldConfirmationRepository implements FieldConfirmationRep
   async findByReportId(reportId: string) {
     return (await FieldConfirmationModel.find({ reportId }).sort({ createdAt: -1 })).map(serialize);
   }
+  async findByVolunteerId(volunteerId: string) {
+    return (await FieldConfirmationModel.find({ volunteerId }).sort({ createdAt: -1 })).map(serialize);
+  }
 }

@@ -12,4 +12,7 @@ export class InMemoryFieldConfirmationRepository implements FieldConfirmationRep
   async findByReportId(reportId: string) {
     return this.confirmations.filter((item) => item.reportId === reportId);
   }
+  async findByVolunteerId(volunteerId: string) {
+    return this.confirmations.filter((item) => item.volunteerId === volunteerId);
+  }
 }

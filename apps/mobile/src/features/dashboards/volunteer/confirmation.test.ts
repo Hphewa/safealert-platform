@@ -1,9 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildConfirmationInput } from './confirmation';
-import { submitFieldConfirmation } from './api/fieldConfirmationsApi';
+import { listMyFieldConfirmations, submitFieldConfirmation } from './api/fieldConfirmationsApi';
 
 afterEach(() => vi.unstubAllGlobals());
 describe('volunteer confirmation submission', () => {
+  it('retrieves personal history using only the authenticated session', async () => {
+    const confirmations = [{ id: 'confirmation', status: 'PENDING', outcome: 'UNABLE_TO_CONFIRM' }];
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ confirmations }) });
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await listMyFieldConfirmations('token')).toEqual({ confirmations });
+    const [url, options] = fetchMock.mock.calls[0]!;
+    expect(url).toMatch(/\/field-confirmations\/mine$/);
+    expect(options.headers.Authorization).toBe('Bearer token');
+  });
   it.each(['', '   '])('requires an explanation for Other (%j)', (details) => {
     expect(() => buildConfirmationInput('UNABLE_TO_CONFIRM', 'Other', details)).toThrow();
   });

@@ -13,4 +13,7 @@ export class FieldConfirmationService {
     await this.reports.getPendingReportForOfficer(reportId);
     return { confirmations: await this.repository.findByReportId(reportId) };
   }
+  async listForVolunteer(volunteerId: string) {
+    return { confirmations: await this.repository.findByVolunteerId(volunteerId) };
+  }
 }

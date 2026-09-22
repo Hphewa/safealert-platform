@@ -9,6 +9,9 @@ import { confirmSchema, reportIdSchema, unableToConfirmSchema } from '../validat
 export function createFieldConfirmationRouter(service: FieldConfirmationService, config: ApiConfig) {
   const router = Router();
   router.use(authenticate(config));
+  router.get('/mine', authorizeRoles('COMMUNITY_VOLUNTEER'), asyncHandler(async (request, response) => {
+    response.json(await service.listForVolunteer(request.auth!.id));
+  }));
   router.post('/:reportId/confirm', authorizeRoles('COMMUNITY_VOLUNTEER'), asyncHandler(async (request, response) => {
     const reportId = reportIdSchema.parse(request.params.reportId);
     confirmSchema.parse(request.body);

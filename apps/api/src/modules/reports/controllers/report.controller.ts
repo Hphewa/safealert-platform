@@ -31,6 +31,9 @@ export function createReportController(reportService: ReportService) {
   });
 
   const listCommunity: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
     const parsedQuery = communityReportQuerySchema.parse(request.query);
     const resolvedMode =
       parsedQuery.mode ??
@@ -38,13 +41,13 @@ export function createReportController(reportService: ReportService) {
 
     const result =
       resolvedMode === 'nearby' && parsedQuery.latitude !== undefined && parsedQuery.longitude !== undefined
-        ? await reportService.listCommunityReportsForVolunteer({
+        ? await reportService.listCommunityReportsForVolunteer(request.auth.id, {
             mode: 'nearby',
             latitude: parsedQuery.latitude,
             longitude: parsedQuery.longitude,
             radiusKm: parsedQuery.radiusKm ?? maxCommunityReportRadiusKm
           })
-        : await reportService.listCommunityReportsForVolunteer({
+        : await reportService.listCommunityReportsForVolunteer(request.auth.id, {
             mode: 'incoming'
           });
 

@@ -8,6 +8,7 @@ import { createApp } from '../../../app.js';
 import { loadConfig, type ApiConfig } from '../../../config/env.js';
 import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
 import { InMemoryReportRepository } from '../repositories/inMemoryReport.repository.js';
+import { InMemoryFieldConfirmationRepository } from '../../field-confirmations/repositories/inMemoryFieldConfirmation.repository.js';
 
 function createTestContext(overrides: Partial<ApiConfig> = {}) {
   process.env.NODE_ENV = 'test';
@@ -22,7 +23,7 @@ function createTestContext(overrides: Partial<ApiConfig> = {}) {
   };
   const authRepository = new InMemoryAuthRepository();
   const reportRepository = new InMemoryReportRepository();
-  const app = createApp({ config, authRepository, reportRepository });
+  const app = createApp({ config, authRepository, reportRepository, fieldConfirmationRepository: new InMemoryFieldConfirmationRepository() });
 
   return { app, authRepository, reportRepository };
 }

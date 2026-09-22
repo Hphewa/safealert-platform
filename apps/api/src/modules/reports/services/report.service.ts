@@ -10,6 +10,7 @@ import type {
   ReviewReportResponse
 } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
+import type { FieldConfirmationRepository } from '../../field-confirmations/repositories/fieldConfirmation.repository.js';
 
 import type { ReportRepository } from '../repositories/report.repository.js';
 
@@ -28,7 +29,10 @@ const volunteerEligibleStatuses = ['PENDING'] as const;
 const officerPendingStatuses = ['PENDING'] as const;
 
 export class ReportService {
-  constructor(private readonly repository: ReportRepository) {}
+  constructor(
+    private readonly repository: ReportRepository,
+    private readonly confirmations: FieldConfirmationRepository
+  ) {}
 
   async createResidentReport(
     residentId: string,
@@ -48,23 +52,27 @@ export class ReportService {
   }
 
   async listCommunityReportsForVolunteer(
+    volunteerId: string,
     options: CommunityReportRetrievalOptions
   ): Promise<GetCommunityReportsResponse> {
+    const submittedReportIds = new Set(
+      (await this.confirmations.findByVolunteerId(volunteerId)).map((item) => item.reportId)
+    );
     if (options.mode === 'nearby') {
       return {
-        reports: await this.repository.findNearbyCommunityReports({
+        reports: (await this.repository.findNearbyCommunityReports({
           statuses: [...volunteerEligibleStatuses],
           longitude: options.longitude,
           latitude: options.latitude,
           radiusKm: options.radiusKm
-        })
+        })).filter((report) => !submittedReportIds.has(report.id))
       };
     }
 
     const reports = await this.repository.findReportsByStatuses([...volunteerEligibleStatuses]);
 
     return {
-      reports: reports.map<CommunityReportSummary>((report) => ({
+      reports: reports.filter((report) => !submittedReportIds.has(report.id)).map<CommunityReportSummary>((report) => ({
         id: report.id,
         hazardType: report.hazardType,
         description: report.description,

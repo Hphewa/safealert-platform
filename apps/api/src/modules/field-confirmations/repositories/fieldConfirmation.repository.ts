@@ -7,4 +7,5 @@ export type CreateFieldConfirmationInput = CreateFieldConfirmationRequest & {
 export interface FieldConfirmationRepository {
   create(input: CreateFieldConfirmationInput): Promise<FieldConfirmation>;
   findByReportId(reportId: string): Promise<FieldConfirmation[]>;
+  findByVolunteerId(volunteerId: string): Promise<FieldConfirmation[]>;
 }

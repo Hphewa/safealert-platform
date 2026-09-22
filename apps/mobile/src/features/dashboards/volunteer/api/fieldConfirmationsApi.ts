@@ -1,5 +1,9 @@
-import type { CreateFieldConfirmationRequest, CreateFieldConfirmationResponse } from '@safealert/contracts';
+import type { CreateFieldConfirmationRequest, CreateFieldConfirmationResponse, GetFieldConfirmationsResponse } from '@safealert/contracts';
 import { apiRequest } from '../../../../services/api/client';
+
+export function listMyFieldConfirmations(accessToken: string) {
+  return apiRequest<GetFieldConfirmationsResponse>('/field-confirmations/mine', { accessToken });
+}
 
 export function submitFieldConfirmation(reportId: string, input: CreateFieldConfirmationRequest, accessToken: string) {
   const action = input.outcome === 'CONFIRMED' ? 'confirm' : 'unable-to-confirm';

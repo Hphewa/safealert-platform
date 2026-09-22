@@ -42,7 +42,8 @@ export function createApp({
 }: CreateAppOptions) {
   const app = express();
   const authService = new AuthService(authRepository ?? new MongooseAuthRepository(), config);
-  const reportService = new ReportService(reportRepository ?? new MongooseReportRepository());
+  const confirmations = fieldConfirmationRepository ?? new MongooseFieldConfirmationRepository();
+  const reportService = new ReportService(reportRepository ?? new MongooseReportRepository(), confirmations);
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()
   );
@@ -61,7 +62,7 @@ export function createApp({
   app.use('/api/v1/auth', createAuthRouter(authService, config));
   app.use('/api/v1/reports', createReportRouter(reportService, config));
   app.use('/api/v1/field-confirmations', createFieldConfirmationRouter(
-    new FieldConfirmationService(fieldConfirmationRepository ?? new MongooseFieldConfirmationRepository(), reportService), config
+    new FieldConfirmationService(confirmations, reportService), config
   ));
   app.use('/api/v1/response-requests', createResponseRequestRouter(responseRequestService, config));
 
