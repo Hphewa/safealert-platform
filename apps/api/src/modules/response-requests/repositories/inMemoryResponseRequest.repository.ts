@@ -59,6 +59,36 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  async acceptResponseRequest(responseRequestId: string, responderId: string) {
+    const responseRequest = this.responseRequests.get(responseRequestId);
+
+    if (!responseRequest || responseRequest.status !== 'NEW') {
+      return null;
+    }
+
+    // Mirror the atomic NEW-only production transition in the test repository.
+    const assignedResponseRequest: SafeResponseRequest = {
+      ...responseRequest,
+      status: 'ASSIGNED',
+      assignedResponderId: responderId,
+      updatedAt: new Date().toISOString()
+    };
+    this.responseRequests.set(responseRequestId, assignedResponseRequest);
+
+    return assignedResponseRequest;
+  }
+
+  async declineResponseRequest(responseRequestId: string) {
+    const responseRequest = this.responseRequests.get(responseRequestId);
+
+    if (!responseRequest || responseRequest.status !== 'NEW') {
+      return null;
+    }
+
+    // A decline leaves the request NEW so another responder can accept it.
+    return responseRequest;
+  }
+
   async findResponseRequestById(
     responseRequestId: string,
     residentId: string,

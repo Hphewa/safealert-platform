@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 
 import { ApiError } from '../../../shared/apiError.js';
 import { InMemoryResponseRequestRepository } from '../repositories/inMemoryResponseRequest.repository.js';
-import type { ResponseRequestService } from '../services/responseRequest.service.js';
+import type {
+  ResponderActionActor,
+  ResponseRequestService
+} from '../services/responseRequest.service.js';
 import { ResponseRequestService as ResponseRequestServiceImplementation } from '../services/responseRequest.service.js';
 import type { SafeResponseRequest } from '@safealert/contracts';
 
@@ -43,6 +46,11 @@ function createService() {
 
   return { repository, service };
 }
+
+const responderActor = (id = 'responder-a'): ResponderActionActor => ({
+  id,
+  role: 'EMERGENCY_RESPONDER'
+});
 
 describe('response request queue service', () => {
   it('returns only NEW requests newest first for the pending queue', async () => {
@@ -111,5 +119,80 @@ describe('response request queue service', () => {
         error.statusCode === 400 &&
         error.code === 'INVALID_RESPONDER_ID'
     );
+  });
+
+  it('accepts a NEW request and assigns it to the authenticated responder', async () => {
+    const { repository, service } = createService();
+    repository.seedResponseRequest(createResponseRequest({ id: 'request-to-accept' }));
+
+    const responseRequest = await service.acceptResponseRequest('request-to-accept', responderActor());
+
+    expect(responseRequest).toEqual(
+      expect.objectContaining({
+        status: 'ASSIGNED',
+        assignedResponderId: 'responder-a'
+      })
+    );
+    await expect(service.listPendingResponseRequests()).resolves.toEqual([]);
+    await expect(service.listAssignedResponseRequests('responder-a')).resolves.toEqual([
+      expect.objectContaining({ id: 'request-to-accept' })
+    ]);
+  });
+
+  it('rejects accepting a request that is no longer NEW', async () => {
+    const { repository, service } = createService();
+    repository.seedResponseRequest(
+      createResponseRequest({ id: 'already-assigned', status: 'ASSIGNED' })
+    );
+
+    await expect(
+      service.acceptResponseRequest('already-assigned', responderActor())
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'REQUEST_NOT_AVAILABLE'
+    });
+  });
+
+  it('declines a NEW request without changing its status', async () => {
+    const { repository, service } = createService();
+    repository.seedResponseRequest(createResponseRequest({ id: 'request-to-decline' }));
+
+    const responseRequest = await service.declineResponseRequest('request-to-decline', responderActor());
+
+    expect(responseRequest.status).toBe('NEW');
+    expect(responseRequest.assignedResponderId).toBeUndefined();
+    await expect(service.listPendingResponseRequests()).resolves.toEqual([
+      expect.objectContaining({ id: 'request-to-decline', status: 'NEW' })
+    ]);
+  });
+
+  it('rejects declining a missing or non-NEW request', async () => {
+    const { service } = createService();
+
+    await expect(
+      service.declineResponseRequest('missing-request', responderActor())
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'REQUEST_NOT_AVAILABLE'
+    });
+    await expect(service.acceptResponseRequest('', responderActor())).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'INVALID_REQUEST_ID'
+    });
+  });
+
+  it('rejects unauthenticated and non-responder action actors', async () => {
+    const { service } = createService();
+
+    await expect(service.acceptResponseRequest('request-1', null)).rejects.toMatchObject({
+      statusCode: 401,
+      code: 'UNAUTHORIZED'
+    });
+    await expect(
+      service.declineResponseRequest('request-1', { id: 'resident-1', role: 'RESIDENT' })
+    ).rejects.toMatchObject({
+      statusCode: 403,
+      code: 'FORBIDDEN'
+    });
   });
 });

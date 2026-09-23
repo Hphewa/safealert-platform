@@ -13,6 +13,11 @@ export interface ResponseRequestRepository {
   createResponseRequest(input: CreateResponseRequestInput): Promise<SafeResponseRequest>;
   findPendingResponseRequests(): Promise<SafeResponseRequest[]>;
   findAssignedResponseRequests(responderId: string): Promise<SafeResponseRequest[]>;
+  acceptResponseRequest(
+    responseRequestId: string,
+    responderId: string
+  ): Promise<SafeResponseRequest | null>;
+  declineResponseRequest(responseRequestId: string): Promise<SafeResponseRequest | null>;
   findResponseRequestById(
     responseRequestId: string,
     residentId: string,
