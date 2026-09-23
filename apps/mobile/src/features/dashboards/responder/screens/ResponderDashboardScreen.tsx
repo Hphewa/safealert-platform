@@ -14,6 +14,11 @@ import { responderBottomNavItems } from '../mockData';
 import { clearResponderRequestCache, replaceResponderRequestCache } from '../requestDetailsCache';
 import { responderRequestDetailsHref } from '../requestDetails';
 import {
+  emptyQueueDescription,
+  emptyQueueTitle,
+  responderQueueErrorMessage
+} from '../requestFlowState';
+import {
   getResponderQueueCounts,
   getVisibleResponderRequests,
   type RequestTab,
@@ -38,6 +43,7 @@ export function ResponderDashboardScreen() {
     if (!accessToken) {
       setQueueState({ pending: [], assigned: [] });
       setLoadState('error');
+      setIsRefreshing(false);
       setErrorMessage('Your session has expired. Please log in again.');
       return;
     }
@@ -138,14 +144,8 @@ export function ResponderDashboardScreen() {
         </QueueStateMessage>
       ) : visibleRequests.length === 0 ? (
         <QueueStateMessage>
-          <Text style={styles.stateTitle}>
-            No {activeTab === 'PENDING' ? 'pending' : 'assigned'} requests
-          </Text>
-          <Text style={styles.stateDescription}>
-            {activeTab === 'PENDING'
-              ? 'There are currently no emergency requests waiting for response.'
-              : 'There are currently no emergency requests assigned to you.'}
-          </Text>
+          <Text style={styles.stateTitle}>{emptyQueueTitle(activeTab)}</Text>
+          <Text style={styles.stateDescription}>{emptyQueueDescription(activeTab)}</Text>
         </QueueStateMessage>
       ) : (
         <View style={styles.list}>
@@ -217,11 +217,7 @@ function assistanceTypeIcon(assistanceType: SafeResponseRequest['assistanceType'
 }
 
 function errorMessageFor(error: unknown) {
-  if (error instanceof ApiClientError && error.status === 0) {
-    return 'Check your connection and try again.';
-  }
-
-  return 'The responder request queues could not be loaded. Please try again.';
+  return responderQueueErrorMessage(error instanceof ApiClientError && error.status === 0);
 }
 
 type ResponderTabProps = {
