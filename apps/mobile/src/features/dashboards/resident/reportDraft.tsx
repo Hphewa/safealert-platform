@@ -42,8 +42,8 @@ export type SelectedPhotoEvidence = {
   mimeType: string | null;
   assetId: string | null;
   source: 'MEDIA_LIBRARY' | 'CAMERA';
-  needsUpload: true;
-  uploadedMediaReference: null;
+  needsUpload: boolean;
+  uploadedMediaReference: string | null;
 };
 
 export type PhotoEvidenceState =

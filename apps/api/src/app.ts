@@ -22,6 +22,8 @@ import { createResponseRequestRouter } from './modules/response-requests/routes/
 import { MongooseResponseRequestRepository } from './modules/response-requests/repositories/mongooseResponseRequest.repository.js';
 import type { ResponseRequestRepository } from './modules/response-requests/repositories/responseRequest.repository.js';
 import { ResponseRequestService } from './modules/response-requests/services/responseRequest.service.js';
+import { createMediaRouter } from './modules/media/routes/media.routes.js';
+import { LocalMediaStorage } from './modules/media/services/localMediaStorage.js';
 
 type CreateAppOptions = {
   config: ApiConfig;
@@ -47,6 +49,7 @@ export function createApp({
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()
   );
+  const mediaStorage = new LocalMediaStorage(config);
 
   app.use(cors());
   app.use(express.json());
@@ -61,6 +64,7 @@ export function createApp({
 
   app.use('/api/v1/auth', createAuthRouter(authService, config));
   app.use('/api/v1/reports', createReportRouter(reportService, config));
+  app.use('/api/v1/media', createMediaRouter(mediaStorage, config));
   app.use('/api/v1/field-confirmations', createFieldConfirmationRouter(
     new FieldConfirmationService(confirmations, reportService), config
   ));

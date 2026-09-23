@@ -94,6 +94,13 @@ export type CreateReportResponse = {
   report: SafeReport;
 };
 
+export type UploadReportEvidenceResponse = {
+  mediaReference: string;
+  contentType: string;
+  size: number;
+  url?: string;
+};
+
 export type VerifyReportResponse = {
   report: SafeReport;
 };
