@@ -37,6 +37,28 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return responseRequest;
   }
 
+  async findPendingResponseRequests() {
+    // Mirror the MongoDB queue rules so service tests exercise the same
+    // filtering and ordering behavior used in production.
+    return [...this.responseRequests.values()]
+      // NEW requests are waiting to be handled by an Emergency Responder.
+      .filter((responseRequest) => responseRequest.status === 'NEW')
+      // Show the newest requests first while priority scoring is unavailable.
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async findAssignedResponseRequests(responderId: string) {
+    // Restrict the assigned queue to the responder's own active workload.
+    return [...this.responseRequests.values()]
+      .filter(
+        (responseRequest) =>
+          responseRequest.status === 'ASSIGNED' &&
+          responseRequest.assignedResponderId === responderId
+      )
+          // Keep ordering consistent with the production repository.
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
   async findResponseRequestById(
     responseRequestId: string,
     residentId: string,
@@ -53,5 +75,9 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     }
 
     return responseRequest;
+  }
+
+  seedResponseRequest(responseRequest: SafeResponseRequest) {
+    this.responseRequests.set(responseRequest.id, responseRequest);
   }
 }

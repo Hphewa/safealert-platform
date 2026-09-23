@@ -182,6 +182,8 @@ export type CreateResponseRequestRequest = {
 export type SafeResponseRequest = {
   id: string;
   residentId: string;
+  // Set when the emergency request is assigned to a specific responder.
+  assignedResponderId?: string;
   assistanceType: EmergencyAssistanceType;
   location: GeoJsonPoint;
   affectedPeople: number;

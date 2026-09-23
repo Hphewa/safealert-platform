@@ -106,6 +106,12 @@ const responseRequestSchema = new mongoose.Schema(
       ref: 'User',
       index: true
     },
+    // Optional until a responder accepts or is assigned the request.
+    assignedResponderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      index: true
+    },
     assistanceType: {
       type: String,
       required: true,
@@ -211,6 +217,10 @@ export function toSafeResponseRequest(responseRequest: ResponseRequestDocument):
     createdAt: responseRequest.createdAt.toISOString(),
     updatedAt: responseRequest.updatedAt.toISOString()
   };
+
+  if (responseRequest.assignedResponderId) {
+    safeResponseRequest.assignedResponderId = responseRequest.assignedResponderId.toString();
+  }
 
   if (responseRequest.specialRequirements) {
     safeResponseRequest.specialRequirements = responseRequest.specialRequirements;

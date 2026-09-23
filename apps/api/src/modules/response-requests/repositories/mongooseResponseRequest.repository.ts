@@ -12,6 +12,31 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return toSafeResponseRequest(responseRequest);
   }
 
+  async findPendingResponseRequests() {
+    // NEW requests have not yet been assigned to a responder, so they form
+    // the pending emergency-request queue.
+    const responseRequests = await ResponseRequestModel.find({ status: 'NEW' })
+      // Keep the queue deterministic by showing the most recently submitted
+      // emergency requests first until priority scoring is implemented.
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return responseRequests.map(toSafeResponseRequest);
+  }
+
+  async findAssignedResponseRequests(responderId: string) {
+    // Scope assigned requests to the current responder so one responder
+    // cannot view another responder's active workload.
+    const responseRequests = await ResponseRequestModel.find({
+      status: 'ASSIGNED',
+      assignedResponderId: responderId
+    })
+      .sort({ createdAt: -1 })
+      .exec();
+
+    return responseRequests.map(toSafeResponseRequest);
+  }
+
   async findResponseRequestById(
     responseRequestId: string,
     residentId: string,
