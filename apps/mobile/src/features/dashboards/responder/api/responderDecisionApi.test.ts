@@ -41,6 +41,21 @@ describe('Responder decision API', () => {
     );
     expect(fetchMock.mock.calls[0]?.[0]).not.toContain('responderId');
   });
+
+  it.each([401, 403, 404, 409, 500])('propagates API status %s for friendly screen handling', async (status) => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response(JSON.stringify({ error: { code: 'REQUEST_NOT_AVAILABLE', message: 'Request unavailable.' } }), {
+        status,
+        headers: { 'Content-Type': 'application/json' }
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(declineResponderRequest('request/one', 'responder-token')).rejects.toMatchObject({
+      status,
+      code: 'REQUEST_NOT_AVAILABLE'
+    });
+  });
 });
 
 function jsonResponse(body: unknown) {

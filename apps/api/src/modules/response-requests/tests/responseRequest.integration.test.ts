@@ -670,6 +670,18 @@ describe('response request API', () => {
         acceptedAt: expect.any(String)
       })
     );
+
+    const pending = await request(app)
+      .get('/api/v1/response-requests/responder/pending')
+      .set('Authorization', `Bearer ${responderToken}`);
+    const assigned = await request(app)
+      .get('/api/v1/response-requests/responder/assigned')
+      .set('Authorization', `Bearer ${responderToken}`);
+
+    expect(pending.body).toEqual([]);
+    expect(assigned.body.map((responseRequest: SafeResponseRequest) => responseRequest.id)).toEqual([
+      'request-to-accept'
+    ]);
   });
 
   it('allows an authenticated responder to decline a NEW request without cancelling it', async () => {
@@ -768,5 +780,60 @@ describe('response request API', () => {
       })
     );
     expect(assignedDecline.status).toBe(409);
+  });
+
+  it.each(['ASSIGNED', 'DISPATCHED', 'COMPLETED'] as const)(
+    'rejects accepting a %s request',
+    async (status) => {
+      const { app, authRepository, responseRequestRepository } = createTestContext();
+      const responderToken = await createAccessToken(
+        authRepository,
+        'EMERGENCY_RESPONDER',
+        `accept-${status.toLowerCase()}@example.com`
+      );
+      responseRequestRepository.seedResponseRequest(
+        createStoredResponseRequest({ id: `accept-${status.toLowerCase()}`, status })
+      );
+
+      const response = await request(app)
+        .patch(`/api/v1/response-requests/responder/requests/accept-${status.toLowerCase()}/accept`)
+        .set('Authorization', `Bearer ${responderToken}`);
+
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe('REQUEST_NOT_AVAILABLE');
+    }
+  );
+
+  it('rejects declining a non-NEW request and prevents duplicate decline entries', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    const responderToken = await createAccessToken(
+      authRepository,
+      'EMERGENCY_RESPONDER',
+      'duplicate-decline@example.com'
+    );
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({ id: 'decline-assigned', status: 'ASSIGNED' })
+    );
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({ id: 'decline-new', status: 'NEW' })
+    );
+
+    const nonNewResponse = await request(app)
+      .patch('/api/v1/response-requests/responder/requests/decline-assigned/decline')
+      .set('Authorization', `Bearer ${responderToken}`);
+    const firstDecline = await request(app)
+      .patch('/api/v1/response-requests/responder/requests/decline-new/decline')
+      .set('Authorization', `Bearer ${responderToken}`);
+    const secondDecline = await request(app)
+      .patch('/api/v1/response-requests/responder/requests/decline-new/decline')
+      .set('Authorization', `Bearer ${responderToken}`);
+
+    expect(nonNewResponse.status).toBe(409);
+    expect(firstDecline.status).toBe(200);
+    expect(secondDecline.status).toBe(200);
+    expect(secondDecline.body.status).toBe('NEW');
+    expect(secondDecline.body.declinedByResponderIds).toEqual([
+      firstDecline.body.declinedByResponderIds[0]
+    ]);
   });
 });
