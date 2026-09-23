@@ -17,7 +17,10 @@ export interface ResponseRequestRepository {
     responseRequestId: string,
     responderId: string
   ): Promise<SafeResponseRequest | null>;
-  declineResponseRequest(responseRequestId: string): Promise<SafeResponseRequest | null>;
+  declineResponseRequest(
+    responseRequestId: string,
+    responderId: string
+  ): Promise<SafeResponseRequest | null>;
   findResponseRequestById(
     responseRequestId: string,
     residentId: string,

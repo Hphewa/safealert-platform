@@ -130,7 +130,8 @@ describe('response request queue service', () => {
     expect(responseRequest).toEqual(
       expect.objectContaining({
         status: 'ASSIGNED',
-        assignedResponderId: 'responder-a'
+        assignedResponderId: 'responder-a',
+        acceptedAt: expect.any(String)
       })
     );
     await expect(service.listPendingResponseRequests()).resolves.toEqual([]);
@@ -161,9 +162,33 @@ describe('response request queue service', () => {
 
     expect(responseRequest.status).toBe('NEW');
     expect(responseRequest.assignedResponderId).toBeUndefined();
+    expect(responseRequest.declinedByResponderIds).toEqual(['responder-a']);
     await expect(service.listPendingResponseRequests()).resolves.toEqual([
-      expect.objectContaining({ id: 'request-to-decline', status: 'NEW' })
+      expect.objectContaining({
+        id: 'request-to-decline',
+        status: 'NEW',
+        declinedByResponderIds: ['responder-a']
+      })
     ]);
+  });
+
+  it('stores multiple unique responder decline IDs without changing NEW status', async () => {
+    const { repository, service } = createService();
+    repository.seedResponseRequest(createResponseRequest({ id: 'shared-request' }));
+
+    await service.declineResponseRequest('shared-request', responderActor('responder-a'));
+    const secondDecline = await service.declineResponseRequest(
+      'shared-request',
+      responderActor('responder-b')
+    );
+    const duplicateDecline = await service.declineResponseRequest(
+      'shared-request',
+      responderActor('responder-a')
+    );
+
+    expect(secondDecline.declinedByResponderIds).toEqual(['responder-a', 'responder-b']);
+    expect(duplicateDecline.declinedByResponderIds).toEqual(['responder-a', 'responder-b']);
+    expect(duplicateDecline.status).toBe('NEW');
   });
 
   it('rejects declining a missing or non-NEW request', async () => {

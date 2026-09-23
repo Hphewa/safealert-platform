@@ -184,6 +184,9 @@ export type SafeResponseRequest = {
   residentId: string;
   // Set when the emergency request is assigned to a specific responder.
   assignedResponderId?: string;
+  // Keeps responder-specific declines without changing the emergency status.
+  declinedByResponderIds?: string[];
+  acceptedAt?: string;
   assistanceType: EmergencyAssistanceType;
   location: GeoJsonPoint;
   affectedPeople: number;

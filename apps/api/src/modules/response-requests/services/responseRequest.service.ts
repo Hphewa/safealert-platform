@@ -58,8 +58,8 @@ export class ResponseRequestService {
     const responderId = this.validateResponderActionInput(responseRequestId, actor);
 
     const responseRequest = await this.repository.acceptResponseRequest(
-        responseRequestId.trim(),
-        responderId
+      responseRequestId.trim(),
+      responderId
     );
 
     if (!responseRequest) {
@@ -77,9 +77,12 @@ export class ResponseRequestService {
     responseRequestId: string,
     actor: ResponderActionActor | null | undefined
   ) {
-    this.validateResponderActionInput(responseRequestId, actor);
+    const responderId = this.validateResponderActionInput(responseRequestId, actor);
 
-    const responseRequest = await this.repository.declineResponseRequest(responseRequestId.trim());
+    const responseRequest = await this.repository.declineResponseRequest(
+      responseRequestId.trim(),
+      responderId
+    );
 
     if (!responseRequest) {
       throw new ApiError(

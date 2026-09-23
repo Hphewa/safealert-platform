@@ -25,6 +25,7 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
       contact: input.contact,
       description: input.description,
       status: input.status,
+      declinedByResponderIds: [],
       createdAt: now,
       updatedAt: now
     };
@@ -71,6 +72,7 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
       ...responseRequest,
       status: 'ASSIGNED',
       assignedResponderId: responderId,
+      acceptedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
     this.responseRequests.set(responseRequestId, assignedResponseRequest);
@@ -78,15 +80,24 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return assignedResponseRequest;
   }
 
-  async declineResponseRequest(responseRequestId: string) {
+  async declineResponseRequest(responseRequestId: string, responderId: string) {
     const responseRequest = this.responseRequests.get(responseRequestId);
 
     if (!responseRequest || responseRequest.status !== 'NEW') {
       return null;
     }
 
-    // A decline leaves the request NEW so another responder can accept it.
-    return responseRequest;
+    // A decline leaves the request NEW so another responder can accept it,
+    // while the set prevents the same responder being recorded twice.
+    const declinedByResponderIds = new Set(responseRequest.declinedByResponderIds ?? []);
+    declinedByResponderIds.add(responderId);
+    const updatedResponseRequest: SafeResponseRequest = {
+      ...responseRequest,
+      declinedByResponderIds: [...declinedByResponderIds]
+    };
+    this.responseRequests.set(responseRequestId, updatedResponseRequest);
+
+    return updatedResponseRequest;
   }
 
   async findResponseRequestById(

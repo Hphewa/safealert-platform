@@ -48,7 +48,8 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
       {
         $set: {
           status: 'ASSIGNED',
-          assignedResponderId: responderId
+          assignedResponderId: responderId,
+          acceptedAt: new Date()
         }
       },
       { new: true }
@@ -57,13 +58,21 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 
-  async declineResponseRequest(responseRequestId: string) {
+  async declineResponseRequest(responseRequestId: string, responderId: string) {
     // Declining is responder-specific and must not cancel the emergency;
     // leaving the request NEW keeps it available to other responders.
-    const responseRequest = await ResponseRequestModel.findOne({
-      _id: responseRequestId,
-      status: 'NEW'
-    }).exec();
+    const responseRequest = await ResponseRequestModel.findOneAndUpdate(
+      {
+        _id: responseRequestId,
+        status: 'NEW'
+      },
+      {
+        $addToSet: {
+          declinedByResponderIds: responderId
+        }
+      },
+      { new: true }
+    ).exec();
 
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }

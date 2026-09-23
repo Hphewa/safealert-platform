@@ -112,6 +112,20 @@ const responseRequestSchema = new mongoose.Schema(
       ref: 'User',
       index: true
     },
+    // Preserve which responders declined so the same request can later be
+    // excluded from only those responders' pending queues.
+    declinedByResponderIds: {
+      type: [
+        {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'User'
+        }
+      ],
+      default: []
+    },
+    acceptedAt: {
+      type: Date
+    },
     assistanceType: {
       type: String,
       required: true,
@@ -218,8 +232,16 @@ export function toSafeResponseRequest(responseRequest: ResponseRequestDocument):
     updatedAt: responseRequest.updatedAt.toISOString()
   };
 
+  safeResponseRequest.declinedByResponderIds = (responseRequest.declinedByResponderIds ?? []).map(
+    (responderId) => responderId.toString()
+  );
+
   if (responseRequest.assignedResponderId) {
     safeResponseRequest.assignedResponderId = responseRequest.assignedResponderId.toString();
+  }
+
+  if (responseRequest.acceptedAt) {
+    safeResponseRequest.acceptedAt = responseRequest.acceptedAt.toISOString();
   }
 
   if (responseRequest.specialRequirements) {
