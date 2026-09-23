@@ -36,8 +36,14 @@ export function createResponseRequestController(responseRequestService: Response
     response.status(201).json(result);
   });
 
-  const listPendingForResponder: RequestHandler = asyncHandler(async (_request, response) => {
-    const responseRequests = await responseRequestService.listPendingResponseRequests();
+  const listPendingForResponder: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const responseRequests = await responseRequestService.listPendingResponseRequests(
+      request.auth.id
+    );
 
     response.status(200).json(responseRequests);
   });

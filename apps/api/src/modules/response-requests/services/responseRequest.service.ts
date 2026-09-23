@@ -37,8 +37,12 @@ export class ResponseRequestService {
     return { responseRequest };
   }
 
-  async listPendingResponseRequests() {
-    return this.repository.findPendingResponseRequests();
+  async listPendingResponseRequests(responderId: string) {
+    if (typeof responderId !== 'string' || !responderId.trim()) {
+      throw new ApiError(400, 'INVALID_RESPONDER_ID', 'A responder id is required.');
+    }
+
+    return this.repository.findPendingResponseRequests(responderId.trim());
   }
 
   async listAssignedResponseRequests(responderId: string) {

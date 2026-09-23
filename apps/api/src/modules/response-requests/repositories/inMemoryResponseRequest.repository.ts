@@ -38,12 +38,16 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return responseRequest;
   }
 
-  async findPendingResponseRequests() {
+  async findPendingResponseRequests(responderId: string) {
     // Mirror the MongoDB queue rules so service tests exercise the same
     // filtering and ordering behavior used in production.
     return [...this.responseRequests.values()]
       // NEW requests are waiting to be handled by an Emergency Responder.
-      .filter((responseRequest) => responseRequest.status === 'NEW')
+      .filter(
+        (responseRequest) =>
+          responseRequest.status === 'NEW' &&
+          !(responseRequest.declinedByResponderIds ?? []).includes(responderId)
+      )
       // Show the newest requests first while priority scoring is unavailable.
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }

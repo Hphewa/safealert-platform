@@ -13,10 +13,19 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return toSafeResponseRequest(responseRequest);
   }
 
-  async findPendingResponseRequests() {
-    // NEW requests have not yet been assigned to a responder, so they form
-    // the pending emergency-request queue.
-    const responseRequests = await ResponseRequestModel.find({ status: 'NEW' })
+  async findPendingResponseRequests(responderId: string) {
+    if (!mongoose.isValidObjectId(responderId)) {
+      return [];
+    }
+
+    // Exclude only requests declined by this responder. Other responders must
+    // still see NEW requests so they can assist with the emergency.
+    const responseRequests = await ResponseRequestModel.find({
+      status: 'NEW',
+      declinedByResponderIds: {
+        $nin: [responderId]
+      }
+    })
       // Keep the queue deterministic by showing the most recently submitted
       // emergency requests first until priority scoring is implemented.
       .sort({ createdAt: -1 })

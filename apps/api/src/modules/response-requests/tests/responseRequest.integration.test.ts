@@ -464,6 +464,58 @@ describe('response request API', () => {
     ]);
   });
 
+  it('excludes only the authenticated responder\'s declined requests from Pending', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    const responderA = await authRepository.createUser({
+      name: 'Responder A User',
+      email: 'pending-filter-a@example.com',
+      passwordHash: 'not-used-in-this-test',
+      role: 'EMERGENCY_RESPONDER'
+    });
+    const responderAToken = jwt.sign({ role: responderA.role }, 'test-access-secret', {
+      subject: responderA.id,
+      expiresIn: '15m'
+    });
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({
+        id: 'declined-by-a',
+        declinedByResponderIds: [responderA.id]
+      })
+    );
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({ id: 'available-to-a' })
+    );
+
+    const responderAResponse = await request(app)
+      .get('/api/v1/response-requests/responder/pending')
+      .set('Authorization', `Bearer ${responderAToken}`);
+
+    expect(responderAResponse.status).toBe(200);
+    expect(responderAResponse.body.map((responseRequest: SafeResponseRequest) => responseRequest.id)).toEqual([
+      'available-to-a'
+    ]);
+
+    const responderB = await authRepository.createUser({
+      name: 'Responder B User',
+      email: 'pending-filter-b@example.com',
+      passwordHash: 'not-used-in-this-test',
+      role: 'EMERGENCY_RESPONDER'
+    });
+    const responderBToken = jwt.sign({ role: responderB.role }, 'test-access-secret', {
+      subject: responderB.id,
+      expiresIn: '15m'
+    });
+    const responderBResponse = await request(app)
+      .get('/api/v1/response-requests/responder/pending')
+      .set('Authorization', `Bearer ${responderBToken}`);
+
+    expect(responderBResponse.status).toBe(200);
+    expect(responderBResponse.body.map((responseRequest: SafeResponseRequest) => responseRequest.id)).toEqual([
+      'declined-by-a',
+      'available-to-a'
+    ]);
+  });
+
   it('returns an empty pending queue when no NEW requests exist', async () => {
     const { app, authRepository } = createTestContext();
     const responderToken = await createAccessToken(

@@ -65,9 +65,41 @@ describe('response request queue service', () => {
       createResponseRequest({ id: 'newer-new', createdAt: '2026-09-23T12:00:00.000Z' })
     );
 
-    const requests = await service.listPendingResponseRequests();
+    const requests = await service.listPendingResponseRequests('responder-a');
 
     expect(requests.map((request) => request.id)).toEqual(['newer-new', 'older-new']);
+  });
+
+  it('excludes only requests declined by the current responder', async () => {
+    const { repository, service } = createService();
+    repository.seedResponseRequest(
+      createResponseRequest({
+        id: 'declined-by-a',
+        declinedByResponderIds: ['responder-a']
+      })
+    );
+    repository.seedResponseRequest(
+      createResponseRequest({
+        id: 'declined-by-b',
+        declinedByResponderIds: ['responder-b']
+      })
+    );
+    repository.seedResponseRequest(createResponseRequest({ id: 'not-declined' }));
+
+    const responderARequests = await service.listPendingResponseRequests('responder-a');
+    const responderBRequests = await service.listPendingResponseRequests('responder-b');
+
+    expect(responderARequests.map((request) => request.id)).toEqual(['declined-by-b', 'not-declined']);
+    expect(responderBRequests.map((request) => request.id)).toEqual(['declined-by-a', 'not-declined']);
+  });
+
+  it('accepts pending requests with no decline history', async () => {
+    const { repository, service } = createService();
+    repository.seedResponseRequest(createResponseRequest({ id: 'legacy-new-request' }));
+
+    await expect(service.listPendingResponseRequests('responder-a')).resolves.toEqual([
+      expect.objectContaining({ id: 'legacy-new-request' })
+    ]);
   });
 
   it('returns only ASSIGNED requests belonging to the requested responder', async () => {
@@ -104,7 +136,7 @@ describe('response request queue service', () => {
   it('returns an empty array when no requests match', async () => {
     const { service } = createService();
 
-    await expect(service.listPendingResponseRequests()).resolves.toEqual([]);
+    await expect(service.listPendingResponseRequests('responder-a')).resolves.toEqual([]);
     await expect(service.listAssignedResponseRequests('responder-a')).resolves.toEqual([]);
   });
 
@@ -121,6 +153,17 @@ describe('response request queue service', () => {
     );
   });
 
+  it('rejects a pending queue lookup without a responder ID', async () => {
+    const { service } = createService();
+
+    await expect(
+      service.listPendingResponseRequests('' as string)
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      code: 'INVALID_RESPONDER_ID'
+    });
+  });
+
   it('accepts a NEW request and assigns it to the authenticated responder', async () => {
     const { repository, service } = createService();
     repository.seedResponseRequest(createResponseRequest({ id: 'request-to-accept' }));
@@ -134,7 +177,7 @@ describe('response request queue service', () => {
         acceptedAt: expect.any(String)
       })
     );
-    await expect(service.listPendingResponseRequests()).resolves.toEqual([]);
+    await expect(service.listPendingResponseRequests('responder-a')).resolves.toEqual([]);
     await expect(service.listAssignedResponseRequests('responder-a')).resolves.toEqual([
       expect.objectContaining({ id: 'request-to-accept' })
     ]);
@@ -200,7 +243,10 @@ describe('response request queue service', () => {
     expect(responseRequest.status).toBe('NEW');
     expect(responseRequest.assignedResponderId).toBeUndefined();
     expect(responseRequest.declinedByResponderIds).toEqual(['responder-a']);
-    await expect(service.listPendingResponseRequests()).resolves.toEqual([
+    // The request remains NEW for other responders but is excluded from this
+    // responder's pending queue after the decline is recorded.
+    await expect(service.listPendingResponseRequests('responder-a')).resolves.toEqual([]);
+    await expect(service.listPendingResponseRequests('responder-b')).resolves.toEqual([
       expect.objectContaining({
         id: 'request-to-decline',
         status: 'NEW',

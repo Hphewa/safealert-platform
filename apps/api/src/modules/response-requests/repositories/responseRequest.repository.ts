@@ -11,7 +11,7 @@ export type CreateResponseRequestInput = CreateResponseRequestRequest & {
 
 export interface ResponseRequestRepository {
   createResponseRequest(input: CreateResponseRequestInput): Promise<SafeResponseRequest>;
-  findPendingResponseRequests(): Promise<SafeResponseRequest[]>;
+  findPendingResponseRequests(responderId: string): Promise<SafeResponseRequest[]>;
   findAssignedResponseRequests(responderId: string): Promise<SafeResponseRequest[]>;
   acceptResponseRequest(
     responseRequestId: string,
