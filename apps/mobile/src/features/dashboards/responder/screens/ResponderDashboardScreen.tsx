@@ -11,6 +11,8 @@ import { ReportListItem } from '../../shared/components/ReportListItem';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { responderBottomNavItems } from '../mockData';
+import { clearResponderRequestCache, replaceResponderRequestCache } from '../requestDetailsCache';
+import { responderRequestDetailsHref } from '../requestDetails';
 import {
   getResponderQueueCounts,
   getVisibleResponderRequests,
@@ -52,11 +54,13 @@ export function ResponderDashboardScreen() {
       ]);
 
       setQueueState({ pending, assigned });
+      replaceResponderRequestCache([...pending, ...assigned]);
       setLoadState('ready');
       setIsRefreshing(false);
       setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
     } catch (error) {
       setQueueState({ pending: [], assigned: [] });
+      clearResponderRequestCache();
       setLoadState('error');
       setIsRefreshing(false);
       setErrorMessage(errorMessageFor(error));
@@ -155,10 +159,16 @@ export function ResponderDashboardScreen() {
 }
 
 function ResponderRequestItem({ request }: { request: SafeResponseRequest }) {
+  const href = responderRequestDetailsHref(request.id);
+
+  if (!href) {
+    return null;
+  }
+
   return (
     <ReportListItem
       detailItems={[`${request.affectedPeople} people`, `${request.injuredPeople} injured`]}
-      href="/responder/request-details"
+      href={href}
       icon={assistanceTypeIcon(request.assistanceType)}
       statusLabel={request.status}
       statusTone={request.status === 'ASSIGNED' ? 'success' : 'info'}
