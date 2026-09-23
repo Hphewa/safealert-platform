@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { SafeResponseRequest } from '@safealert/contracts';
 
@@ -74,9 +75,11 @@ export function ResponderDashboardScreen() {
     }
   }, [accessToken]);
 
-  useEffect(() => {
-    void loadQueues();
-  }, [loadQueues]);
+  useFocusEffect(
+    useCallback(() => {
+      void loadQueues();
+    }, [loadQueues])
+  );
 
   const tabCounts = useMemo(() => getResponderQueueCounts(queueState), [queueState]);
 

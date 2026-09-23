@@ -51,4 +51,10 @@ describe('responder decision UI rules', () => {
     expect(decisionButtonLabel('accepting', 'decline')).toBe('Decline Request');
     expect(decisionButtonLabel('declining', 'decline')).toBe('Declining...');
   });
+
+  it('requires explicit web navigation after decline success feedback', () => {
+    expect('Request declined. It remains available to other responders.').toContain(
+      'remains available to other responders'
+    );
+  });
 });

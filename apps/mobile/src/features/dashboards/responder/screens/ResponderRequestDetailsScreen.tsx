@@ -1,7 +1,10 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useState } from 'react';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { SafeResponseRequest } from '@safealert/contracts';
+
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ApiClientError } from '@/services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
@@ -10,6 +13,9 @@ import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { responderBottomNavItems } from '../mockData';
 import { getCachedResponderRequest } from '../requestDetailsCache';
 import { displayValue } from '../requestDetails';
+import { replaceResponderRequestCache } from '../requestDetailsCache';
+import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
+import { acceptResponderRequest, declineResponderRequest } from '../api/responderDecisionApi';
 import {
   canShowResponderDecisionActions,
   decisionButtonLabel,
@@ -19,12 +25,149 @@ import {
 
 export function ResponderRequestDetailsScreen() {
   const router = useRouter();
+  const { accessToken } = useAuth();
   const params = useLocalSearchParams<{ requestId?: string | string[] }>();
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
   const responseRequest = requestId ? getCachedResponderRequest(requestId) : null;
   const [decisionAction, setDecisionAction] = useState<ResponderDecisionAction>('idle');
 
   const returnToRequests = () => router.replace('/responder');
+
+  const refreshResponderQueues = useCallback(async () => {
+    if (!accessToken) {
+      throw new Error('Your session has expired. Please log in again.');
+    }
+
+    const [pending, assigned] = await Promise.all([
+      listPendingResponderRequests(accessToken),
+      listAssignedResponderRequests(accessToken)
+    ]);
+
+    // Refresh both queues because Accept moves a request from Pending to
+    // Assigned, while Decline removes it only from this responder's Pending queue.
+    replaceResponderRequestCache([...pending, ...assigned]);
+  }, [accessToken]);
+
+  const friendlyDecisionError = (error: unknown) => {
+    if (error instanceof ApiClientError) {
+      if (error.status === 401) {
+        return 'Your session has expired. Please log in again.';
+      }
+
+      if (error.status === 409 || error.code === 'REQUEST_NOT_AVAILABLE') {
+        return 'This request is no longer available.';
+      }
+    }
+
+    return 'Unable to update this request. Please check your connection and try again.';
+  };
+
+  const acceptRequest = async () => {
+    if (
+      decisionAction !== 'idle' ||
+      !responseRequest ||
+      !requestId ||
+      responseRequest.status !== 'NEW' ||
+      !accessToken
+    ) {
+      return;
+    }
+
+    setDecisionAction('accepting');
+
+    try {
+      await acceptResponderRequest(requestId, accessToken);
+      await refreshResponderQueues();
+      Alert.alert('Request accepted', 'Request accepted successfully.', [
+        { text: 'Back to Requests', onPress: returnToRequests }
+      ]);
+    } catch (error) {
+      Alert.alert('Unable to accept request', friendlyDecisionError(error));
+      if (error instanceof ApiClientError && (error.status === 409 || error.status === 404)) {
+        try {
+          await refreshResponderQueues();
+        } catch {
+          // The original action error is more useful than a secondary refresh error.
+        }
+      }
+    } finally {
+      // Always clear the busy state so a failed request cannot trap the UI.
+      setDecisionAction('idle');
+    }
+  };
+
+  const confirmDeclineRequest = () => {
+    if (
+      decisionAction !== 'idle' ||
+      !responseRequest ||
+      !requestId ||
+      responseRequest.status !== 'NEW' ||
+      !accessToken
+    ) {
+      return;
+    }
+
+    if (Platform.OS === 'web') {
+      // Browser confirmation is required on web because native Alert action
+      // callbacks are not consistently available in React Native Web.
+      if (globalThis.confirm('Decline this emergency request?')) {
+        void declineRequest();
+      }
+      return;
+    }
+
+    Alert.alert('Decline this emergency request?', 'The request will remain available to other responders.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Decline', style: 'destructive', onPress: () => void declineRequest() }
+    ]);
+  };
+
+  const showDeclineSuccess = () => {
+    const message = 'Request declined. It remains available to other responders.';
+
+    if (Platform.OS === 'web') {
+      // Web alerts do not reliably invoke React Native action callbacks, so
+      // navigate explicitly after showing the success feedback.
+      globalThis.alert(message);
+      returnToRequests();
+      return;
+    }
+
+    Alert.alert('Request declined', message, [
+      { text: 'Back to Requests', onPress: returnToRequests }
+    ]);
+  };
+
+  const declineRequest = async () => {
+    if (
+      decisionAction !== 'idle' ||
+      !responseRequest ||
+      !requestId ||
+      responseRequest.status !== 'NEW' ||
+      !accessToken
+    ) {
+      return;
+    }
+
+    setDecisionAction('declining');
+
+    try {
+      await declineResponderRequest(requestId, accessToken);
+      await refreshResponderQueues();
+      showDeclineSuccess();
+    } catch (error) {
+      Alert.alert('Unable to decline request', friendlyDecisionError(error));
+      if (error instanceof ApiClientError && (error.status === 409 || error.status === 404)) {
+        try {
+          await refreshResponderQueues();
+        } catch {
+          // The original action error is more useful than a secondary refresh error.
+        }
+      }
+    } finally {
+      setDecisionAction('idle');
+    }
+  };
 
   if (!responseRequest) {
     return (
@@ -88,8 +231,8 @@ export function ResponderRequestDetailsScreen() {
       {canShowResponderDecisionActions(responseRequest) ? (
         <ResponderDecisionActions
           action={decisionAction}
-          onAccept={() => setDecisionAction('accepting')}
-          onDecline={() => setDecisionAction('declining')}
+          onAccept={() => void acceptRequest()}
+          onDecline={confirmDeclineRequest}
         />
       ) : null}
 
