@@ -143,7 +143,11 @@ describe('response request queue service', () => {
   it('rejects accepting a request that is no longer NEW', async () => {
     const { repository, service } = createService();
     repository.seedResponseRequest(
-      createResponseRequest({ id: 'already-assigned', status: 'ASSIGNED' })
+      createResponseRequest({
+        id: 'already-assigned',
+        status: 'ASSIGNED',
+        assignedResponderId: 'responder-b'
+      })
     );
 
     await expect(
@@ -152,6 +156,39 @@ describe('response request queue service', () => {
       statusCode: 409,
       code: 'REQUEST_NOT_AVAILABLE'
     });
+    await expect(service.listAssignedResponseRequests('responder-b')).resolves.toEqual([
+      expect.objectContaining({ id: 'already-assigned', assignedResponderId: 'responder-b' })
+    ]);
+  });
+
+  it('allows only the first of two responders to accept the same NEW request', async () => {
+    const { repository, service } = createService();
+    repository.seedResponseRequest(createResponseRequest({ id: 'shared-new-request' }));
+
+    const results = await Promise.allSettled([
+      service.acceptResponseRequest('shared-new-request', responderActor('responder-a')),
+      service.acceptResponseRequest('shared-new-request', responderActor('responder-b'))
+    ]);
+    const fulfilled = results.filter((result) => result.status === 'fulfilled');
+    const rejected = results.filter((result) => result.status === 'rejected');
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(fulfilled[0]).toEqual(
+      expect.objectContaining({
+        status: 'fulfilled',
+        value: expect.objectContaining({ status: 'ASSIGNED' })
+      })
+    );
+    expect(rejected[0]).toEqual(
+      expect.objectContaining({
+        status: 'rejected',
+        reason: expect.objectContaining({
+          statusCode: 409,
+          code: 'REQUEST_NOT_AVAILABLE'
+        })
+      })
+    );
   });
 
   it('declines a NEW request without changing its status', async () => {
@@ -194,6 +231,12 @@ describe('response request queue service', () => {
   it('rejects declining a missing or non-NEW request', async () => {
     const { service } = createService();
 
+    await expect(
+      service.acceptResponseRequest('missing-request', responderActor())
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'REQUEST_NOT_AVAILABLE'
+    });
     await expect(
       service.declineResponseRequest('missing-request', responderActor())
     ).rejects.toMatchObject({
