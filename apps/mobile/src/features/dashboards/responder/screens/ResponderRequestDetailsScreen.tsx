@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { SafeResponseRequest } from '@safealert/contracts';
 
@@ -9,12 +10,19 @@ import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { responderBottomNavItems } from '../mockData';
 import { getCachedResponderRequest } from '../requestDetailsCache';
 import { displayValue } from '../requestDetails';
+import {
+  canShowResponderDecisionActions,
+  decisionButtonLabel,
+  isResponderDecisionBusy,
+  type ResponderDecisionAction
+} from '../decisionUi';
 
 export function ResponderRequestDetailsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ requestId?: string | string[] }>();
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
   const responseRequest = requestId ? getCachedResponderRequest(requestId) : null;
+  const [decisionAction, setDecisionAction] = useState<ResponderDecisionAction>('idle');
 
   const returnToRequests = () => router.replace('/responder');
 
@@ -77,8 +85,66 @@ export function ResponderRequestDetailsScreen() {
         <DetailRow label="Date / time" value={formatSubmittedAt(responseRequest.createdAt)} />
       </DetailsSection>
 
+      {canShowResponderDecisionActions(responseRequest) ? (
+        <ResponderDecisionActions
+          action={decisionAction}
+          onAccept={() => setDecisionAction('accepting')}
+          onDecline={() => setDecisionAction('declining')}
+        />
+      ) : null}
+
       <BackToRequestsButton onPress={returnToRequests} />
     </DashboardScreen>
+  );
+}
+
+function ResponderDecisionActions({
+  action,
+  onAccept,
+  onDecline
+}: {
+  action: ResponderDecisionAction;
+  onAccept: () => void;
+  onDecline: () => void;
+}) {
+  const isBusy = isResponderDecisionBusy(action);
+
+  return (
+    <View style={styles.decisionSection}>
+      <Text style={styles.decisionHeading}>RESPONDER DECISION</Text>
+      <Text style={styles.decisionHelper}>Choose how you want to handle this new request.</Text>
+      <View style={styles.decisionRow}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: isBusy }}
+          disabled={isBusy}
+          onPress={onDecline}
+          style={({ pressed }) => [
+            styles.declineButton,
+            isBusy && styles.disabledButton,
+            pressed && !isBusy && styles.pressed
+          ]}
+        >
+          <Text style={styles.declineButtonText}>{decisionButtonLabel(action, 'decline')}</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ disabled: isBusy }}
+          disabled={isBusy}
+          onPress={onAccept}
+          style={({ pressed }) => [
+            styles.acceptButton,
+            isBusy && styles.disabledButton,
+            pressed && !isBusy && styles.pressed
+          ]}
+        >
+          <Text style={styles.acceptButtonText}>{decisionButtonLabel(action, 'accept')}</Text>
+        </Pressable>
+      </View>
+      {isBusy ? (
+        <Text style={styles.decisionHelper}>Processing your decision...</Text>
+      ) : null}
+    </View>
   );
 }
 
@@ -180,6 +246,65 @@ function statusTone(status: SafeResponseRequest['status']) {
 }
 
 const styles = StyleSheet.create({
+  decisionSection: {
+      gap: 10,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: dashboardTheme.colors.border,
+      borderRadius: dashboardTheme.radius.md,
+      backgroundColor: dashboardTheme.colors.surface,
+      ...cardShadow
+    },
+  decisionHeading: {
+      fontSize: 13,
+      fontWeight: '800',
+      letterSpacing: 1,
+      color: dashboardTheme.colors.info
+    },
+  decisionHelper: {
+      fontSize: 14,
+      lineHeight: 20,
+      color: dashboardTheme.colors.muted
+    },
+  decisionRow: {
+      flexDirection: 'row',
+      gap: 10
+    },
+  declineButton: {
+      flex: 1,
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 12,
+      borderWidth: 1,
+      borderColor: dashboardTheme.colors.critical,
+      borderRadius: dashboardTheme.radius.md,
+      backgroundColor: dashboardTheme.colors.surface
+    },
+  declineButtonText: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: dashboardTheme.colors.critical,
+      textAlign: 'center'
+    },
+  acceptButton: {
+      flex: 1,
+      minHeight: 48,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: 12,
+      borderRadius: dashboardTheme.radius.md,
+      backgroundColor: dashboardTheme.colors.primaryStrong
+    },
+  acceptButtonText: {
+      fontSize: 14,
+      fontWeight: '800',
+      color: '#ffffff',
+      textAlign: 'center'
+    },
+  disabledButton: {
+    opacity: 0.55
+  },
   content: {
     paddingBottom: 28
   },
