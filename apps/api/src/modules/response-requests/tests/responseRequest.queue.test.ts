@@ -209,6 +209,26 @@ describe('response request queue service', () => {
     ]);
   });
 
+  it('does not change an existing assignment when recording a decline', async () => {
+    const { repository, service } = createService();
+    repository.seedResponseRequest(
+      createResponseRequest({
+        id: 'request-with-assignment',
+        status: 'NEW',
+        assignedResponderId: 'existing-responder'
+      })
+    );
+
+    const responseRequest = await service.declineResponseRequest(
+      'request-with-assignment',
+      responderActor('declining-responder')
+    );
+
+    expect(responseRequest.status).toBe('NEW');
+    expect(responseRequest.assignedResponderId).toBe('existing-responder');
+    expect(responseRequest.declinedByResponderIds).toEqual(['declining-responder']);
+  });
+
   it('stores multiple unique responder decline IDs without changing NEW status', async () => {
     const { repository, service } = createService();
     repository.seedResponseRequest(createResponseRequest({ id: 'shared-request' }));
