@@ -14,6 +14,8 @@ export function createResponseRequestRouter(
   const controller = createResponseRequestController(responseRequestService);
 
   router.post('/', authenticate(config), authorizeRoles('RESIDENT'), controller.create);
+  // Responder queue data is operational emergency information and is restricted
+  // to authenticated Emergency Responders by the shared middleware.
   router.get(
     '/responder/pending',
     authenticate(config),

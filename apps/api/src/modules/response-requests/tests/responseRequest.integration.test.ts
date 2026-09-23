@@ -487,6 +487,7 @@ describe('response request API', () => {
 
     const response = await request(app)
       .get('/api/v1/response-requests/responder/assigned')
+      .query({ responderId: responderB.id })
       .set('Authorization', `Bearer ${responderAToken}`);
 
     expect(response.status).toBe(200);
