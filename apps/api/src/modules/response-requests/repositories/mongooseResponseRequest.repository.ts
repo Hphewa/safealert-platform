@@ -1,4 +1,5 @@
 import type { ResponseStatus } from '@safealert/contracts';
+import mongoose from 'mongoose';
 
 import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
 import type {
@@ -38,6 +39,10 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
   }
 
   async acceptResponseRequest(responseRequestId: string, responderId: string) {
+    if (!mongoose.isValidObjectId(responseRequestId) || !mongoose.isValidObjectId(responderId)) {
+      return null;
+    }
+
     // The status predicate makes acceptance atomic: only one responder can
     // move a still-new request into the assigned state.
     const responseRequest = await ResponseRequestModel.findOneAndUpdate(
@@ -59,6 +64,10 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
   }
 
   async declineResponseRequest(responseRequestId: string, responderId: string) {
+    if (!mongoose.isValidObjectId(responseRequestId) || !mongoose.isValidObjectId(responderId)) {
+      return null;
+    }
+
     // Declining is responder-specific and must not cancel the emergency;
     // leaving the request NEW keeps it available to other responders.
     const responseRequest = await ResponseRequestModel.findOneAndUpdate(

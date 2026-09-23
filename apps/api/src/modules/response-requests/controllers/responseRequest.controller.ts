@@ -56,9 +56,41 @@ export function createResponseRequestController(responseRequestService: Response
     response.status(200).json(responseRequests);
   });
 
+  const acceptForResponder: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    // Pass the authenticated actor to the service so the client cannot spoof
+    // which responder is accepting the emergency request.
+    const responseRequest = await responseRequestService.acceptResponseRequest(
+      request.params.requestId ?? '',
+      request.auth
+    );
+
+    response.status(200).json(responseRequest);
+  });
+
+  const declineForResponder: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    // Business rules remain in the service; this controller only supplies the
+    // route ID and authenticated actor to keep the endpoint thin.
+    const responseRequest = await responseRequestService.declineResponseRequest(
+      request.params.requestId ?? '',
+      request.auth
+    );
+
+    response.status(200).json(responseRequest);
+  });
+
   return {
     create,
     listPendingForResponder,
-    listAssignedForResponder
+    listAssignedForResponder,
+    acceptForResponder,
+    declineForResponder
   };
 }

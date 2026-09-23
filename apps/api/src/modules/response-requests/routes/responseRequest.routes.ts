@@ -28,6 +28,20 @@ export function createResponseRequestRouter(
     authorizeRoles('EMERGENCY_RESPONDER'),
     controller.listAssignedForResponder
   );
+  // Keep authorization at the route boundary so only Emergency Responders
+  // can perform responder decision actions on operational request data.
+  router.patch(
+    '/responder/requests/:requestId/accept',
+    authenticate(config),
+    authorizeRoles('EMERGENCY_RESPONDER'),
+    controller.acceptForResponder
+  );
+  router.patch(
+    '/responder/requests/:requestId/decline',
+    authenticate(config),
+    authorizeRoles('EMERGENCY_RESPONDER'),
+    controller.declineForResponder
+  );
 
   return router;
 }

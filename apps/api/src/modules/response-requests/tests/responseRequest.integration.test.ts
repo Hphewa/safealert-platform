@@ -587,4 +587,134 @@ describe('response request API', () => {
       expect(officerForbidden.status).toBe(403);
     }
   });
+
+  it('allows an authenticated responder to accept a NEW request', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    const responder = await authRepository.createUser({
+      name: 'Accepting Responder',
+      email: 'accepting-responder@example.com',
+      passwordHash: 'not-used-in-this-test',
+      role: 'EMERGENCY_RESPONDER'
+    });
+    const responderToken = jwt.sign({ role: responder.role }, 'test-access-secret', {
+      subject: responder.id,
+      expiresIn: '15m'
+    });
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({ id: 'request-to-accept', status: 'NEW' })
+    );
+
+    const response = await request(app)
+      .patch('/api/v1/response-requests/responder/requests/request-to-accept/accept')
+      .send({ responderId: 'forged-responder-id' })
+      .set('Authorization', `Bearer ${responderToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        id: 'request-to-accept',
+        status: 'ASSIGNED',
+        assignedResponderId: responder.id,
+        acceptedAt: expect.any(String)
+      })
+    );
+  });
+
+  it('allows an authenticated responder to decline a NEW request without cancelling it', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    const responder = await authRepository.createUser({
+      name: 'Declining Responder',
+      email: 'declining-responder@example.com',
+      passwordHash: 'not-used-in-this-test',
+      role: 'EMERGENCY_RESPONDER'
+    });
+    const responderToken = jwt.sign({ role: responder.role }, 'test-access-secret', {
+      subject: responder.id,
+      expiresIn: '15m'
+    });
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({ id: 'request-to-decline', status: 'NEW' })
+    );
+
+    const response = await request(app)
+      .patch('/api/v1/response-requests/responder/requests/request-to-decline/decline')
+      .set('Authorization', `Bearer ${responderToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(
+      expect.objectContaining({
+        id: 'request-to-decline',
+        status: 'NEW',
+        declinedByResponderIds: [responder.id]
+      })
+    );
+    expect(response.body.assignedResponderId).toBeUndefined();
+  });
+
+  it('rejects decision actions for unauthenticated and non-responder users', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({ id: 'protected-request', status: 'NEW' })
+    );
+    const residentToken = await createAccessToken(
+      authRepository,
+      'RESIDENT',
+      'decision-resident@example.com'
+    );
+    const volunteerToken = await createAccessToken(
+      authRepository,
+      'COMMUNITY_VOLUNTEER',
+      'decision-volunteer@example.com'
+    );
+    const officerToken = await createAccessToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'decision-officer@example.com'
+    );
+    const paths = [
+      '/api/v1/response-requests/responder/requests/protected-request/accept',
+      '/api/v1/response-requests/responder/requests/protected-request/decline'
+    ];
+
+    for (const path of paths) {
+      expect((await request(app).patch(path)).status).toBe(401);
+      expect(
+        (await request(app).patch(path).set('Authorization', `Bearer ${residentToken}`)).status
+      ).toBe(403);
+      expect(
+        (await request(app).patch(path).set('Authorization', `Bearer ${volunteerToken}`)).status
+      ).toBe(403);
+      expect(
+        (await request(app).patch(path).set('Authorization', `Bearer ${officerToken}`)).status
+      ).toBe(403);
+    }
+  });
+
+  it('returns a conflict for invalid, missing, or non-NEW decision targets', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    const responderToken = await createAccessToken(
+      authRepository,
+      'EMERGENCY_RESPONDER',
+      'decision-conflict-responder@example.com'
+    );
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({ id: 'assigned-target', status: 'ASSIGNED' })
+    );
+
+    const missingAccept = await request(app)
+      .patch('/api/v1/response-requests/responder/requests/missing-target/accept')
+      .set('Authorization', `Bearer ${responderToken}`);
+    const assignedDecline = await request(app)
+      .patch('/api/v1/response-requests/responder/requests/assigned-target/decline')
+      .set('Authorization', `Bearer ${responderToken}`);
+
+    expect(missingAccept.status).toBe(409);
+    expect(missingAccept.body.error).toEqual(
+      expect.objectContaining({
+        code: 'REQUEST_NOT_AVAILABLE',
+        message: 'This emergency request is no longer available.'
+      })
+    );
+    expect(assignedDecline.status).toBe(409);
+  });
 });
