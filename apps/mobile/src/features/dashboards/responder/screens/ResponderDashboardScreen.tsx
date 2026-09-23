@@ -11,20 +11,22 @@ import { ReportListItem } from '../../shared/components/ReportListItem';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { responderBottomNavItems } from '../mockData';
-
-type RequestTab = 'PENDING' | 'ASSIGNED';
-
-type QueueState = {
-  pending: SafeResponseRequest[];
-  assigned: SafeResponseRequest[];
-};
+import {
+  getResponderQueueCounts,
+  getVisibleResponderRequests,
+  type RequestTab,
+  type ResponderQueueState
+} from '../queueState';
 
 type LoadState = 'loading' | 'ready' | 'error';
 
 export function ResponderDashboardScreen() {
   const { accessToken } = useAuth();
   const [activeTab, setActiveTab] = useState<RequestTab>('PENDING');
-  const [queueState, setQueueState] = useState<QueueState>({ pending: [], assigned: [] });
+  const [queueState, setQueueState] = useState<ResponderQueueState>({
+    pending: [],
+    assigned: []
+  });
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -65,15 +67,9 @@ export function ResponderDashboardScreen() {
     void loadQueues();
   }, [loadQueues]);
 
-  const tabCounts = useMemo(
-    () => ({
-      PENDING: queueState.pending.length,
-      ASSIGNED: queueState.assigned.length
-    }),
-    [queueState]
-  );
+  const tabCounts = useMemo(() => getResponderQueueCounts(queueState), [queueState]);
 
-  const visibleRequests = activeTab === 'PENDING' ? queueState.pending : queueState.assigned;
+  const visibleRequests = getVisibleResponderRequests(queueState, activeTab);
   const isLoading = loadState === 'loading';
 
   return (
@@ -114,7 +110,9 @@ export function ResponderDashboardScreen() {
         />
       </View>
 
-      <Text style={styles.sectionCaption}>Emergency requests</Text>
+      <Text style={styles.sectionCaption}>
+        {activeTab === 'PENDING' ? 'Pending requests' : 'Assigned requests'}
+      </Text>
 
       {isLoading ? (
         <QueueStateMessage>
@@ -228,13 +226,18 @@ function ResponderTab({ label, count, active, onPress }: ResponderTabProps) {
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
+      accessibilityLabel={`${label} requests, ${count}`}
+      accessibilityState={{ selected: active }}
       style={({ pressed }) => [
         styles.tab,
         active && styles.tabActive,
         pressed && styles.tabPressed
       ]}
     >
-      <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+      <View style={styles.tabContent}>
+        <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+        {active ? <View style={styles.activeTabIndicator} /> : null}
+      </View>
       <View style={[styles.tabCount, active && styles.tabCountActive]}>
         <Text style={[styles.tabCountText, active && styles.tabCountTextActive]}>{count}</Text>
       </View>
@@ -286,6 +289,16 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.surface,
     ...cardShadow
+  },
+  tabContent: {
+    alignItems: 'center',
+    gap: 4
+  },
+  activeTabIndicator: {
+    width: '100%',
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#ffffff'
   },
   tabActive: {
     backgroundColor: dashboardTheme.colors.primaryStrong,
