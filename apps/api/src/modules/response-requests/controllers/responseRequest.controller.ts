@@ -36,7 +36,29 @@ export function createResponseRequestController(responseRequestService: Response
     response.status(201).json(result);
   });
 
+  const listPendingForResponder: RequestHandler = asyncHandler(async (_request, response) => {
+    const responseRequests = await responseRequestService.listPendingResponseRequests();
+
+    response.status(200).json(responseRequests);
+  });
+
+  const listAssignedForResponder: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    // Use the authenticated responder identity rather than a client-supplied ID
+    // to prevent access to another responder's assigned requests.
+    const responseRequests = await responseRequestService.listAssignedResponseRequests(
+      request.auth.id
+    );
+
+    response.status(200).json(responseRequests);
+  });
+
   return {
-    create
+    create,
+    listPendingForResponder,
+    listAssignedForResponder
   };
 }

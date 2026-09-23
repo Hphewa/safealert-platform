@@ -14,6 +14,18 @@ export function createResponseRequestRouter(
   const controller = createResponseRequestController(responseRequestService);
 
   router.post('/', authenticate(config), authorizeRoles('RESIDENT'), controller.create);
+  router.get(
+    '/responder/pending',
+    authenticate(config),
+    authorizeRoles('EMERGENCY_RESPONDER'),
+    controller.listPendingForResponder
+  );
+  router.get(
+    '/responder/assigned',
+    authenticate(config),
+    authorizeRoles('EMERGENCY_RESPONDER'),
+    controller.listAssignedForResponder
+  );
 
   return router;
 }

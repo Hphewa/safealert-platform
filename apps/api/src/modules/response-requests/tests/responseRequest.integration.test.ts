@@ -7,6 +7,7 @@ import { loadConfig, type ApiConfig } from '../../../config/env.js';
 import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
 import { InMemoryReportRepository } from '../../reports/repositories/inMemoryReport.repository.js';
 import { InMemoryResponseRequestRepository } from '../repositories/inMemoryResponseRequest.repository.js';
+import type { SafeResponseRequest } from '@safealert/contracts';
 
 function createTestContext(overrides: Partial<ApiConfig> = {}) {
   process.env.NODE_ENV = 'test';
@@ -24,7 +25,7 @@ function createTestContext(overrides: Partial<ApiConfig> = {}) {
   const responseRequestRepository = new InMemoryResponseRequestRepository();
   const app = createApp({ config, authRepository, reportRepository, responseRequestRepository });
 
-  return { app, authRepository };
+  return { app, authRepository, responseRequestRepository };
 }
 
 async function registerResident(app: ReturnType<typeof createApp>) {
@@ -77,6 +78,39 @@ const validResponseRequestPayload = {
   description: 'Two people are injured and flood water is rising around the house.',
   specialRequirements: 'Need transport support for one elderly person.'
 };
+
+function createStoredResponseRequest(
+  overrides: Partial<SafeResponseRequest> = {}
+): SafeResponseRequest {
+  return {
+    id: 'response-request-1',
+    residentId: 'resident-1',
+    assistanceType: 'MEDICAL_ASSISTANCE',
+    location: {
+      type: 'Point',
+      coordinates: [79.8612, 6.9271]
+    },
+    affectedPeople: 2,
+    medicalNeeds: true,
+    injuredPeople: 1,
+    vulnerablePeople: {
+      children: 0,
+      elderlyPeople: 0,
+      personsWithDisabilities: 0,
+      pregnantPersons: 0
+    },
+    roadAccessibility: 'LIMITED',
+    contact: {
+      name: 'Resident User',
+      phoneNumber: '+94-77-555-1234'
+    },
+    description: 'Assistance is needed at the reported location.',
+    status: 'NEW',
+    createdAt: '2026-09-23T10:00:00.000Z',
+    updatedAt: '2026-09-23T10:00:00.000Z',
+    ...overrides
+  };
+}
 
 describe('response request API', () => {
   beforeEach(() => {
@@ -373,5 +407,148 @@ describe('response request API', () => {
       type: 'Point',
       coordinates: [80.7718, 7.8731]
     });
+  });
+
+  it('allows an Emergency Responder to retrieve only pending NEW requests', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    const responderToken = await createAccessToken(
+      authRepository,
+      'EMERGENCY_RESPONDER',
+      'responder@example.com'
+    );
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({ id: 'pending-request', status: 'NEW' })
+    );
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({ id: 'assigned-request', status: 'ASSIGNED' })
+    );
+
+    const response = await request(app)
+      .get('/api/v1/response-requests/responder/pending')
+      .set('Authorization', `Bearer ${responderToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.map((responseRequest: SafeResponseRequest) => responseRequest.id)).toEqual([
+      'pending-request'
+    ]);
+  });
+
+  it('returns an empty pending queue when no NEW requests exist', async () => {
+    const { app, authRepository } = createTestContext();
+    const responderToken = await createAccessToken(
+      authRepository,
+      'EMERGENCY_RESPONDER',
+      'responder@example.com'
+    );
+
+    const response = await request(app)
+      .get('/api/v1/response-requests/responder/pending')
+      .set('Authorization', `Bearer ${responderToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([]);
+  });
+
+  it('allows an Emergency Responder to retrieve only their assigned requests', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    const responderA = await authRepository.createUser({
+      name: 'Responder A User',
+      email: 'responder-a@example.com',
+      passwordHash: 'not-used-in-this-test',
+      role: 'EMERGENCY_RESPONDER'
+    });
+    const responderAToken = jwt.sign({ role: responderA.role }, 'test-access-secret', {
+      subject: responderA.id,
+      expiresIn: '15m'
+    });
+    const responderB = await authRepository.createUser({
+      name: 'Responder B User',
+      email: 'responder-b@example.com',
+      passwordHash: 'not-used-in-this-test',
+      role: 'EMERGENCY_RESPONDER'
+    });
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({
+        id: 'responder-a-request',
+        status: 'ASSIGNED',
+        assignedResponderId: responderA.id
+      })
+    );
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({
+        id: 'responder-b-request',
+        status: 'ASSIGNED',
+        assignedResponderId: responderB.id
+      })
+    );
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({ id: 'new-request', status: 'NEW' })
+    );
+
+    const response = await request(app)
+      .get('/api/v1/response-requests/responder/assigned')
+      .set('Authorization', `Bearer ${responderAToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.map((responseRequest: SafeResponseRequest) => responseRequest.id)).toEqual([
+      'responder-a-request'
+    ]);
+  });
+
+  it('returns an empty assigned queue when no requests belong to the responder', async () => {
+    const { app, authRepository } = createTestContext();
+    const responderToken = await createAccessToken(
+      authRepository,
+      'EMERGENCY_RESPONDER',
+      'responder@example.com'
+    );
+
+    const response = await request(app)
+      .get('/api/v1/response-requests/responder/assigned')
+      .set('Authorization', `Bearer ${responderToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([]);
+  });
+
+  it('requires authentication and the Emergency Responder role for queue endpoints', async () => {
+    const { app, authRepository } = createTestContext();
+    const residentToken = await createAccessToken(
+      authRepository,
+      'RESIDENT',
+      'resident-queue@example.com'
+    );
+    const volunteerToken = await createAccessToken(
+      authRepository,
+      'COMMUNITY_VOLUNTEER',
+      'volunteer-queue@example.com'
+    );
+    const officerToken = await createAccessToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-queue@example.com'
+    );
+    const paths = [
+      '/api/v1/response-requests/responder/pending',
+      '/api/v1/response-requests/responder/assigned'
+    ];
+
+    for (const path of paths) {
+      const unauthenticated = await request(app).get(path);
+      const residentForbidden = await request(app)
+        .get(path)
+        .set('Authorization', `Bearer ${residentToken}`);
+      const volunteerForbidden = await request(app)
+        .get(path)
+        .set('Authorization', `Bearer ${volunteerToken}`);
+      const officerForbidden = await request(app)
+        .get(path)
+        .set('Authorization', `Bearer ${officerToken}`);
+
+      expect(unauthenticated.status).toBe(401);
+      expect(residentForbidden.status).toBe(403);
+      expect(volunteerForbidden.status).toBe(403);
+      expect(officerForbidden.status).toBe(403);
+    }
   });
 });
