@@ -18,6 +18,7 @@ import {
   emptyQueueTitle,
   responderQueueErrorMessage
 } from '../requestFlowState';
+import { presentResponderRequest } from '../requestPresentation';
 import {
   getResponderQueueCounts,
   getVisibleResponderRequests,
@@ -160,6 +161,7 @@ export function ResponderDashboardScreen() {
 
 function ResponderRequestItem({ request }: { request: SafeResponseRequest }) {
   const href = responderRequestDetailsHref(request.id);
+  const presentation = presentResponderRequest(request);
 
   if (!href) {
     return null;
@@ -167,38 +169,20 @@ function ResponderRequestItem({ request }: { request: SafeResponseRequest }) {
 
   return (
     <ReportListItem
-      detailItems={[`${request.affectedPeople} people`, `${request.injuredPeople} injured`]}
+      detailItems={presentation.details}
       href={href}
       icon={assistanceTypeIcon(request.assistanceType)}
-      statusLabel={request.status}
+      statusLabel={presentation.status}
       statusTone={request.status === 'ASSIGNED' ? 'success' : 'info'}
-      subtitle={formatLocation(request)}
-      timeLabel={formatCreatedAt(request.createdAt)}
-      title={formatAssistanceType(request.assistanceType)}
+      subtitle={presentation.location}
+      timeLabel={presentation.submittedAt}
+      title={presentation.title}
     />
   );
 }
 
 function QueueStateMessage({ children }: { children: React.ReactNode }) {
   return <View style={styles.stateMessage}>{children}</View>;
-}
-
-function formatAssistanceType(assistanceType: SafeResponseRequest['assistanceType']) {
-  return assistanceType
-    .toLowerCase()
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(' ');
-}
-
-function formatLocation(request: SafeResponseRequest) {
-  const [longitude, latitude] = request.location.coordinates;
-  return `GPS: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
-}
-
-function formatCreatedAt(createdAt: string) {
-  const date = new Date(createdAt);
-  return Number.isNaN(date.getTime()) ? undefined : date.toLocaleString();
 }
 
 function assistanceTypeIcon(assistanceType: SafeResponseRequest['assistanceType']) {

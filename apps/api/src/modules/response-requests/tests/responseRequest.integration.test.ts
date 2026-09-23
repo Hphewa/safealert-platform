@@ -433,6 +433,37 @@ describe('response request API', () => {
     ]);
   });
 
+  it('returns pending NEW requests newest first through the API', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    const responderToken = await createAccessToken(
+      authRepository,
+      'EMERGENCY_RESPONDER',
+      'responder-order@example.com'
+    );
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({
+        id: 'older-pending-request',
+        createdAt: '2026-09-23T09:00:00.000Z'
+      })
+    );
+    responseRequestRepository.seedResponseRequest(
+      createStoredResponseRequest({
+        id: 'newer-pending-request',
+        createdAt: '2026-09-23T12:00:00.000Z'
+      })
+    );
+
+    const response = await request(app)
+      .get('/api/v1/response-requests/responder/pending')
+      .set('Authorization', `Bearer ${responderToken}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.map((responseRequest: SafeResponseRequest) => responseRequest.id)).toEqual([
+      'newer-pending-request',
+      'older-pending-request'
+    ]);
+  });
+
   it('returns an empty pending queue when no NEW requests exist', async () => {
     const { app, authRepository } = createTestContext();
     const responderToken = await createAccessToken(
@@ -536,6 +567,9 @@ describe('response request API', () => {
 
     for (const path of paths) {
       const unauthenticated = await request(app).get(path);
+      const invalidToken = await request(app)
+        .get(path)
+        .set('Authorization', 'Bearer invalid-access-token');
       const residentForbidden = await request(app)
         .get(path)
         .set('Authorization', `Bearer ${residentToken}`);
@@ -547,6 +581,7 @@ describe('response request API', () => {
         .set('Authorization', `Bearer ${officerToken}`);
 
       expect(unauthenticated.status).toBe(401);
+      expect(invalidToken.status).toBe(401);
       expect(residentForbidden.status).toBe(403);
       expect(volunteerForbidden.status).toBe(403);
       expect(officerForbidden.status).toBe(403);

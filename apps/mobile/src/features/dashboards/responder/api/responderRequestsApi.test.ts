@@ -85,6 +85,16 @@ describe('Responder request API', () => {
     await expect(listPendingResponderRequests('responder-access-token')).resolves.toEqual([]);
   });
 
+  it('surfaces a user-safe client error when the queue request fails', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error('connection refused'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(listPendingResponderRequests('responder-access-token')).rejects.toMatchObject({
+      code: 'NETWORK_ERROR',
+      status: 0
+    });
+  });
+
   it('ignores malformed queue records and rejects a malformed queue response', async () => {
     const fetchMock = vi
       .fn<typeof fetch>()
