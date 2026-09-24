@@ -166,6 +166,83 @@ describe('response request progress API', () => {
     }
   });
 
+  it('allows only the responder who accepted through LDFEW-130 to start progress', async () => {
+    const { app, token, authRepository, responderId, responseRequestRepository, storedRequest } =
+      await createProgressContext({ status: 'NEW' });
+    delete storedRequest.assignedResponderId;
+    responseRequestRepository.seedResponseRequest(storedRequest);
+    const otherToken = await createAccessToken(
+      authRepository,
+      'EMERGENCY_RESPONDER',
+      'other-progress-responder@example.com'
+    );
+
+    const accepted = await request(app)
+      .patch(`/api/v1/response-requests/responder/requests/${requestId}/accept`)
+      .set('Authorization', `Bearer ${token}`);
+
+    expect(accepted.status).toBe(200);
+    expect(accepted.body.status).toBe('ASSIGNED');
+    expect(accepted.body.assignedResponderId).toBe(responderId);
+
+    const rejected = await request(app)
+      .patch(progressPath)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .send({ status: 'DISPATCHED' });
+
+    expect(rejected.status).toBe(403);
+    expect(rejected.body.error.code).toBe('REQUEST_NOT_ASSIGNED');
+    expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(accepted.body);
+
+    const dispatched = await request(app)
+      .patch(progressPath)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'DISPATCHED' });
+
+    expect(dispatched.status).toBe(200);
+    expect(dispatched.body).toEqual({
+      ...accepted.body,
+      status: 'DISPATCHED',
+      updatedAt: expect.any(String)
+    });
+  });
+
+  it.each([null, undefined])('requires an actor in the service when actor is %s', async (actor) => {
+    const { responseRequestRepository, storedRequest } = await createProgressContext();
+    const service = new ResponseRequestService(responseRequestRepository);
+
+    await expect(service.updateResponseRequestProgress(requestId, actor, 'DISPATCHED'))
+      .rejects.toMatchObject({ statusCode: 401, code: 'UNAUTHORIZED' });
+    expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(storedRequest);
+  });
+
+  it.each(['RESIDENT', 'COMMUNITY_VOLUNTEER', 'DISASTER_OFFICER'] as const)(
+    'enforces the responder role in the service even when the %s actor ID matches the assignment',
+    async (role) => {
+      const { responseRequestRepository, responderId, storedRequest } = await createProgressContext();
+      const service = new ResponseRequestService(responseRequestRepository);
+
+      await expect(service.updateResponseRequestProgress(
+        requestId,
+        { id: responderId, role },
+        'DISPATCHED'
+      )).rejects.toMatchObject({ statusCode: 403, code: 'FORBIDDEN' });
+      expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(storedRequest);
+    }
+  );
+
+  it('enforces assignment in the service without relying on route middleware', async () => {
+    const { responseRequestRepository, storedRequest } = await createProgressContext();
+    const service = new ResponseRequestService(responseRequestRepository);
+
+    await expect(service.updateResponseRequestProgress(
+      requestId,
+      { id: 'another-responder', role: 'EMERGENCY_RESPONDER' },
+      'DISPATCHED'
+    )).rejects.toMatchObject({ statusCode: 403, code: 'REQUEST_NOT_ASSIGNED' });
+    expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(storedRequest);
+  });
+
   it.each(['another-responder', undefined])(
     'rejects a responder when assignment is %s',
     async (assignedResponderId) => {
@@ -243,10 +320,28 @@ describe('response request progress API', () => {
   it.each([
     ['NEW', 'ASSIGNED'],
     ['NEW', 'DISPATCHED'],
+    ['NEW', 'ARRIVED'],
+    ['NEW', 'IN_PROGRESS'],
+    ['NEW', 'COMPLETED'],
+    ['ASSIGNED', 'ASSIGNED'],
     ['ASSIGNED', 'ARRIVED'],
+    ['ASSIGNED', 'IN_PROGRESS'],
     ['ASSIGNED', 'COMPLETED'],
+    ['DISPATCHED', 'ASSIGNED'],
+    ['DISPATCHED', 'IN_PROGRESS'],
+    ['DISPATCHED', 'COMPLETED'],
+    ['ARRIVED', 'ASSIGNED'],
     ['ARRIVED', 'DISPATCHED'],
+    ['ARRIVED', 'ARRIVED'],
+    ['ARRIVED', 'COMPLETED'],
     ['DISPATCHED', 'DISPATCHED'],
+    ['IN_PROGRESS', 'ASSIGNED'],
+    ['IN_PROGRESS', 'DISPATCHED'],
+    ['IN_PROGRESS', 'ARRIVED'],
+    ['IN_PROGRESS', 'IN_PROGRESS'],
+    ['COMPLETED', 'ASSIGNED'],
+    ['COMPLETED', 'DISPATCHED'],
+    ['COMPLETED', 'ARRIVED'],
     ['COMPLETED', 'IN_PROGRESS'],
     ['COMPLETED', 'COMPLETED']
   ] as const)('rejects the transition %s -> %s without changing the request', async (status, nextStatus) => {
