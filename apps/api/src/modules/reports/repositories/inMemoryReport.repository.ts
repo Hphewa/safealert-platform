@@ -15,7 +15,7 @@ export class InMemoryReportRepository implements ReportRepository {
   async createReport(input: CreateReportInput): Promise<SafeReport> {
     const now = new Date().toISOString();
     const report: SafeReport = {
-      id: crypto.randomUUID(),
+      id: crypto.randomBytes(12).toString('hex'),
       residentId: input.residentId,
       hazardType: input.hazardType,
       description: input.description,
