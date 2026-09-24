@@ -30,6 +30,12 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
     controller.listPendingOfficerReports
   );
   router.get(
+    '/officer/verified',
+    authenticate(config),
+    authorizeRoles('DISASTER_OFFICER'),
+    controller.listVerifiedOfficerReports
+  );
+  router.get(
     '/officer/:reportId',
     authenticate(config),
     authorizeRoles('DISASTER_OFFICER'),

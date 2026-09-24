@@ -18,12 +18,17 @@ import { createResponseRequestRouter } from './modules/response-requests/routes/
 import { MongooseResponseRequestRepository } from './modules/response-requests/repositories/mongooseResponseRequest.repository.js';
 import type { ResponseRequestRepository } from './modules/response-requests/repositories/responseRequest.repository.js';
 import { ResponseRequestService } from './modules/response-requests/services/responseRequest.service.js';
+import { createRiskAssessmentRouter } from './modules/risk-assessments/routes/riskAssessment.routes.js';
+import { MongooseRiskAssessmentRepository } from './modules/risk-assessments/repositories/mongooseRiskAssessment.repository.js';
+import type { RiskAssessmentRepository } from './modules/risk-assessments/repositories/riskAssessment.repository.js';
+import { RiskAssessmentService } from './modules/risk-assessments/services/riskAssessment.service.js';
 
 type CreateAppOptions = {
   config: ApiConfig;
   authRepository?: AuthRepository;
   reportRepository?: ReportRepository;
   responseRequestRepository?: ResponseRequestRepository;
+  riskAssessmentRepository?: RiskAssessmentRepository;
   enableRbacTestRoutes?: boolean;
 };
 
@@ -32,11 +37,16 @@ export function createApp({
   authRepository,
   reportRepository,
   responseRequestRepository,
+  riskAssessmentRepository,
   enableRbacTestRoutes = false
 }: CreateAppOptions) {
   const app = express();
   const authService = new AuthService(authRepository ?? new MongooseAuthRepository(), config);
-  const reportService = new ReportService(reportRepository ?? new MongooseReportRepository());
+  const resolvedReportRepository = reportRepository ?? new MongooseReportRepository();
+  const reportService = new ReportService(resolvedReportRepository);
+  const riskAssessmentService = new RiskAssessmentService(
+    riskAssessmentRepository ?? new MongooseRiskAssessmentRepository(), resolvedReportRepository
+  );
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()
   );
@@ -54,6 +64,7 @@ export function createApp({
 
   app.use('/api/v1/auth', createAuthRouter(authService, config));
   app.use('/api/v1/reports', createReportRouter(reportService, config));
+  app.use('/api/v1/risk-assessments', createRiskAssessmentRouter(riskAssessmentService, config));
   app.use('/api/v1/response-requests', createResponseRequestRouter(responseRequestService, config));
 
   if (enableRbacTestRoutes) {

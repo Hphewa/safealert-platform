@@ -51,7 +51,7 @@ export const officerQuickActions: QuickAction[] = [
   },
   {
     title: 'Assess Risk',
-    subtitle: 'Prepare a risk review workspace',
+    subtitle: 'Assess a verified hazard report',
     href: '/officer/assessments',
     icon: 'speedometer-outline'
   },
@@ -67,10 +67,6 @@ export const officerPlaceholderContent: Record<string, PlaceholderConfig> = {
   reports: {
     title: 'Review Reports',
     description: 'Detailed officer report review and triage tools will be added here later.'
-  },
-  assessments: {
-    title: 'Assess Risk',
-    description: 'Risk assessment workflows and scoring tools will be added in a future task.'
   },
   monitoring: {
     title: 'Monitoring',

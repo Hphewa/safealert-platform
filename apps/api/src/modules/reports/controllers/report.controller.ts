@@ -12,6 +12,9 @@ import {
 } from '../validation/report.schemas.js';
 
 export function createReportController(reportService: ReportService) {
+  const listVerifiedOfficerReports: RequestHandler = asyncHandler(async (_request, response) => {
+    response.json(await reportService.listVerifiedReportsForOfficer());
+  });
   const create: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
@@ -108,6 +111,7 @@ export function createReportController(reportService: ReportService) {
   });
 
   return {
+    listVerifiedOfficerReports,
     create,
     listCommunity,
     getCommunityById,
