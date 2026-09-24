@@ -56,6 +56,42 @@ export type RiskAssessmentResponse = { assessment: SafeRiskAssessment; report: S
 export type RiskAssessmentForReportResponse = { assessment: SafeRiskAssessment | null; report: SafeReport };
 export type GetVerifiedOfficerReportsResponse = { reports: SafeReport[] };
 
+export const WARNING_RISK_LEVELS = ['HIGH', 'CRITICAL'] as const;
+export type WarningRiskLevel = (typeof WARNING_RISK_LEVELS)[number];
+export function canCreateWarning(riskLevel: RiskLevel): riskLevel is WarningRiskLevel {
+  return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
+}
+export const WARNING_STATUSES = ['DRAFT'] as const;
+export const WARNING_FIELD_LIMITS = {
+  affectedArea: 300, requiredAction: 2000, unsafeRoads: 2000,
+  safeRoutes: 2000, message: 4000, attachmentUrl: 500, attachments: 5
+} as const;
+export type CreateWarningRequest = {
+  assessmentId: string;
+  affectedArea: string;
+  requiredAction: string;
+  unsafeRoads: string;
+  safeRoutes?: string;
+  message: string;
+  attachments?: string[];
+};
+export type SafeWarning = CreateWarningRequest & {
+  id: string;
+  hazardReportId: string;
+  createdById: string;
+  riskLevel: WarningRiskLevel;
+  status: (typeof WARNING_STATUSES)[number];
+  createdAt: string;
+  updatedAt: string;
+};
+export type CreateWarningResponse = { warning: SafeWarning };
+export const WARNING_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+export const WARNING_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export type WarningImageMimeType = (typeof WARNING_IMAGE_MIME_TYPES)[number];
+export const WARNING_ATTACHMENT_REFERENCE_PATTERN = /^\/api\/v1\/warning-attachments\/[a-f\d]{24}$/i;
+export type UploadWarningImageRequest = { assessmentId: string; base64: string };
+export type UploadWarningImageResponse = { reference: string };
+
 export const REPORT_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED', 'RESOLVED'] as const;
 
 export type ReportStatus = (typeof REPORT_STATUSES)[number];

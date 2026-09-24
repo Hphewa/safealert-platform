@@ -1,16 +1,18 @@
 import { useCallback } from 'react';
 import { Text, View } from 'react-native';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { canCreateWarning } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { getRiskAssessment } from '../api/riskAssessmentApi';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import {
-  AssessmentDetail, AssessmentFactorSummary, AssessmentLoadState, AssessmentPage,
+  AssessmentButton, AssessmentDetail, AssessmentFactorSummary, AssessmentLoadState, AssessmentPage,
   ReportAssessmentContext, assessmentStyles
 } from '../components/RiskAssessmentComponents';
 
 export function RiskAssessmentResultScreen() {
+  const router = useRouter();
   const { accessToken, user } = useAuth();
   const params = useLocalSearchParams<{ assessmentId?: string | string[] }>();
   const assessmentId = Array.isArray(params.assessmentId) ? params.assessmentId[0] : params.assessmentId;
@@ -35,6 +37,9 @@ export function RiskAssessmentResultScreen() {
         <AssessmentDetail label="Assessed By" value={user?.id === data.assessment.assessedById ? user.name : data.assessment.assessedById} />
         <AssessmentDetail label="Assessment Reference" value={data.assessment.id} />
       </View>
+      {canCreateWarning(data.assessment.finalRiskLevel) ? <AssessmentButton label="Create Warning" onPress={() => router.push({
+        pathname: '/officer/warnings/create', params: { assessmentId: data.assessment.id }
+      })} /> : null}
       <AssessmentFactorSummary factors={data.assessment} />
       <ReportAssessmentContext report={data.report} />
     </>}
