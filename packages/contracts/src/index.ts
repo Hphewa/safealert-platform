@@ -277,6 +277,10 @@ export type SafeResponseRequest = {
   // Keeps responder-specific declines without changing the emergency status.
   declinedByResponderIds?: string[];
   acceptedAt?: string;
+  dispatchedAt?: string;
+  arrivedAt?: string;
+  inProgressAt?: string;
+  completedAt?: string;
   assistanceType: EmergencyAssistanceType;
   location: GeoJsonPoint;
   affectedPeople: number;

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import type { ResponseStatus, SafeResponseRequest } from '@safealert/contracts';
+import { responseProgressTimestampFields } from './responseRequest.repository.js';
 
 import type {
   CreateResponseRequestInput,
@@ -115,19 +116,23 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     nextStatus: ResponseStatus
   ) {
     const responseRequest = this.responseRequests.get(responseRequestId);
+    const timestampField = responseProgressTimestampFields[nextStatus];
 
     if (
       !responseRequest ||
+      !timestampField ||
       responseRequest.assignedResponderId !== responderId ||
       responseRequest.status !== currentStatus
     ) {
       return null;
     }
 
+    const occurredAt = new Date().toISOString();
     const updatedRequest: SafeResponseRequest = {
       ...responseRequest,
       status: nextStatus,
-      updatedAt: new Date().toISOString()
+      [timestampField]: occurredAt,
+      updatedAt: occurredAt
     };
     this.responseRequests.set(responseRequestId, updatedRequest);
     return updatedRequest;

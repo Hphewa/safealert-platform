@@ -2,6 +2,7 @@ import type { ResponseStatus } from '@safealert/contracts';
 import mongoose from 'mongoose';
 
 import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
+import { responseProgressTimestampFields } from './responseRequest.repository.js';
 import type {
   CreateResponseRequestInput,
   ResponseRequestRepository
@@ -106,6 +107,12 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     currentStatus: ResponseStatus,
     nextStatus: ResponseStatus
   ) {
+    const timestampField = responseProgressTimestampFields[nextStatus];
+
+    if (!timestampField) {
+      return null;
+    }
+
     // Recheck assignment and status atomically so a stale update cannot overwrite progress.
     const responseRequest = await ResponseRequestModel.findOneAndUpdate(
       {
@@ -113,7 +120,8 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
         assignedResponderId: responderId,
         status: currentStatus
       },
-      { $set: { status: nextStatus } },
+      // Status and its server timestamp must succeed or fail together.
+      { $set: { status: nextStatus, [timestampField]: new Date() } },
       { new: true, runValidators: true }
     ).exec();
 

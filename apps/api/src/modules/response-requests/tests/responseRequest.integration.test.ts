@@ -7,6 +7,8 @@ import { loadConfig, type ApiConfig } from '../../../config/env.js';
 import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
 import { InMemoryReportRepository } from '../../reports/repositories/inMemoryReport.repository.js';
 import { InMemoryResponseRequestRepository } from '../repositories/inMemoryResponseRequest.repository.js';
+import { MongooseResponseRequestRepository } from '../repositories/mongooseResponseRequest.repository.js';
+import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
 import { ResponseRequestService } from '../services/responseRequest.service.js';
 import type { SafeResponseRequest } from '@safealert/contracts';
 
@@ -146,24 +148,82 @@ describe('response request progress API', () => {
     expect(response.body).toEqual({
       ...storedRequest,
       status: 'DISPATCHED',
+      dispatchedAt: expect.any(String),
       updatedAt: expect.any(String)
     });
     expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(response.body);
   });
 
-  it('persists each sequential transition through completion', async () => {
-    const { app, token, responseRequestRepository } = await createProgressContext();
+  it('persists stage timestamps sequentially, preserves earlier stages, and rejects duplicate writes', async () => {
+    const acceptedAt = new Date().toISOString();
+    const { app, token, responseRequestRepository, storedRequest } = await createProgressContext({ acceptedAt });
+    const startedAt = Date.now();
+    let expected = storedRequest;
 
-    for (const status of ['DISPATCHED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED']) {
-      const response = await request(app)
-        .patch(progressPath)
-        .set('Authorization', `Bearer ${token}`)
-        .send({ status });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const stages = [
+        ['DISPATCHED', 'dispatchedAt'],
+        ['ARRIVED', 'arrivedAt'],
+        ['IN_PROGRESS', 'inProgressAt'],
+        ['COMPLETED', 'completedAt']
+      ] as const;
 
-      expect(response.status).toBe(200);
-      expect(response.body.status).toBe(status);
-      expect((await responseRequestRepository.findResponseRequestForProgress(requestId))?.status).toBe(status);
+      for (const [index, [status, timestampField]] of stages.entries()) {
+        const occurredAt = new Date(startedAt + (index + 1) * 60_000);
+        vi.setSystemTime(occurredAt);
+        const response = await request(app)
+          .patch(progressPath)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ status });
+
+        expected = {
+          ...expected,
+          status,
+          [timestampField]: occurredAt.toISOString(),
+          updatedAt: occurredAt.toISOString()
+        };
+        expect(response.status).toBe(200);
+        expect(response.body).toEqual(expected);
+        expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(expected);
+
+        vi.setSystemTime(new Date(occurredAt.getTime() + 30_000));
+        const duplicate = await request(app)
+          .patch(progressPath)
+          .set('Authorization', `Bearer ${token}`)
+          .send({ status });
+
+        expect(duplicate.status).toBe(409);
+        expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(expected);
+      }
+    } finally {
+      vi.useRealTimers();
     }
+  });
+
+  it.each([
+    { body: { status: 'COMPLETED' }, otherResponder: false, expectedStatus: 409 },
+    { body: { status: 'ASSIGNED' }, otherResponder: false, expectedStatus: 409 },
+    { body: { status: 'DISPATCHED' }, otherResponder: false, expectedStatus: 409 },
+    { body: { status: 'INVALID' }, otherResponder: false, expectedStatus: 400 },
+    { body: { status: 'ARRIVED', arrivedAt: '2020-01-01T00:00:00.000Z' }, otherResponder: false, expectedStatus: 400 },
+    { body: { status: 'ARRIVED' }, otherResponder: true, expectedStatus: 403 }
+  ])('preserves existing lifecycle data when a progress update is rejected: %j', async ({ body, otherResponder, expectedStatus }) => {
+    const { app, token, authRepository, responseRequestRepository, storedRequest } = await createProgressContext({
+      status: 'DISPATCHED',
+      acceptedAt: '2026-09-23T10:01:00.000Z',
+      dispatchedAt: '2026-09-23T10:02:00.000Z'
+    });
+    const actorToken = otherResponder
+      ? await createAccessToken(authRepository, 'EMERGENCY_RESPONDER', 'unauthorized-progress@example.com')
+      : token;
+    const response = await request(app)
+      .patch(progressPath)
+      .set('Authorization', `Bearer ${actorToken}`)
+      .send(body);
+
+    expect(response.status).toBe(expectedStatus);
+    expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(storedRequest);
   });
 
   it('allows only the responder who accepted through LDFEW-130 to start progress', async () => {
@@ -203,6 +263,7 @@ describe('response request progress API', () => {
     expect(dispatched.body).toEqual({
       ...accepted.body,
       status: 'DISPATCHED',
+      dispatchedAt: expect.any(String),
       updatedAt: expect.any(String)
     });
   });
@@ -438,6 +499,75 @@ describe('response request progress API', () => {
       expect(response.status).toBe(409);
       expect(response.body.error.code).toBe('REQUEST_PROGRESS_CONFLICT');
       expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(changedRequest);
+    } finally {
+      updateSpy.mockRestore();
+    }
+  });
+});
+
+describe('response request progress MongoDB persistence', () => {
+  const acceptedAt = new Date('2026-09-23T10:01:00.000Z');
+  const occurredAt = new Date('2026-09-23T10:02:00.000Z');
+
+  function createDocument() {
+    return new ResponseRequestModel({
+      ...createStoredResponseRequest(),
+      _id: '507f1f77bcf86cd799439011',
+      residentId: '507f1f77bcf86cd799439012',
+      assignedResponderId: '507f1f77bcf86cd799439013',
+      status: 'ASSIGNED',
+      acceptedAt
+    });
+  }
+
+  it('does not default timestamps for stages that have not occurred', async () => {
+    const document = createDocument();
+    await expect(document.validate()).resolves.toBeUndefined();
+    const result = toSafeResponseRequest(document);
+
+    expect(result.acceptedAt).toBe(acceptedAt.toISOString());
+    for (const field of ['dispatchedAt', 'arrivedAt', 'inProgressAt', 'completedAt'] as const) {
+      expect(document[field]).toBeUndefined();
+      expect(result).not.toHaveProperty(field);
+    }
+  });
+
+  it.each([
+    ['ASSIGNED', 'DISPATCHED', 'dispatchedAt'],
+    ['DISPATCHED', 'ARRIVED', 'arrivedAt'],
+    ['ARRIVED', 'IN_PROGRESS', 'inProgressAt'],
+    ['IN_PROGRESS', 'COMPLETED', 'completedAt']
+  ] as const)('writes %s -> %s and %s in one conditional MongoDB update', async (currentStatus, nextStatus, timestampField) => {
+    const document = createDocument();
+    document.status = nextStatus;
+    document[timestampField] = occurredAt;
+    await expect(document.validate()).resolves.toBeUndefined();
+    expect(document[timestampField]).toBeInstanceOf(Date);
+
+    const query = ResponseRequestModel.findOneAndUpdate();
+    vi.spyOn(query, 'exec').mockResolvedValue(document);
+    const updateSpy = vi.spyOn(ResponseRequestModel, 'findOneAndUpdate').mockReturnValueOnce(query);
+
+    try {
+      const result = await new MongooseResponseRequestRepository().updateResponseRequestProgress(
+        document._id.toString(),
+        document.assignedResponderId!.toString(),
+        currentStatus,
+        nextStatus
+      );
+
+      expect(updateSpy).toHaveBeenCalledExactlyOnceWith(
+        {
+          _id: document._id.toString(),
+          assignedResponderId: document.assignedResponderId!.toString(),
+          status: currentStatus
+        },
+        { $set: { status: nextStatus, [timestampField]: expect.any(Date) } },
+        { new: true, runValidators: true }
+      );
+      expect(result?.status).toBe(nextStatus);
+      expect(result?.[timestampField]).toBe(occurredAt.toISOString());
+      expect(result?.acceptedAt).toBe(acceptedAt.toISOString());
     } finally {
       updateSpy.mockRestore();
     }

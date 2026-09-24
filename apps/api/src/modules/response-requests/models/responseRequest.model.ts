@@ -126,6 +126,18 @@ const responseRequestSchema = new mongoose.Schema(
     acceptedAt: {
       type: Date
     },
+    dispatchedAt: {
+      type: Date
+    },
+    arrivedAt: {
+      type: Date
+    },
+    inProgressAt: {
+      type: Date
+    },
+    completedAt: {
+      type: Date
+    },
     assistanceType: {
       type: String,
       required: true,
@@ -242,6 +254,22 @@ export function toSafeResponseRequest(responseRequest: ResponseRequestDocument):
 
   if (responseRequest.acceptedAt) {
     safeResponseRequest.acceptedAt = responseRequest.acceptedAt.toISOString();
+  }
+
+  if (responseRequest.dispatchedAt) {
+    safeResponseRequest.dispatchedAt = responseRequest.dispatchedAt.toISOString();
+  }
+
+  if (responseRequest.arrivedAt) {
+    safeResponseRequest.arrivedAt = responseRequest.arrivedAt.toISOString();
+  }
+
+  if (responseRequest.inProgressAt) {
+    safeResponseRequest.inProgressAt = responseRequest.inProgressAt.toISOString();
+  }
+
+  if (responseRequest.completedAt) {
+    safeResponseRequest.completedAt = responseRequest.completedAt.toISOString();
   }
 
   if (responseRequest.specialRequirements) {
