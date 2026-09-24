@@ -339,7 +339,7 @@ export function ReportHazardScreen() {
           <Pressable
             accessibilityLabel="Adjust report location"
             accessibilityRole="button"
-            onPress={() => undefined}
+            onPress={() => router.push('/resident/adjust-report-location')}
             style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
           >
             <Text style={styles.secondaryButtonText}>Adjust Location</Text>

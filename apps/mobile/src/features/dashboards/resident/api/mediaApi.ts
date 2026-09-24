@@ -24,41 +24,7 @@ export async function uploadReportEvidence({
     type: resolvedMimeType
   } as unknown as Blob);
 
-  let response: Response;
-
-  try {
-    response = await fetch(`${apiBaseUrl}/media/report-evidence`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`
-      },
-      body: formData
-    });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Network request failed.';
-    throw new ApiClientError(
-      0,
-      'NETWORK_ERROR',
-      `Cannot reach SafeAlert API at ${apiBaseUrl}. ${message}`
-    );
-  }
-
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    const apiError =
-      typeof data === 'object' && data !== null && 'error' in data
-        ? (data as { error?: { code?: string; message?: string } }).error
-        : undefined;
-
-    throw new ApiClientError(
-      response.status,
-      apiError?.code ?? 'API_ERROR',
-      apiError?.message ?? 'Upload failed.'
-    );
-  }
-
-  return data as UploadReportEvidenceResponse;
+  return uploadMultipartFormData(`${apiBaseUrl}/media/report-evidence`, formData, accessToken);
 }
 
 function inferMimeType(value: string) {
@@ -74,4 +40,65 @@ function safeFormFilename(filename: string | null, mimeType: string) {
   }
 
   return `report-evidence.${extension}`;
+}
+
+function uploadMultipartFormData(url: string, formData: FormData, accessToken: string) {
+  return new Promise<UploadReportEvidenceResponse>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+
+    request.open('POST', url);
+    request.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+
+    request.onload = () => {
+      const data = parseJsonResponse(request.responseText);
+
+      if (request.status < 200 || request.status >= 300) {
+        const apiError =
+          typeof data === 'object' && data !== null && 'error' in data
+            ? (data as { error?: { code?: string; message?: string } }).error
+            : undefined;
+
+        reject(
+          new ApiClientError(
+            request.status,
+            apiError?.code ?? 'API_ERROR',
+            apiError?.message ?? 'Upload failed.'
+          )
+        );
+        return;
+      }
+
+      resolve(data as UploadReportEvidenceResponse);
+    };
+
+    request.onerror = () => {
+      reject(
+        new ApiClientError(
+          0,
+          'NETWORK_ERROR',
+          `Cannot reach SafeAlert API at ${apiBaseUrl}. Network request failed.`
+        )
+      );
+    };
+
+    request.ontimeout = () => {
+      reject(
+        new ApiClientError(
+          0,
+          'NETWORK_ERROR',
+          `Cannot reach SafeAlert API at ${apiBaseUrl}. Upload timed out.`
+        )
+      );
+    };
+
+    request.send(formData);
+  });
+}
+
+function parseJsonResponse(responseText: string) {
+  try {
+    return JSON.parse(responseText) as unknown;
+  } catch {
+    return null;
+  }
 }

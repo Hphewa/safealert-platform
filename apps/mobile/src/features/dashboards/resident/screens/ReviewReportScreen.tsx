@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import type { CreateReportRequest } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
@@ -10,23 +9,30 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { createResidentReport } from '../api/reportApi';
+import { uploadReportEvidence } from '../api/mediaApi';
 import { residentBottomNavItems } from '../mockData';
-import { hazardTypeLabels, severityLabels, useReportHazardDraft } from '../reportDraft';
+import {
+  hazardTypeLabels,
+  severityLabels,
+  useReportHazardDraft,
+  type ReportHazardDraft
+} from '../reportDraft';
+import { submitResidentReportDraft } from '../reportSubmission';
 
 const connectionStatus = 'Online';
 
 type SubmitState = {
-  status: 'idle' | 'submitting' | 'error';
-  reason?: 'validation' | 'auth' | 'network' | 'server';
+  status: 'idle' | 'uploading' | 'submitting' | 'error';
+  reason?: 'validation' | 'auth' | 'network' | 'upload' | 'server';
   message: string | null;
 };
 
 export function ReviewReportScreen() {
   const router = useRouter();
   const { accessToken } = useAuth();
-  const { draft, resetDraft, setSubmittedReport, validation } = useReportHazardDraft();
+  const { draft, resetDraft, setDraft, setSubmittedReport, validation } = useReportHazardDraft();
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
-  const isSubmitting = submitState.status === 'submitting';
+  const isSubmitting = submitState.status === 'uploading' || submitState.status === 'submitting';
   const canSubmit = validation.isValid && !isSubmitting;
 
   const editReport = () => {
@@ -56,21 +62,37 @@ export function ReviewReportScreen() {
       return;
     }
 
-    const payload: CreateReportRequest = {
-      hazardType: draft.hazardType,
-      severity: draft.severity,
-      description: draft.description.trim(),
-      location: {
-        type: 'Point',
-        coordinates: [draft.location.longitude, draft.location.latitude]
-      }
-    };
-
-    setSubmitState({ status: 'submitting', message: null });
+    setSubmitState(photoNeedsUpload(draft) ? { status: 'uploading', message: null } : { status: 'submitting', message: null });
 
     try {
-      const response = await createResidentReport(payload, accessToken);
-      setSubmittedReport(response.report);
+      const result = await submitResidentReportDraft({
+        draft,
+        accessToken,
+        uploadReportEvidence,
+        createResidentReport,
+        onEvidenceUploaded: (mediaReference) => {
+          setDraft((current) => {
+            if (current.photoEvidence.status !== 'LOCAL_SELECTED') {
+              return current;
+            }
+
+            return {
+              ...current,
+              photoEvidence: {
+                ...current.photoEvidence,
+                selected: {
+                  ...current.photoEvidence.selected,
+                  needsUpload: false,
+                  uploadedMediaReference: mediaReference
+                },
+                message: 'Photo evidence uploaded. It will be attached when this report is submitted.'
+              }
+            };
+          });
+          setSubmitState({ status: 'submitting', message: null });
+        }
+      });
+      setSubmittedReport(result.response.report);
       resetDraft();
       router.replace('/resident/report-submitted');
     } catch (error) {
@@ -151,7 +173,9 @@ export function ReviewReportScreen() {
               style={styles.photoPreview}
             />
             <Text style={styles.helperText}>
-              Photo selected locally. No media upload service exists yet, so this local device URI is not sent to the API.
+              {draft.photoEvidence.selected.uploadedMediaReference
+                ? 'Photo evidence has been uploaded and will be attached to this report.'
+                : 'Photo selected locally. It will upload before the report is submitted.'}
             </Text>
           </View>
         ) : (
@@ -197,7 +221,9 @@ export function ReviewReportScreen() {
       {submitState.status === 'error' ? (
         <View style={styles.validationPanel}>
           <Text style={styles.errorText}>{submitState.message}</Text>
-          {submitState.reason === 'network' || submitState.reason === 'server' ? (
+          {submitState.reason === 'network' ||
+          submitState.reason === 'upload' ||
+          submitState.reason === 'server' ? (
             <Pressable
               accessibilityLabel="Retry report submission"
               accessibilityRole="button"
@@ -242,7 +268,12 @@ export function ReviewReportScreen() {
           ]}
         >
           {isSubmitting ? (
-            <ActivityIndicator color="#ffffff" size="small" />
+            <View style={styles.submitProgress}>
+              <ActivityIndicator color="#ffffff" size="small" />
+              <Text style={styles.submitButtonText}>
+                {submitState.status === 'uploading' ? 'Uploading evidence...' : 'Submitting report...'}
+              </Text>
+            </View>
           ) : (
             <Text style={[styles.submitButtonText, !canSubmit && styles.submitButtonTextDisabled]}>
               {submitState.status === 'error' ? 'Try Submit Again' : 'Submit Report'}
@@ -268,7 +299,7 @@ function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'mess
     if (error.status === 0) {
       return {
         reason: 'network',
-        message: 'Cannot reach SafeAlert right now. Your report draft was not lost. Check your connection and retry.'
+        message: `${error.message} Your report draft was not lost. Check that your phone and API server are on the same network, then retry.`
       };
     }
 
@@ -282,7 +313,14 @@ function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'mess
     if (error.status === 400) {
       return {
         reason: 'validation',
-        message: 'Some report details are invalid. Please edit the report and try again.'
+        message: `${error.message} Please edit the report and try again.`
+      };
+    }
+
+    if (error.status === 413 || error.status === 415) {
+      return {
+        reason: 'upload',
+        message: error.message
       };
     }
 
@@ -300,6 +338,13 @@ function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'mess
 
 function formatCoordinate(value: number) {
   return value.toFixed(6);
+}
+
+function photoNeedsUpload(draft: ReportHazardDraft) {
+  return (
+    draft.photoEvidence.status === 'LOCAL_SELECTED' &&
+    !draft.photoEvidence.selected.uploadedMediaReference
+  );
 }
 
 const styles = StyleSheet.create({
@@ -549,6 +594,11 @@ const styles = StyleSheet.create({
   },
   submitButtonTextDisabled: {
     color: dashboardTheme.colors.muted
+  },
+  submitProgress: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
   },
   pressed: {
     opacity: 0.82
