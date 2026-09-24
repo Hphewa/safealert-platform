@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { SafeResponseRequest } from '@safealert/contracts';
@@ -12,7 +12,7 @@ import { ReportListItem } from '../../shared/components/ReportListItem';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { responderBottomNavItems } from '../mockData';
-import { clearResponderRequestCache, replaceResponderRequestCache } from '../requestDetailsCache';
+import { clearResponderRequestCache, getCachedResponderRequest, replaceResponderRequestCache } from '../requestDetailsCache';
 import { responderRequestDetailsHref } from '../requestDetails';
 import {
   emptyQueueDescription,
@@ -31,7 +31,8 @@ import {
 type LoadState = 'loading' | 'ready' | 'error';
 
 export function ResponderDashboardScreen() {
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
+  const queueLoadId = useRef(0);
   const [activeTab, setActiveTab] = useState<RequestTab>('PENDING');
   const [queueState, setQueueState] = useState<ResponderQueueState>({
     pending: [],
@@ -43,6 +44,7 @@ export function ResponderDashboardScreen() {
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
   const loadQueues = useCallback(async () => {
+    const loadId = ++queueLoadId.current;
     if (!accessToken) {
       setQueueState({ pending: [], assigned: [] });
       setLoadState('error');
@@ -62,8 +64,10 @@ export function ResponderDashboardScreen() {
         listAssignedResponderRequests(accessToken)
       ]);
 
+      if (loadId !== queueLoadId.current) return;
+
       const activeAssignedRequests = assigned.filter((request) =>
-        isActiveAssignedResponseStatus(request.status)
+        request.assignedResponderId === user?.id && isActiveAssignedResponseStatus(request.status)
       );
 
       setQueueState({ pending, assigned: activeAssignedRequests });
@@ -72,18 +76,31 @@ export function ResponderDashboardScreen() {
       setIsRefreshing(false);
       setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
     } catch (error) {
+      if (loadId !== queueLoadId.current) return;
+
       setQueueState({ pending: [], assigned: [] });
       clearResponderRequestCache();
       setLoadState('error');
       setIsRefreshing(false);
       setErrorMessage(errorMessageFor(error));
     }
-  }, [accessToken]);
+  }, [accessToken, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
+      // Show confirmed progress immediately on return, then revalidate with the API.
+      setQueueState((current) => ({
+        ...current,
+        assigned: current.assigned
+          .map((request) => getCachedResponderRequest(request.id) ?? request)
+          .filter((request) => request.assignedResponderId === user?.id && isActiveAssignedResponseStatus(request.status))
+      }));
       void loadQueues();
-    }, [loadQueues])
+      return () => {
+        // A request started before opening details must not overwrite newer progress.
+        queueLoadId.current += 1;
+      };
+    }, [loadQueues, user?.id])
   );
 
   const tabCounts = useMemo(() => getResponderQueueCounts(queueState), [queueState]);

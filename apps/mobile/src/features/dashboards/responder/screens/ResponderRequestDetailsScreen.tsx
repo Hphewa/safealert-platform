@@ -68,7 +68,7 @@ export function ResponderRequestDetailsScreen() {
 
     try {
       const updated = await updateResponderRequestProgress(requestId, progressAction.nextStatus, accessToken);
-      // Keep server-confirmed progress without refreshing the ASSIGNED-only queue.
+      // Keep the backend-confirmed status for details and the dashboard's next focus.
       updateCachedResponderRequest(updated);
       setUpdatedRequest(updated);
       setProgressFeedback({

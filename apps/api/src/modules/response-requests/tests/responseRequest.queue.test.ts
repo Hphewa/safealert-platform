@@ -102,12 +102,13 @@ describe('response request queue service', () => {
     ]);
   });
 
-  it('returns only ASSIGNED requests belonging to the requested responder', async () => {
+  it.each(['ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS'] as const)(
+    'returns only the current responder\'s active %s requests, newest first', async (status) => {
     const { repository, service } = createService();
     repository.seedResponseRequest(
       createResponseRequest({
         id: 'responder-a-request',
-        status: 'ASSIGNED',
+        status,
         assignedResponderId: 'responder-a',
         createdAt: '2026-09-23T10:00:00.000Z'
       })
@@ -115,7 +116,7 @@ describe('response request queue service', () => {
     repository.seedResponseRequest(
       createResponseRequest({
         id: 'responder-b-request',
-        status: 'ASSIGNED',
+        status,
         assignedResponderId: 'responder-b',
         createdAt: '2026-09-23T12:00:00.000Z'
       })
@@ -127,10 +128,19 @@ describe('response request queue service', () => {
         createdAt: '2026-09-23T13:00:00.000Z'
       })
     );
+    repository.seedResponseRequest(createResponseRequest({
+      id: 'completed-request', status: 'COMPLETED', assignedResponderId: 'responder-a'
+    }));
+    repository.seedResponseRequest(createResponseRequest({ id: 'unassigned-request', status }));
+    repository.seedResponseRequest(createResponseRequest({
+      id: 'newer-own-request', status, assignedResponderId: 'responder-a',
+      createdAt: '2026-09-23T14:00:00.000Z'
+    }));
 
     const requests = await service.listAssignedResponseRequests('responder-a');
 
-    expect(requests.map((request) => request.id)).toEqual(['responder-a-request']);
+    expect(requests.map((request) => request.id)).toEqual(['newer-own-request', 'responder-a-request']);
+    expect(requests.every((request) => request.status === status)).toBe(true);
   });
 
   it('returns an empty array when no requests match', async () => {

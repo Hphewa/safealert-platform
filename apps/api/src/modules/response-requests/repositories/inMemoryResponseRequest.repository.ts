@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import type { ResponseStatus, SafeResponseRequest } from '@safealert/contracts';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
 import { responseProgressTimestampFields } from './responseRequest.repository.js';
 
 import type {
@@ -58,7 +58,7 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return [...this.responseRequests.values()]
       .filter(
         (responseRequest) =>
-          responseRequest.status === 'ASSIGNED' &&
+          RESPONSE_ACTIVE_ASSIGNED_STATUSES.some((status) => status === responseRequest.status) &&
           responseRequest.assignedResponderId === responderId
       )
           // Keep ordering consistent with the production repository.

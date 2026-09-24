@@ -1,4 +1,4 @@
-import type { ResponseStatus } from '@safealert/contracts';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, type ResponseStatus } from '@safealert/contracts';
 import mongoose from 'mongoose';
 
 import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
@@ -39,7 +39,8 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     // Scope assigned requests to the current responder so one responder
     // cannot view another responder's active workload.
     const responseRequests = await ResponseRequestModel.find({
-      status: 'ASSIGNED',
+      // Assigned work stays active through dispatch, arrival and assistance, until completion.
+      status: { $in: RESPONSE_ACTIVE_ASSIGNED_STATUSES },
       assignedResponderId: responderId
     })
       .sort({ createdAt: -1 })

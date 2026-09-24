@@ -154,6 +154,38 @@ describe('response request progress API', () => {
     expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(response.body);
   });
 
+  it('keeps progress in the authenticated Assigned queue until completion without changing Pending', async () => {
+    const { app, token, responderId, responseRequestRepository, storedRequest } = await createProgressContext();
+    const pending = createStoredResponseRequest({ id: 'pending-request' });
+    responseRequestRepository.seedResponseRequest(pending);
+    for (const status of ['ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS'] as const) {
+      responseRequestRepository.seedResponseRequest(createStoredResponseRequest({
+        id: `other-${status}`, status, assignedResponderId: 'another-responder'
+      }));
+    }
+
+    let confirmed = storedRequest;
+    for (const status of ['ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED'] as const) {
+      if (status !== 'ASSIGNED') {
+        const updated = await request(app).patch(progressPath)
+          .set('Authorization', `Bearer ${token}`).send({ status });
+        expect(updated.status).toBe(200);
+        confirmed = updated.body;
+      }
+      const assigned = await request(app).get('/api/v1/response-requests/responder/assigned')
+        .query({ responderId: 'another-responder' })
+        .set('Authorization', `Bearer ${token}`);
+      expect(assigned.status).toBe(200);
+      expect(assigned.body).toEqual(status === 'COMPLETED' ? [] : [confirmed]);
+      expect(confirmed).toMatchObject({ id: requestId, status, assignedResponderId: responderId });
+
+      const pendingQueue = await request(app).get('/api/v1/response-requests/responder/pending')
+        .set('Authorization', `Bearer ${token}`);
+      expect(pendingQueue.status).toBe(200);
+      expect(pendingQueue.body).toEqual([pending]);
+    }
+  });
+
   it('persists stage timestamps sequentially, preserves earlier stages, and rejects duplicate writes', async () => {
     const acceptedAt = new Date().toISOString();
     const { app, token, responseRequestRepository, storedRequest } = await createProgressContext({ acceptedAt });
@@ -529,6 +561,26 @@ describe('response request progress MongoDB persistence', () => {
     for (const field of ['dispatchedAt', 'arrivedAt', 'inProgressAt', 'completedAt'] as const) {
       expect(document[field]).toBeUndefined();
       expect(result).not.toHaveProperty(field);
+    }
+  });
+
+  it('queries all active assigned statuses while preserving the responder ownership predicate', async () => {
+    const document = createDocument();
+    document.status = 'DISPATCHED';
+    const query = ResponseRequestModel.find();
+    vi.spyOn(query, 'exec').mockResolvedValue([document]);
+    const findSpy = vi.spyOn(ResponseRequestModel, 'find').mockReturnValueOnce(query);
+    try {
+      const responderId = document.assignedResponderId!.toString();
+      const result = await new MongooseResponseRequestRepository().findAssignedResponseRequests(responderId);
+      expect(findSpy).toHaveBeenCalledExactlyOnceWith({
+        assignedResponderId: responderId,
+        status: { $in: ['ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS'] }
+      });
+      expect(query.getOptions().sort).toEqual({ createdAt: -1 });
+      expect(result).toEqual([toSafeResponseRequest(document)]);
+    } finally {
+      findSpy.mockRestore();
     }
   });
 
