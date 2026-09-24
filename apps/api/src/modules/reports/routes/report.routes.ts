@@ -11,6 +11,8 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
   const controller = createReportController(reportService);
 
   router.post('/', authenticate(config), authorizeRoles('RESIDENT'), controller.create);
+  router.get('/mine', authenticate(config), authorizeRoles('RESIDENT'), controller.listMine);
+  router.get('/mine/:reportId', authenticate(config), authorizeRoles('RESIDENT'), controller.getMineById);
   router.get(
     '/community',
     authenticate(config),

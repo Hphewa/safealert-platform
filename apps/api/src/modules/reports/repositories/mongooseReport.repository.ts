@@ -20,6 +20,18 @@ export class MongooseReportRepository implements ReportRepository {
     return report ? toSafeReport(report) : null;
   }
 
+  async findReportsByResidentId(residentId: string) {
+    const reports = await ReportModel.find({ residentId }).sort({ createdAt: -1 }).exec();
+
+    return reports.map(toSafeReport);
+  }
+
+  async findReportByIdAndResidentId(reportId: string, residentId: string) {
+    const report = await ReportModel.findOne({ _id: reportId, residentId }).exec();
+
+    return report ? toSafeReport(report) : null;
+  }
+
   async findReportsByStatuses(statuses: CreateReportInput['status'][]) {
     const reports = await ReportModel.find({
       status: {

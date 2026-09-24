@@ -208,6 +208,14 @@ export type GetCommunityReportResponse = {
   report: CommunityReportSummary;
 };
 
+export type GetResidentReportsResponse = {
+  reports: SafeReport[];
+};
+
+export type GetResidentReportResponse = {
+  report: SafeReport;
+};
+
 export type GetPendingOfficerReportsResponse = {
   reports: SafeReport[];
 };

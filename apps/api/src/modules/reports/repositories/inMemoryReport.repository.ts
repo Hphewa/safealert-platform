@@ -38,6 +38,18 @@ export class InMemoryReportRepository implements ReportRepository {
     return this.reports.get(id) ?? null;
   }
 
+  async findReportsByResidentId(residentId: string) {
+    return [...this.reports.values()]
+      .filter((report) => report.residentId === residentId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async findReportByIdAndResidentId(reportId: string, residentId: string) {
+    const report = this.reports.get(reportId);
+
+    return report?.residentId === residentId ? report : null;
+  }
+
   async findReportsByStatuses(statuses: ReportStatus[]) {
     return [...this.reports.values()]
       .filter((report) => statuses.includes(report.status))

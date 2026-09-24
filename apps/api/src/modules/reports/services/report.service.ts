@@ -6,6 +6,8 @@ import type {
   GetCommunityReportsResponse,
   GetPendingOfficerReportResponse,
   GetPendingOfficerReportsResponse,
+  GetResidentReportResponse,
+  GetResidentReportsResponse,
   GetVerifiedOfficerReportsResponse,
   ReportReviewRequest,
   ReviewReportResponse
@@ -48,6 +50,25 @@ export class ReportService {
       ...(input.mediaReference ? { mediaReference: input.mediaReference } : {}),
       status: 'PENDING'
     });
+
+    return { report };
+  }
+
+  async listResidentReports(residentId: string): Promise<GetResidentReportsResponse> {
+    return {
+      reports: await this.repository.findReportsByResidentId(residentId)
+    };
+  }
+
+  async getResidentReportById(
+    residentId: string,
+    reportId: string
+  ): Promise<GetResidentReportResponse> {
+    const report = await this.repository.findReportByIdAndResidentId(reportId, residentId);
+
+    if (!report) {
+      throw new ApiError(404, 'REPORT_NOT_FOUND', 'Report not found.');
+    }
 
     return { report };
   }
