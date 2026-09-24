@@ -1,12 +1,13 @@
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../../app.js';
 import { loadConfig, type ApiConfig } from '../../../config/env.js';
 import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
 import { InMemoryReportRepository } from '../../reports/repositories/inMemoryReport.repository.js';
 import { InMemoryResponseRequestRepository } from '../repositories/inMemoryResponseRequest.repository.js';
+import { ResponseRequestService } from '../services/responseRequest.service.js';
 import type { SafeResponseRequest } from '@safealert/contracts';
 
 function createTestContext(overrides: Partial<ApiConfig> = {}) {
@@ -111,6 +112,242 @@ function createStoredResponseRequest(
     ...overrides
   };
 }
+
+describe('response request progress API', () => {
+  const requestId = '507f1f77bcf86cd799439011';
+  const progressPath = `/api/v1/response-requests/${requestId}/progress`;
+
+  async function createProgressContext(overrides: Partial<SafeResponseRequest> = {}) {
+    const context = createTestContext();
+    const token = await createAccessToken(
+      context.authRepository,
+      'EMERGENCY_RESPONDER',
+      'progress-responder@example.com'
+    );
+    const responderId = (jwt.decode(token) as jwt.JwtPayload).sub!;
+    const storedRequest = createStoredResponseRequest({
+      id: requestId,
+      status: 'ASSIGNED',
+      assignedResponderId: responderId,
+      ...overrides
+    });
+    context.responseRequestRepository.seedResponseRequest(storedRequest);
+    return { ...context, token, responderId, storedRequest };
+  }
+
+  it('allows the assigned responder to dispatch and persists only the progress change', async () => {
+    const { app, token, responseRequestRepository, storedRequest } = await createProgressContext();
+    const response = await request(app)
+      .patch(progressPath)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'DISPATCHED' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ...storedRequest,
+      status: 'DISPATCHED',
+      updatedAt: expect.any(String)
+    });
+    expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(response.body);
+  });
+
+  it('persists each sequential transition through completion', async () => {
+    const { app, token, responseRequestRepository } = await createProgressContext();
+
+    for (const status of ['DISPATCHED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED']) {
+      const response = await request(app)
+        .patch(progressPath)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status });
+
+      expect(response.status).toBe(200);
+      expect(response.body.status).toBe(status);
+      expect((await responseRequestRepository.findResponseRequestForProgress(requestId))?.status).toBe(status);
+    }
+  });
+
+  it.each(['another-responder', undefined])(
+    'rejects a responder when assignment is %s',
+    async (assignedResponderId) => {
+      const { app, token, responseRequestRepository, storedRequest } = await createProgressContext();
+      if (assignedResponderId === undefined) {
+        delete storedRequest.assignedResponderId;
+      } else {
+        storedRequest.assignedResponderId = assignedResponderId;
+      }
+      responseRequestRepository.seedResponseRequest(storedRequest);
+      const response = await request(app)
+        .patch(progressPath)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'DISPATCHED' });
+
+      expect(response.status).toBe(403);
+      expect(response.body.error.code).toBe('REQUEST_NOT_ASSIGNED');
+      expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(storedRequest);
+    }
+  );
+
+  it.each(['RESIDENT', 'COMMUNITY_VOLUNTEER', 'DISASTER_OFFICER'] as const)(
+    'rejects the %s role',
+    async (role) => {
+      const { app, authRepository, responseRequestRepository, storedRequest } = await createProgressContext();
+      const token = await createAccessToken(authRepository, role, `${role}@example.com`);
+      const response = await request(app)
+        .patch(progressPath)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'DISPATCHED' });
+
+      expect(response.status).toBe(403);
+      expect(response.body.error.code).toBe('FORBIDDEN');
+      expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(storedRequest);
+    }
+  );
+
+  it('requires authentication and rejects an invalid token', async () => {
+    const { app } = createTestContext();
+    const missing = await request(app).patch(progressPath).send({ status: 'DISPATCHED' });
+    const invalid = await request(app)
+      .patch(progressPath)
+      .set('Authorization', 'Bearer invalid-token')
+      .send({ status: 'DISPATCHED' });
+
+    expect(missing.status).toBe(401);
+    expect(missing.body.error.code).toBe('UNAUTHORIZED');
+    expect(invalid.status).toBe(401);
+    expect(invalid.body.error.code).toBe('INVALID_TOKEN');
+  });
+
+  it.each([
+    {},
+    { status: 'INVALID' },
+    { status: 'NEW' },
+    { status: 'dispatched' },
+    { status: null },
+    { status: 1 },
+    { status: ['DISPATCHED'] },
+    { status: 'DISPATCHED', assignedResponderId: 'spoofed-responder' },
+    { status: 'DISPATCHED', dispatchedAt: '2026-09-24T10:00:00.000Z' }
+  ])('rejects an invalid progress body: %j', async (body) => {
+    const { app, token, responseRequestRepository, storedRequest } = await createProgressContext();
+    const response = await request(app)
+      .patch(progressPath)
+      .set('Authorization', `Bearer ${token}`)
+      .send(body);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(response.body.error.message).toEqual(expect.any(String));
+    expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(storedRequest);
+  });
+
+  it.each([
+    ['NEW', 'ASSIGNED'],
+    ['NEW', 'DISPATCHED'],
+    ['ASSIGNED', 'ARRIVED'],
+    ['ASSIGNED', 'COMPLETED'],
+    ['ARRIVED', 'DISPATCHED'],
+    ['DISPATCHED', 'DISPATCHED'],
+    ['COMPLETED', 'IN_PROGRESS'],
+    ['COMPLETED', 'COMPLETED']
+  ] as const)('rejects the transition %s -> %s without changing the request', async (status, nextStatus) => {
+    const { app, token, responseRequestRepository, storedRequest } = await createProgressContext({ status });
+    const response = await request(app)
+      .patch(progressPath)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: nextStatus });
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('INVALID_PROGRESS_TRANSITION');
+    expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(storedRequest);
+  });
+
+  it.each(['invalid-id', '507f1f77bcf86cd79943901', 'z'.repeat(24), '%20'])(
+    'rejects the malformed request ID %s',
+    async (invalidId) => {
+      const { app, token } = await createProgressContext();
+      const response = await request(app)
+        .patch(`/api/v1/response-requests/${invalidId}/progress`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'DISPATCHED' });
+
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('INVALID_REQUEST_ID');
+    }
+  );
+
+  it('returns not found for a valid ID with no matching request', async () => {
+    const { app, token } = await createProgressContext();
+    const response = await request(app)
+      .patch('/api/v1/response-requests/507f1f77bcf86cd799439012/progress')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'DISPATCHED' });
+
+    expect(response.status).toBe(404);
+    expect(response.body.error.code).toBe('REQUEST_NOT_FOUND');
+  });
+
+  it('handles a missing path ID through the existing route-not-found response', async () => {
+    const { app, token } = await createProgressContext();
+    for (const path of ['/api/v1/response-requests/progress', '/api/v1/response-requests//progress']) {
+      const response = await request(app)
+        .patch(path)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'DISPATCHED' });
+
+      expect(response.status).toBe(404);
+      expect(response.body.error.code).toBe('NOT_FOUND');
+    }
+  });
+
+  it('rejects an empty ID in the service before repository access', async () => {
+    const { responseRequestRepository, responderId } = await createProgressContext();
+    const service = new ResponseRequestService(responseRequestRepository);
+
+    await expect(service.updateResponseRequestProgress(
+      '',
+      { id: responderId, role: 'EMERGENCY_RESPONDER' },
+      'DISPATCHED'
+    )).rejects.toMatchObject({ statusCode: 400, code: 'INVALID_REQUEST_ID' });
+  });
+
+  it('allows only one of two concurrent dispatch updates to succeed', async () => {
+    const { app, token, responseRequestRepository } = await createProgressContext();
+    const responses = await Promise.all([0, 1].map(() => request(app)
+      .patch(progressPath)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ status: 'DISPATCHED' })));
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
+    expect((await responseRequestRepository.findResponseRequestForProgress(requestId))?.status).toBe('DISPATCHED');
+  });
+
+  it.each([
+    { status: 'ARRIVED' as const },
+    { assignedResponderId: 'another-responder' }
+  ])('rejects a stale write after a concurrent change: %j', async (change) => {
+    const { app, token, responseRequestRepository, storedRequest } = await createProgressContext();
+    const update = responseRequestRepository.updateResponseRequestProgress.bind(responseRequestRepository);
+    const changedRequest = { ...storedRequest, ...change };
+    const updateSpy = vi.spyOn(responseRequestRepository, 'updateResponseRequestProgress')
+      .mockImplementationOnce(async (...args) => {
+        responseRequestRepository.seedResponseRequest(changedRequest);
+        return update(...args);
+      });
+
+    try {
+      const response = await request(app)
+        .patch(progressPath)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ status: 'DISPATCHED' });
+
+      expect(response.status).toBe(409);
+      expect(response.body.error.code).toBe('REQUEST_PROGRESS_CONFLICT');
+      expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(changedRequest);
+    } finally {
+      updateSpy.mockRestore();
+    }
+  });
+});
 
 describe('response request API', () => {
   beforeEach(() => {

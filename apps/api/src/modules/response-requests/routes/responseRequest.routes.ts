@@ -43,5 +43,12 @@ export function createResponseRequestRouter(
     controller.declineForResponder
   );
 
+  router.patch(
+    '/:requestId/progress',
+    authenticate(config),
+    authorizeRoles('EMERGENCY_RESPONDER'),
+    controller.updateProgress
+  );
+
   return router;
 }

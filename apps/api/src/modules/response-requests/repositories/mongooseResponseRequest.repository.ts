@@ -95,6 +95,31 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 
+  async findResponseRequestForProgress(responseRequestId: string) {
+    const responseRequest = await ResponseRequestModel.findById(responseRequestId).exec();
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
+  async updateResponseRequestProgress(
+    responseRequestId: string,
+    responderId: string,
+    currentStatus: ResponseStatus,
+    nextStatus: ResponseStatus
+  ) {
+    // Recheck assignment and status atomically so a stale update cannot overwrite progress.
+    const responseRequest = await ResponseRequestModel.findOneAndUpdate(
+      {
+        _id: responseRequestId,
+        assignedResponderId: responderId,
+        status: currentStatus
+      },
+      { $set: { status: nextStatus } },
+      { new: true, runValidators: true }
+    ).exec();
+
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
   async findResponseRequestById(
     responseRequestId: string,
     residentId: string,

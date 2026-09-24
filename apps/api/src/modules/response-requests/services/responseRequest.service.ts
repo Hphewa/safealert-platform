@@ -1,8 +1,11 @@
 import type {
   CreateResponseRequestRequest,
   CreateResponseRequestResponse,
+  ResponseStatus,
   UserRole
 } from '@safealert/contracts';
+import { isValidResponseProgressTransition } from '@safealert/contracts';
+import mongoose from 'mongoose';
 
 import { ApiError } from '../../../shared/apiError.js';
 import type { ResponseRequestRepository } from '../repositories/responseRequest.repository.js';
@@ -97,6 +100,59 @@ export class ResponseRequestService {
     }
 
     return responseRequest;
+  }
+
+  async updateResponseRequestProgress(
+    responseRequestId: string,
+    actor: ResponderActionActor | null | undefined,
+    nextStatus: ResponseStatus
+  ) {
+    const responderId = this.validateResponderActionInput(responseRequestId, actor);
+
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    const requestId = responseRequestId.toLowerCase();
+    const responseRequest = await this.repository.findResponseRequestForProgress(requestId);
+
+    if (!responseRequest) {
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+
+    if (responseRequest.assignedResponderId !== responderId) {
+      throw new ApiError(
+        403,
+        'REQUEST_NOT_ASSIGNED',
+        'Only the responder assigned to this request can update its progress.'
+      );
+    }
+
+    // LDFEW-121 starts from ASSIGNED; NEW -> ASSIGNED belongs to LDFEW-130.
+    if (!isValidResponseProgressTransition(responseRequest.status, nextStatus)) {
+      throw new ApiError(
+        409,
+        'INVALID_PROGRESS_TRANSITION',
+        `Cannot update emergency request progress from ${responseRequest.status} to ${nextStatus}.`
+      );
+    }
+
+    const updatedRequest = await this.repository.updateResponseRequestProgress(
+      requestId,
+      responderId,
+      responseRequest.status,
+      nextStatus
+    );
+
+    if (!updatedRequest) {
+      throw new ApiError(
+        409,
+        'REQUEST_PROGRESS_CONFLICT',
+        'This request changed before progress could be updated. Refresh it and try again.'
+      );
+    }
+
+    return updatedRequest;
   }
 
   private validateResponderActionInput(

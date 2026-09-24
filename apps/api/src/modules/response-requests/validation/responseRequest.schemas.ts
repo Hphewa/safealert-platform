@@ -1,8 +1,15 @@
 import {
   EMERGENCY_ASSISTANCE_TYPES,
+  RESPONSE_STATUSES,
   ROAD_ACCESSIBILITIES
 } from '@safealert/contracts';
 import { z } from 'zod';
+
+export const responseRequestProgressSchema = z
+  .object({
+    status: z.enum(RESPONSE_STATUSES).exclude(['NEW'])
+  })
+  .strict();
 
 const geoJsonPointSchema = z
   .object({

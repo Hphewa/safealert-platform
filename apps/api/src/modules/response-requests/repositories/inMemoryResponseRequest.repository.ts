@@ -104,6 +104,35 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return updatedResponseRequest;
   }
 
+  async findResponseRequestForProgress(responseRequestId: string) {
+    return this.responseRequests.get(responseRequestId) ?? null;
+  }
+
+  async updateResponseRequestProgress(
+    responseRequestId: string,
+    responderId: string,
+    currentStatus: ResponseStatus,
+    nextStatus: ResponseStatus
+  ) {
+    const responseRequest = this.responseRequests.get(responseRequestId);
+
+    if (
+      !responseRequest ||
+      responseRequest.assignedResponderId !== responderId ||
+      responseRequest.status !== currentStatus
+    ) {
+      return null;
+    }
+
+    const updatedRequest: SafeResponseRequest = {
+      ...responseRequest,
+      status: nextStatus,
+      updatedAt: new Date().toISOString()
+    };
+    this.responseRequests.set(responseRequestId, updatedRequest);
+    return updatedRequest;
+  }
+
   async findResponseRequestById(
     responseRequestId: string,
     residentId: string,

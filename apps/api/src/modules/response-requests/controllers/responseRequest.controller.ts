@@ -4,7 +4,10 @@ import type { RequestHandler } from 'express';
 import { ApiError } from '../../../shared/apiError.js';
 import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { ResponseRequestService } from '../services/responseRequest.service.js';
-import { createResponseRequestSchema } from '../validation/responseRequest.schemas.js';
+import {
+  createResponseRequestSchema,
+  responseRequestProgressSchema
+} from '../validation/responseRequest.schemas.js';
 
 export function createResponseRequestController(responseRequestService: ResponseRequestService) {
   const create: RequestHandler = asyncHandler(async (request, response) => {
@@ -92,11 +95,27 @@ export function createResponseRequestController(responseRequestService: Response
     response.status(200).json(responseRequest);
   });
 
+  const updateProgress: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const { status } = responseRequestProgressSchema.parse(request.body);
+    const responseRequest = await responseRequestService.updateResponseRequestProgress(
+      request.params.requestId ?? '',
+      request.auth,
+      status
+    );
+
+    response.status(200).json(responseRequest);
+  });
+
   return {
     create,
     listPendingForResponder,
     listAssignedForResponder,
     acceptForResponder,
-    declineForResponder
+    declineForResponder,
+    updateProgress
   };
 }
