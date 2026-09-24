@@ -191,6 +191,103 @@ export const RESPONSE_STATUSES = [
 
 export type ResponseStatus = (typeof RESPONSE_STATUSES)[number];
 
+export const RESPONSE_PROGRESS_ACTIONS = {
+  ASSIGNED: 'Start Dispatch',
+  DISPATCHED: 'Mark as Arrived',
+  ARRIVED: 'Start Assistance',
+  IN_PROGRESS: 'Complete Request',
+  COMPLETED: 'No further action'
+} as const;
+
+export const RESPONSE_ACTIVE_ASSIGNED_STATUSES = [
+  'ASSIGNED',
+  'DISPATCHED',
+  'ARRIVED',
+  'IN_PROGRESS'
+] as const;
+
+export type ResponseProgressActionStatus = keyof typeof RESPONSE_PROGRESS_ACTIONS;
+
+const RESPONSE_PROGRESS_SEQUENCE_STEPS: ReadonlyArray<ResponseProgressActionStatus> = [
+  'ASSIGNED',
+  'DISPATCHED',
+  'ARRIVED',
+  'IN_PROGRESS',
+  'COMPLETED'
+];
+
+const RESPONSE_PROGRESS_NEXT_STATUS: Record<ResponseProgressActionStatus, ResponseProgressActionStatus> = {
+  ASSIGNED: 'DISPATCHED',
+  DISPATCHED: 'ARRIVED',
+  ARRIVED: 'IN_PROGRESS',
+  IN_PROGRESS: 'COMPLETED',
+  COMPLETED: 'COMPLETED'
+};
+
+export function getNextResponseProgressStatus(
+  currentStatus: ResponseStatus
+): ResponseStatus | null {
+  if (currentStatus === 'NEW') {
+    return null;
+  }
+
+  if (currentStatus === 'COMPLETED') {
+    return null;
+  }
+
+  const progressStatus = currentStatus as ResponseProgressActionStatus;
+
+  if (!(progressStatus in RESPONSE_PROGRESS_NEXT_STATUS)) {
+    return null;
+  }
+
+  return RESPONSE_PROGRESS_NEXT_STATUS[progressStatus];
+}
+
+export function isValidResponseProgressTransition(
+  currentStatus: ResponseStatus,
+  nextStatus: ResponseStatus
+): boolean {
+  if (currentStatus === nextStatus) {
+    return false;
+  }
+
+  if (currentStatus === 'NEW') {
+    return false;
+  }
+
+  if (currentStatus === 'COMPLETED') {
+    return false;
+  }
+
+  const expectedNextStatus = getNextResponseProgressStatus(currentStatus);
+
+  return expectedNextStatus !== null && expectedNextStatus === nextStatus;
+}
+
+export function getResponseProgressAction(
+  currentStatus: ResponseStatus
+): { nextStatus: ResponseStatus; label: string } | null {
+  if (currentStatus === 'NEW' || currentStatus === 'COMPLETED') {
+    return null;
+  }
+
+  const nextStatus = getNextResponseProgressStatus(currentStatus);
+
+  if (!nextStatus) {
+    return null;
+  }
+
+  return {
+    nextStatus,
+    label: RESPONSE_PROGRESS_ACTIONS[currentStatus as ResponseProgressActionStatus]
+  };
+}
+
+// LDFEW-121 begins after a request has already been assigned.
+// NEW -> ASSIGNED is handled by LDFEW-130 accept/decline logic and is intentionally excluded here.
+export const RESPONSE_PROGRESS_SEQUENCE = RESPONSE_PROGRESS_SEQUENCE_STEPS;
+
 export const EMERGENCY_ASSISTANCE_TYPES = [
   'RESCUE_EVACUATION',
   'MEDICAL_ASSISTANCE',
@@ -234,6 +331,15 @@ export type CreateResponseRequestRequest = {
 export type SafeResponseRequest = {
   id: string;
   residentId: string;
+  // Set when the emergency request is assigned to a specific responder.
+  assignedResponderId?: string;
+  // Keeps responder-specific declines without changing the emergency status.
+  declinedByResponderIds?: string[];
+  acceptedAt?: string;
+  dispatchedAt?: string;
+  arrivedAt?: string;
+  inProgressAt?: string;
+  completedAt?: string;
   assistanceType: EmergencyAssistanceType;
   location: GeoJsonPoint;
   affectedPeople: number;

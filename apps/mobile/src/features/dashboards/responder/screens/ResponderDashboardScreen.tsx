@@ -1,27 +1,116 @@
-import { useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { SafeResponseRequest } from '@safealert/contracts';
+
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ApiClientError } from '@/services/api/client';
 
 import { DashboardHeader } from '../../shared/components/DashboardHeader';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { ReportListItem } from '../../shared/components/ReportListItem';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
-import { responderBottomNavItems, responderRequests } from '../mockData';
+import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
+import { responderBottomNavItems } from '../mockData';
+import { clearResponderRequestCache, getCachedResponderRequest, replaceResponderRequestCache } from '../requestDetailsCache';
+import { parseResponderRequestTab, responderRequestDetailsHref } from '../requestDetails';
+import {
+  emptyQueueDescription,
+  emptyQueueTitle,
+  responderQueueErrorMessage
+} from '../requestFlowState';
+import { presentResponderRequest } from '../requestPresentation';
+import {
+  getResponderQueueCounts,
+  getVisibleResponderRequests,
+  isActiveAssignedResponseStatus,
+  type RequestTab,
+  type ResponderQueueState
+} from '../queueState';
 
-type RequestTab = 'PENDING' | 'ASSIGNED';
+type LoadState = 'loading' | 'ready' | 'error';
 
 export function ResponderDashboardScreen() {
-  const [activeTab, setActiveTab] = useState<RequestTab>('PENDING');
-  const [refreshLabel, setRefreshLabel] = useState('Preview data ready');
+  const { accessToken, user } = useAuth();
+  const router = useRouter();
+  const { tab } = useLocalSearchParams<{ tab?: string | string[] }>();
+  const queueLoadId = useRef(0);
+  // Route state restores the selected queue on Back without first rendering Pending.
+  const activeTab = parseResponderRequestTab(tab) ?? 'PENDING';
+  const setActiveTab = (tab: RequestTab) => router.setParams({ tab });
+  const [queueState, setQueueState] = useState<ResponderQueueState>({
+    pending: [],
+    assigned: []
+  });
+  const [loadState, setLoadState] = useState<LoadState>('loading');
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
-  const tabCounts = useMemo(
-    () => ({
-      PENDING: responderRequests.filter((request) => request.status === 'PENDING').length,
-      ASSIGNED: responderRequests.filter((request) => request.status === 'ASSIGNED').length
-    }),
-    []
+  const loadQueues = useCallback(async () => {
+    const loadId = ++queueLoadId.current;
+    if (!accessToken) {
+      setQueueState({ pending: [], assigned: [] });
+      setLoadState('error');
+      setIsRefreshing(false);
+      setErrorMessage('Your session has expired. Please log in again.');
+      return;
+    }
+
+    setIsRefreshing(true);
+    setErrorMessage(null);
+
+    try {
+      // Load both queues from the protected responder API so the dashboard
+      // reflects current server data instead of local preview data.
+      const [pending, assigned] = await Promise.all([
+        listPendingResponderRequests(accessToken),
+        listAssignedResponderRequests(accessToken)
+      ]);
+
+      if (loadId !== queueLoadId.current) return;
+
+      const activeAssignedRequests = assigned.filter((request) =>
+        request.assignedResponderId === user?.id && isActiveAssignedResponseStatus(request.status)
+      );
+
+      setQueueState({ pending, assigned: activeAssignedRequests });
+      replaceResponderRequestCache([...pending, ...activeAssignedRequests]);
+      setLoadState('ready');
+      setIsRefreshing(false);
+      setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+    } catch (error) {
+      if (loadId !== queueLoadId.current) return;
+
+      setQueueState({ pending: [], assigned: [] });
+      clearResponderRequestCache();
+      setLoadState('error');
+      setIsRefreshing(false);
+      setErrorMessage(errorMessageFor(error));
+    }
+  }, [accessToken, user?.id]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Show confirmed progress immediately on return, then revalidate with the API.
+      setQueueState((current) => ({
+        ...current,
+        assigned: current.assigned
+          .map((request) => getCachedResponderRequest(request.id) ?? request)
+          .filter((request) => request.assignedResponderId === user?.id && isActiveAssignedResponseStatus(request.status))
+      }));
+      void loadQueues();
+      return () => {
+        // A request started before opening details must not overwrite newer progress.
+        queueLoadId.current += 1;
+      };
+    }, [loadQueues, user?.id])
   );
 
-  const visibleRequests = responderRequests.filter((request) => request.status === activeTab);
+  const tabCounts = useMemo(() => getResponderQueueCounts(queueState), [queueState]);
+
+  const visibleRequests = getVisibleResponderRequests(queueState, activeTab);
+  const isLoading = loadState === 'loading';
 
   return (
     <DashboardScreen bottomNavItems={responderBottomNavItems}>
@@ -29,7 +118,7 @@ export function ResponderDashboardScreen() {
         showLogoutButton
         title="Emergency Requests"
         trailingIcon="refresh-outline"
-        onTrailingPress={() => setRefreshLabel('Preview data refreshed just now')}
+        onTrailingPress={() => void loadQueues()}
       />
 
       <View style={styles.statusRow}>
@@ -37,7 +126,13 @@ export function ResponderDashboardScreen() {
           <View style={styles.onlineDot} />
           <Text style={styles.onlineText}>Online</Text>
         </View>
-        <Text style={styles.refreshLabel}>{refreshLabel}</Text>
+        <Text style={styles.refreshLabel}>
+          {isLoading || isRefreshing
+            ? 'Loading requests...'
+            : lastUpdated
+              ? `Updated ${lastUpdated}`
+              : 'Ready'}
+        </Text>
       </View>
 
       <View style={styles.tabRow}>
@@ -55,28 +150,87 @@ export function ResponderDashboardScreen() {
         />
       </View>
 
-      <Text style={styles.sectionCaption}>Requests ordered by priority</Text>
+      <Text style={styles.sectionCaption}>
+        {activeTab === 'PENDING' ? 'Pending requests' : 'Assigned requests'}
+      </Text>
 
-      <View style={styles.list}>
-        {visibleRequests.map((request) => (
-          <ReportListItem
-            detailItems={[
-              `${request.peopleAffected} people`,
-              `${request.injuredCount} injured`,
-              request.distanceLabel
-            ]}
-            href={request.href}
-            icon={request.icon}
-            key={request.id}
-            severity={request.priority}
-            subtitle={request.location}
-            timeLabel={request.reportedTime}
-            title={request.emergencyType}
-          />
-        ))}
-      </View>
+      {isLoading ? (
+        <QueueStateMessage>
+          <ActivityIndicator color={dashboardTheme.colors.primaryStrong} />
+          <Text style={styles.stateTitle}>Loading requests</Text>
+          <Text style={styles.stateDescription}>Checking the latest responder queues.</Text>
+        </QueueStateMessage>
+      ) : loadState === 'error' ? (
+        <QueueStateMessage>
+          <Text style={styles.stateTitle}>Unable to load requests</Text>
+          <Text style={styles.stateDescription}>{errorMessage}</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => void loadQueues()}
+            style={({ pressed }) => [styles.retryButton, pressed && styles.tabPressed]}
+          >
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </Pressable>
+        </QueueStateMessage>
+      ) : visibleRequests.length === 0 ? (
+        <QueueStateMessage>
+          <Text style={styles.stateTitle}>{emptyQueueTitle(activeTab)}</Text>
+          <Text style={styles.stateDescription}>{emptyQueueDescription(activeTab)}</Text>
+        </QueueStateMessage>
+      ) : (
+        <View style={styles.list}>
+          {visibleRequests.map((request) => (
+            <ResponderRequestItem key={request.id} request={request} sourceTab={activeTab} />
+          ))}
+        </View>
+      )}
     </DashboardScreen>
   );
+}
+
+function ResponderRequestItem({ request, sourceTab }: { request: SafeResponseRequest; sourceTab: RequestTab }) {
+  const href = responderRequestDetailsHref(request.id, sourceTab);
+  const presentation = presentResponderRequest(request);
+
+  if (!href) {
+    return null;
+  }
+
+  return (
+    <ReportListItem
+      detailItems={presentation.details}
+      href={href}
+      icon={assistanceTypeIcon(request.assistanceType)}
+      statusLabel={presentation.status}
+      statusTone={request.status === 'ASSIGNED' ? 'success' : 'info'}
+      subtitle={presentation.location}
+      timeLabel={presentation.submittedAt}
+      title={presentation.title}
+    />
+  );
+}
+
+function QueueStateMessage({ children }: { children: React.ReactNode }) {
+  return <View style={styles.stateMessage}>{children}</View>;
+}
+
+function assistanceTypeIcon(assistanceType: SafeResponseRequest['assistanceType']) {
+  switch (assistanceType) {
+    case 'MEDICAL_ASSISTANCE':
+      return 'medical-outline';
+    case 'RESCUE_EVACUATION':
+      return 'bus-outline';
+    case 'FLOOD_ASSISTANCE':
+      return 'water-outline';
+    case 'SHELTER_RELOCATION':
+      return 'home-outline';
+    default:
+      return 'help-buoy-outline';
+  }
+}
+
+function errorMessageFor(error: unknown) {
+  return responderQueueErrorMessage(error instanceof ApiClientError && error.status === 0);
 }
 
 type ResponderTabProps = {
@@ -91,13 +245,18 @@ function ResponderTab({ label, count, active, onPress }: ResponderTabProps) {
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
+      accessibilityLabel={`${label} requests, ${count}`}
+      accessibilityState={{ selected: active }}
       style={({ pressed }) => [
         styles.tab,
         active && styles.tabActive,
         pressed && styles.tabPressed
       ]}
     >
-      <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+      <View style={styles.tabContent}>
+        <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>{label}</Text>
+        {active ? <View style={styles.activeTabIndicator} /> : null}
+      </View>
       <View style={[styles.tabCount, active && styles.tabCountActive]}>
         <Text style={[styles.tabCountText, active && styles.tabCountTextActive]}>{count}</Text>
       </View>
@@ -150,6 +309,16 @@ const styles = StyleSheet.create({
     backgroundColor: dashboardTheme.colors.surface,
     ...cardShadow
   },
+  tabContent: {
+    alignItems: 'center',
+    gap: 4
+  },
+  activeTabIndicator: {
+    width: '100%',
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: '#ffffff'
+  },
   tabActive: {
     backgroundColor: dashboardTheme.colors.primaryStrong,
     borderColor: dashboardTheme.colors.primaryStrong
@@ -192,5 +361,37 @@ const styles = StyleSheet.create({
   },
   list: {
     gap: 12
+  },
+  stateMessage: {
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 32,
+    paddingHorizontal: 20
+  },
+  stateTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: dashboardTheme.colors.text,
+    textAlign: 'center'
+  },
+  stateDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: dashboardTheme.colors.muted,
+    textAlign: 'center'
+  },
+  retryButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.primaryStrong,
+    marginTop: 8
+  },
+  retryButtonText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#ffffff'
   }
 });
