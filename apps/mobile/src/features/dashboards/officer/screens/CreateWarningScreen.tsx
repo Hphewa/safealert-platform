@@ -107,9 +107,9 @@ export function CreateWarningScreen() {
           </View>
           <View style={assessmentStyles.card}>
             <Text style={assessmentStyles.heading}>Attachments (optional)</Text>
-            <Text style={assessmentStyles.helper}>Add up to 5 existing media links, one per line.</Text>
+            <Text style={assessmentStyles.helper}>Add up to 5 uploaded image references, one per line.</Text>
             <TextInput accessibilityLabel="Attachment links" multiline autoCapitalize="none" autoCorrect={false}
-              value={form.attachments} onChangeText={(value) => update('attachments', value)} placeholder="https://…"
+              value={form.attachments} onChangeText={(value) => update('attachments', value)} placeholder="/api/v1/warning-attachments/..."
               placeholderTextColor={dashboardTheme.colors.muted}
               style={[assessmentStyles.input, warningStyles.multiline, !!errors.attachments && warningStyles.invalidInput]} />
             {errors.attachments ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{errors.attachments}</Text> : null}

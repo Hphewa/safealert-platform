@@ -1,4 +1,8 @@
-import { WARNING_FIELD_LIMITS, type CreateWarningRequest } from '@safealert/contracts';
+import {
+  WARNING_ATTACHMENT_REFERENCE_PATTERN,
+  WARNING_FIELD_LIMITS,
+  type CreateWarningRequest
+} from '@safealert/contracts';
 
 export const warningFields = [
   { key: 'affectedArea', label: 'Affected Area', required: true, placeholder: 'e.g. Riverside village, lower valley' },
@@ -7,10 +11,13 @@ export const warningFields = [
   { key: 'safeRoutes', label: 'Safe Routes', required: false, placeholder: 'Describe safe alternative routes, if known' },
   { key: 'message', label: 'Reason / Message', required: true, placeholder: 'Explain the warning and give clear safety instructions' }
 ] as const;
-export type WarningForm = Record<(typeof warningFields)[number]['key'], string>;
+type WarningTextFieldKey = (typeof warningFields)[number]['key'];
+export type WarningForm = Record<WarningTextFieldKey, string> & {
+  attachments: string;
+};
 export type WarningFormErrors = Partial<Record<keyof WarningForm, string>>;
 export const initialWarningForm: WarningForm = {
-  affectedArea: '', requiredAction: '', unsafeRoads: '', safeRoutes: '', message: ''
+  affectedArea: '', requiredAction: '', unsafeRoads: '', safeRoutes: '', message: '', attachments: ''
 };
 
 export function validateWarningForm(form: WarningForm): WarningFormErrors {
@@ -22,16 +29,32 @@ export function validateWarningForm(form: WarningForm): WarningFormErrors {
       errors[field.key] = `${field.label} must be at most ${WARNING_FIELD_LIMITS[field.key]} characters.`;
     }
   }
+  const attachments = parseAttachmentReferences(form.attachments);
+  if (attachments.length > WARNING_FIELD_LIMITS.attachments) {
+    errors.attachments = `Add at most ${WARNING_FIELD_LIMITS.attachments} attachments.`;
+  } else if (attachments.some((reference) => reference.length > WARNING_FIELD_LIMITS.attachmentUrl)) {
+    errors.attachments = `Each attachment reference must be at most ${WARNING_FIELD_LIMITS.attachmentUrl} characters.`;
+  } else if (attachments.some((reference) => !WARNING_ATTACHMENT_REFERENCE_PATTERN.test(reference))) {
+    errors.attachments = 'Upload images before attaching them.';
+  }
   return errors;
 }
 
 export function parseWarningForm(assessmentId: string, form: WarningForm): CreateWarningRequest {
   const errors = validateWarningForm(form);
   if (Object.keys(errors).length) throw new Error(Object.values(errors)[0]);
+  const attachments = parseAttachmentReferences(form.attachments);
   return {
     assessmentId, affectedArea: form.affectedArea.trim(), requiredAction: form.requiredAction.trim(),
     unsafeRoads: form.unsafeRoads.trim(), message: form.message.trim(),
     ...(form.safeRoutes.trim() ? { safeRoutes: form.safeRoutes.trim() } : {}),
-    attachments: []
+    ...(attachments.length ? { attachments } : {})
   };
+}
+
+function parseAttachmentReferences(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((reference) => reference.trim())
+    .filter(Boolean);
 }
