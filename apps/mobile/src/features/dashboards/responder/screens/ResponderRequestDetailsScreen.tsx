@@ -12,7 +12,7 @@ import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { responderBottomNavItems } from '../mockData';
 import { getCachedResponderRequest, updateCachedResponderRequest } from '../requestDetailsCache';
-import { displayValue } from '../requestDetails';
+import { displayValue, responderRequestReturnTab } from '../requestDetails';
 import { replaceResponderRequestCache } from '../requestDetailsCache';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { acceptResponderRequest, declineResponderRequest } from '../api/responderDecisionApi';
@@ -33,7 +33,7 @@ import {
 export function ResponderRequestDetailsScreen() {
   const router = useRouter();
   const { accessToken, user } = useAuth();
-  const params = useLocalSearchParams<{ requestId?: string | string[] }>();
+  const params = useLocalSearchParams<{ requestId?: string | string[]; sourceTab?: string | string[] }>();
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
   const [updatedRequest, setUpdatedRequest] = useState<SafeResponseRequest | null>(null);
   const responseRequest = updatedRequest?.id === requestId && updatedRequest?.assignedResponderId === user?.id
@@ -84,6 +84,15 @@ export function ResponderRequestDetailsScreen() {
   };
 
   const returnToRequests = () => router.replace('/responder');
+  const backToRequests = () => {
+    const tab = responderRequestReturnTab(params.sourceTab, responseRequest?.status);
+    if (tab === 'ASSIGNED') {
+      // Return to the existing queue with Assigned selected so progress work stays in context.
+      router.dismissTo({ pathname: '/responder', params: { tab } });
+    } else {
+      returnToRequests();
+    }
+  };
 
   const refreshResponderQueues = useCallback(async () => {
     if (!accessToken) {
@@ -224,14 +233,14 @@ export function ResponderRequestDetailsScreen() {
   if (!responseRequest) {
     return (
       <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
-        <DetailsHeader onBack={returnToRequests} />
+        <DetailsHeader onBack={backToRequests} />
         <View style={styles.noticeCard}>
           <View style={styles.noticeIconWrap}>
             <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={22} />
           </View>
           <Text style={styles.noticeTitle}>Request not available</Text>
           <Text style={styles.noticeBody}>This emergency request could not be found.</Text>
-          <BackToRequestsButton onPress={returnToRequests} />
+          <BackToRequestsButton onPress={backToRequests} />
         </View>
       </DashboardScreen>
     );
@@ -239,7 +248,7 @@ export function ResponderRequestDetailsScreen() {
 
   return (
     <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
-      <DetailsHeader onBack={returnToRequests} />
+      <DetailsHeader onBack={backToRequests} />
 
       <View style={styles.heroCard}>
         <View style={styles.heroBadgeRow}>
@@ -330,7 +339,7 @@ export function ResponderRequestDetailsScreen() {
         />
       ) : null}
 
-      <BackToRequestsButton onPress={returnToRequests} />
+      <BackToRequestsButton onPress={backToRequests} />
     </DashboardScreen>
   );
 }

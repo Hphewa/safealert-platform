@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { SafeResponseRequest } from '@safealert/contracts';
 
@@ -13,7 +13,7 @@ import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { responderBottomNavItems } from '../mockData';
 import { clearResponderRequestCache, getCachedResponderRequest, replaceResponderRequestCache } from '../requestDetailsCache';
-import { responderRequestDetailsHref } from '../requestDetails';
+import { parseResponderRequestTab, responderRequestDetailsHref } from '../requestDetails';
 import {
   emptyQueueDescription,
   emptyQueueTitle,
@@ -32,8 +32,12 @@ type LoadState = 'loading' | 'ready' | 'error';
 
 export function ResponderDashboardScreen() {
   const { accessToken, user } = useAuth();
+  const router = useRouter();
+  const { tab } = useLocalSearchParams<{ tab?: string | string[] }>();
   const queueLoadId = useRef(0);
-  const [activeTab, setActiveTab] = useState<RequestTab>('PENDING');
+  // Route state restores the selected queue on Back without first rendering Pending.
+  const activeTab = parseResponderRequestTab(tab) ?? 'PENDING';
+  const setActiveTab = (tab: RequestTab) => router.setParams({ tab });
   const [queueState, setQueueState] = useState<ResponderQueueState>({
     pending: [],
     assigned: []
@@ -176,7 +180,7 @@ export function ResponderDashboardScreen() {
       ) : (
         <View style={styles.list}>
           {visibleRequests.map((request) => (
-            <ResponderRequestItem key={request.id} request={request} />
+            <ResponderRequestItem key={request.id} request={request} sourceTab={activeTab} />
           ))}
         </View>
       )}
@@ -184,8 +188,8 @@ export function ResponderDashboardScreen() {
   );
 }
 
-function ResponderRequestItem({ request }: { request: SafeResponseRequest }) {
-  const href = responderRequestDetailsHref(request.id);
+function ResponderRequestItem({ request, sourceTab }: { request: SafeResponseRequest; sourceTab: RequestTab }) {
+  const href = responderRequestDetailsHref(request.id, sourceTab);
   const presentation = presentResponderRequest(request);
 
   if (!href) {
