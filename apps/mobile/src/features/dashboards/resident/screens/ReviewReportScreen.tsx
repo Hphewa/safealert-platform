@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -17,7 +17,13 @@ import {
   useReportHazardDraft,
   type ReportHazardDraft
 } from '../reportDraft';
-import { submitResidentReportDraft } from '../reportSubmission';
+import {
+  beginReportSubmission,
+  canSubmitReport,
+  clearReportSubmission,
+  isReportSubmissionActive
+} from '../reportSubmissionGuard';
+import { ReportSubmissionError, submitResidentReportDraft } from '../reportSubmission';
 
 const connectionStatus = 'Online';
 
@@ -32,8 +38,9 @@ export function ReviewReportScreen() {
   const { accessToken } = useAuth();
   const { draft, resetDraft, setDraft, setSubmittedReport, validation } = useReportHazardDraft();
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
-  const isSubmitting = submitState.status === 'uploading' || submitState.status === 'submitting';
-  const canSubmit = validation.isValid && !isSubmitting;
+  const submitInFlightRef = useRef(false);
+  const isSubmitting = isReportSubmissionActive(submitState.status);
+  const canSubmit = canSubmitReport({ isValid: validation.isValid, status: submitState.status });
 
   const editReport = () => {
     router.push('/resident/report-hazard');
@@ -62,6 +69,11 @@ export function ReviewReportScreen() {
       return;
     }
 
+    if (!beginReportSubmission(submitInFlightRef, isSubmitting)) {
+      return;
+    }
+
+    setSubmittedReport(null);
     setSubmitState(photoNeedsUpload(draft) ? { status: 'uploading', message: null } : { status: 'submitting', message: null });
 
     try {
@@ -96,6 +108,7 @@ export function ReviewReportScreen() {
       resetDraft();
       router.replace('/resident/report-submitted');
     } catch (error) {
+      clearReportSubmission(submitInFlightRef);
       setSubmitState({
         status: 'error',
         ...submitErrorStateFor(error)
@@ -223,6 +236,7 @@ export function ReviewReportScreen() {
           <Text style={styles.errorText}>{submitState.message}</Text>
           {submitState.reason === 'network' ||
           submitState.reason === 'upload' ||
+          submitState.reason === 'validation' ||
           submitState.reason === 'server' ? (
             <Pressable
               accessibilityLabel="Retry report submission"
@@ -295,11 +309,15 @@ function ReviewDetail({ label, value }: { label: string; value: string }) {
 }
 
 function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'message'> {
+  if (error instanceof ReportSubmissionError) {
+    return submitErrorStateForStage(error);
+  }
+
   if (error instanceof ApiClientError) {
     if (error.status === 0) {
       return {
         reason: 'network',
-        message: `${error.message} Your report draft was not lost. Check that your phone and API server are on the same network, then retry.`
+        message: 'Could not submit the report. Check your connection and try again.'
       };
     }
 
@@ -313,14 +331,14 @@ function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'mess
     if (error.status === 400) {
       return {
         reason: 'validation',
-        message: `${error.message} Please edit the report and try again.`
+        message: 'Some report details are invalid. Please edit the report and try again.'
       };
     }
 
     if (error.status === 413 || error.status === 415) {
       return {
         reason: 'upload',
-        message: error.message
+        message: 'That photo could not be uploaded. Choose a supported JPG or PNG and try again.'
       };
     }
 
@@ -334,6 +352,87 @@ function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'mess
     reason: 'server',
     message: 'SafeAlert could not submit the report right now. Your draft is still here, so you can retry.'
   };
+}
+
+function submitErrorStateForStage(error: ReportSubmissionError): Pick<SubmitState, 'reason' | 'message'> {
+  const originalError = error.originalError;
+
+  if (originalError instanceof ApiClientError) {
+    if (originalError.status === 401 || originalError.status === 403) {
+      return {
+        reason: 'auth',
+        message: 'Your session could not submit this report. Please log in again.'
+      };
+    }
+
+    if (error.stage === 'upload') {
+      if (originalError.status === 0) {
+        return {
+          reason: 'network',
+          message: "Couldn't upload the photo. Check your connection and try again."
+        };
+      }
+
+      return {
+        reason: 'upload',
+        message: uploadFailureMessageFor(originalError)
+      };
+    }
+
+    if (originalError.status === 0) {
+      return {
+        reason: 'network',
+        message: error.mediaReference
+          ? 'Your photo was uploaded, but the report could not be submitted. Check your connection and try again.'
+          : 'Could not submit the report. Check your connection and try again.'
+      };
+    }
+
+    return {
+      reason: originalError.status === 400 ? 'validation' : 'server',
+      message: error.mediaReference
+        ? 'Your photo was uploaded, but the report could not be submitted. Try again.'
+        : reportCreateFailureMessageFor(originalError)
+    };
+  }
+
+  if (error.stage === 'upload') {
+    return {
+      reason: 'upload',
+      message: "Couldn't upload the photo. Try again."
+    };
+  }
+
+  return {
+    reason: 'server',
+    message: error.mediaReference
+      ? 'Your photo was uploaded, but the report could not be submitted. Try again.'
+      : 'SafeAlert could not submit the report right now. Your draft is still here, so you can retry.'
+  };
+}
+
+function uploadFailureMessageFor(error: ApiClientError) {
+  if (error.status === 413) {
+    return 'That photo is too large to upload. Choose a smaller image and try again.';
+  }
+
+  if (error.status === 415) {
+    return 'That photo format is not supported. Choose a JPG or PNG and try again.';
+  }
+
+  if (error.status === 400) {
+    return 'That photo could not be uploaded. Choose a supported JPG or PNG and try again.';
+  }
+
+  return "Couldn't upload the photo right now. Try again.";
+}
+
+function reportCreateFailureMessageFor(error: ApiClientError) {
+  if (error.status === 400) {
+    return 'Some report details are invalid. Please edit the report and try again.';
+  }
+
+  return 'SafeAlert could not submit the report right now. Your draft is still here, so you can retry.';
 }
 
 function formatCoordinate(value: number) {

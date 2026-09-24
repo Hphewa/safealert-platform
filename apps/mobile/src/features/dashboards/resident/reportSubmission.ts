@@ -20,6 +20,19 @@ export type SubmitResidentReportDraftResult = {
   mediaReference?: string;
 };
 
+export type ReportSubmissionFailureStage = 'upload' | 'create';
+
+export class ReportSubmissionError extends Error {
+  constructor(
+    public readonly stage: ReportSubmissionFailureStage,
+    public readonly originalError: unknown,
+    public readonly mediaReference?: string
+  ) {
+    super(originalError instanceof Error ? originalError.message : 'Report submission failed.');
+    Object.setPrototypeOf(this, ReportSubmissionError.prototype);
+  }
+}
+
 type SubmitResidentReportDraftInput = {
   draft: ReportHazardDraft;
   accessToken: string;
@@ -39,12 +52,18 @@ export async function submitResidentReportDraft({
     throw new Error('Report draft is incomplete.');
   }
 
-  const mediaReference = await ensureReportEvidenceMediaReference({
-    draft,
-    accessToken,
-    uploadReportEvidence,
-    onEvidenceUploaded
-  });
+  let mediaReference: string | undefined;
+
+  try {
+    mediaReference = await ensureReportEvidenceMediaReference({
+      draft,
+      accessToken,
+      uploadReportEvidence,
+      onEvidenceUploaded
+    });
+  } catch (error) {
+    throw new ReportSubmissionError('upload', error);
+  }
 
   const payload: CreateReportRequest = {
     hazardType: draft.hazardType,
@@ -60,10 +79,14 @@ export async function submitResidentReportDraft({
     ...(mediaReference ? { mediaReference } : {})
   };
 
-  return {
-    response: await createResidentReport(payload, accessToken),
-    ...(mediaReference ? { mediaReference } : {})
-  };
+  try {
+    return {
+      response: await createResidentReport(payload, accessToken),
+      ...(mediaReference ? { mediaReference } : {})
+    };
+  } catch (error) {
+    throw new ReportSubmissionError('create', error, mediaReference);
+  }
 }
 
 async function ensureReportEvidenceMediaReference({

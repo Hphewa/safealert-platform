@@ -27,7 +27,15 @@ export const createReportSchema = z.object({
     .max(1000, 'Description must be at most 1000 characters.'),
   severity: z.enum(REPORT_SEVERITIES),
   location: geoJsonPointSchema,
-  mediaReference: z.string().trim().min(1).max(500).optional()
+  mediaReference: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .refine((value) => !/^file:\/\//i.test(value), {
+      message: 'Media reference must point to uploaded evidence.'
+    })
+    .optional()
 });
 
 export const communityReportQueryModes = ['incoming', 'nearby'] as const;

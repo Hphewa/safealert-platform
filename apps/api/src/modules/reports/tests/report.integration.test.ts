@@ -106,7 +106,7 @@ const validReportPayload = {
     type: 'Point',
     coordinates: [79.8612, 6.9271]
   },
-  mediaReference: 'media/reports/flood-photo.jpg'
+  mediaReference: '/api/v1/media/report-evidence/flood-photo.jpg'
 };
 
 const forbiddenReportReviewCases = [
@@ -153,6 +153,8 @@ describe('report API', () => {
       })
     );
     expect(response.body.report.residentId).not.toBe(validReportPayload.residentId);
+    expect(Date.parse(response.body.report.createdAt)).not.toBeNaN();
+    expect(response.body.report.updatedAt).toBe(response.body.report.createdAt);
   });
 
   it.each([
@@ -193,8 +195,57 @@ describe('report API', () => {
       expect(response.body.report.rejectedById).toBeUndefined();
       expect(response.body.report.rejectedAt).toBeUndefined();
       expect(response.body.report.rejectionReason).toBeUndefined();
+      expect(response.body.report.verificationHistory).toBeUndefined();
     }
   );
+
+  it('ignores all client-supplied owner, status, review, and timestamp fields during resident creation', async () => {
+    const { app } = createTestContext();
+    const resident = await registerResident(app);
+
+    const response = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validReportPayload,
+        residentId: 'client-resident-id',
+        status: 'RESOLVED',
+        createdAt: '2000-01-01T00:00:00.000Z',
+        updatedAt: '2000-01-01T00:00:00.000Z',
+        verifiedById: 'client-officer-id',
+        verifiedAt: '2000-01-01T00:00:00.000Z',
+        rejectedById: 'client-officer-id',
+        rejectedAt: '2000-01-01T00:00:00.000Z',
+        rejectionReason: 'Client supplied rejection reason.',
+        verificationHistory: [
+          {
+            action: 'REJECT',
+            rejectedById: 'client-officer-id',
+            rejectedAt: '2000-01-01T00:00:00.000Z',
+            rejectionReason: 'Client supplied rejection reason.'
+          }
+        ]
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.report).toEqual(
+      expect.objectContaining({
+        residentId: resident.body.user.id,
+        status: 'PENDING',
+        createdAt: expect.any(String),
+        updatedAt: expect.any(String)
+      })
+    );
+    expect(response.body.report.residentId).not.toBe('client-resident-id');
+    expect(response.body.report.createdAt).not.toBe('2000-01-01T00:00:00.000Z');
+    expect(response.body.report.updatedAt).toBe(response.body.report.createdAt);
+    expect(response.body.report.verifiedById).toBeUndefined();
+    expect(response.body.report.verifiedAt).toBeUndefined();
+    expect(response.body.report.rejectedById).toBeUndefined();
+    expect(response.body.report.rejectedAt).toBeUndefined();
+    expect(response.body.report.rejectionReason).toBeUndefined();
+    expect(response.body.report.verificationHistory).toBeUndefined();
+  });
 
   it('accepts each supported resident hazard type', async () => {
     const { app } = createTestContext();
@@ -236,6 +287,25 @@ describe('report API', () => {
     expect(response.status).toBe(201);
     expect(response.body.report.mediaReference).toBeUndefined();
     expect(response.body.report.status).toBe('PENDING');
+  });
+
+  it('rejects local file URIs as report media references', async () => {
+    const { app } = createTestContext();
+    const resident = await registerResident(app);
+
+    const response = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validReportPayload,
+        mediaReference: 'file:///resident-device/photo.jpg'
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: 'VALIDATION_ERROR',
+      message: 'Media reference must point to uploaded evidence.'
+    });
   });
 
   it('requires authentication and the RESIDENT role', async () => {

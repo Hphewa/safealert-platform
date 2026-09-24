@@ -1,7 +1,7 @@
 import type { CreateReportResponse, UploadReportEvidenceResponse } from '@safealert/contracts';
 import { describe, expect, it, vi } from 'vitest';
 
-import { submitResidentReportDraft } from './reportSubmission';
+import { ReportSubmissionError, submitResidentReportDraft } from './reportSubmission';
 import type { ReportHazardDraft } from './reportDraft';
 
 const reportResponse: CreateReportResponse = {
@@ -131,7 +131,10 @@ describe('submitResidentReportDraft', () => {
         uploadReportEvidence,
         createResidentReport
       })
-    ).rejects.toThrow('Upload failed.');
+    ).rejects.toMatchObject({
+      stage: 'upload',
+      originalError: expect.any(Error)
+    });
 
     expect(createResidentReport).not.toHaveBeenCalled();
   });
@@ -149,7 +152,11 @@ describe('submitResidentReportDraft', () => {
         createResidentReport,
         onEvidenceUploaded
       })
-    ).rejects.toThrow('Report create failed.');
+    ).rejects.toMatchObject({
+      stage: 'create',
+      originalError: expect.any(Error),
+      mediaReference: uploadResponse.mediaReference
+    });
 
     expect(uploadReportEvidence).toHaveBeenCalledOnce();
     expect(onEvidenceUploaded).toHaveBeenCalledWith(uploadResponse.mediaReference);
@@ -159,7 +166,7 @@ describe('submitResidentReportDraft', () => {
     );
   });
 
-  it('reuses an already uploaded mediaReference on retry', async () => {
+  it('retries report creation without uploading again after media upload already succeeded', async () => {
     const uploadReportEvidence = vi.fn();
     const createResidentReport = vi.fn().mockResolvedValue(reportResponse);
 
@@ -175,5 +182,89 @@ describe('submitResidentReportDraft', () => {
       expect.objectContaining({ mediaReference: uploadResponse.mediaReference }),
       'token'
     );
+  });
+
+  it('retries media upload again after upload failure', async () => {
+    const uploadReportEvidence = vi.fn()
+      .mockRejectedValueOnce(new Error('Upload failed.'))
+      .mockResolvedValueOnce(uploadResponse);
+    const createResidentReport = vi.fn().mockResolvedValue(reportResponse);
+    const draft = draftWithPhoto();
+
+    await expect(
+      submitResidentReportDraft({
+        draft,
+        accessToken: 'token',
+        uploadReportEvidence,
+        createResidentReport
+      })
+    ).rejects.toBeInstanceOf(ReportSubmissionError);
+
+    await submitResidentReportDraft({
+      draft,
+      accessToken: 'token',
+      uploadReportEvidence,
+      createResidentReport
+    });
+
+    expect(uploadReportEvidence).toHaveBeenCalledTimes(2);
+    expect(createResidentReport).toHaveBeenCalledOnce();
+  });
+
+  it('keeps draft data on failure and resets only after final success', async () => {
+    let draft = draftWithPhoto();
+    const originalDraft = draft;
+    const resetDraft = vi.fn(() => {
+      draft = draftWithoutPhoto();
+    });
+    const uploadReportEvidence = vi.fn().mockResolvedValue(uploadResponse);
+    const createResidentReport = vi.fn()
+      .mockRejectedValueOnce(new Error('Report create failed.'))
+      .mockResolvedValueOnce(reportResponse);
+    const onEvidenceUploaded = vi.fn((mediaReference: string) => {
+      if (draft.photoEvidence.status !== 'LOCAL_SELECTED') {
+        return;
+      }
+
+      draft = {
+        ...draft,
+        photoEvidence: {
+          ...draft.photoEvidence,
+          selected: {
+            ...draft.photoEvidence.selected,
+            needsUpload: false,
+            uploadedMediaReference: mediaReference
+          }
+        }
+      };
+    });
+
+    await expect(
+      submitResidentReportDraft({
+        draft,
+        accessToken: 'token',
+        uploadReportEvidence,
+        createResidentReport,
+        onEvidenceUploaded
+      })
+    ).rejects.toBeInstanceOf(ReportSubmissionError);
+
+    expect(resetDraft).not.toHaveBeenCalled();
+    expect(draft.description).toBe(originalDraft.description);
+    expect(draft.location).toEqual(originalDraft.location);
+    expect(draft.photoEvidence.status).toBe('LOCAL_SELECTED');
+
+    await submitResidentReportDraft({
+      draft,
+      accessToken: 'token',
+      uploadReportEvidence,
+      createResidentReport,
+      onEvidenceUploaded
+    });
+    resetDraft();
+
+    expect(uploadReportEvidence).toHaveBeenCalledOnce();
+    expect(createResidentReport).toHaveBeenCalledTimes(2);
+    expect(resetDraft).toHaveBeenCalledOnce();
   });
 });
