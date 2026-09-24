@@ -1,5 +1,7 @@
 import type { HazardType, ReportSeverity, ReportStatus, SafeReport } from '@safealert/contracts';
 
+import type { Href } from 'expo-router';
+
 import type { BadgeTone, DashboardIconName } from '../shared/types';
 
 export type ResidentReportFilterKey = 'all' | 'active' | 'resolved';
@@ -125,4 +127,123 @@ export function formatResidentReportCount(count: number, filter: ResidentReportF
   const scope = filter === 'active' ? 'active' : filter === 'resolved' ? 'resolved' : 'submitted';
 
   return `${count} ${scope} report${count === 1 ? '' : 's'}`;
+}
+
+export type ResidentReportTimelineTone = 'success' | 'pending' | 'critical' | 'neutral';
+
+export type ResidentReportTimelineItem = {
+  id: string;
+  title: string;
+  detail: string;
+  timeLabel?: string;
+  tone: ResidentReportTimelineTone;
+};
+
+export function residentReportStatusHref(reportId: string) {
+  return {
+    pathname: '/resident/report-status',
+    params: { reportId }
+  } as const satisfies Href;
+}
+
+export function formatResidentReportDateTime(value: string | undefined) {
+  if (!value) {
+    return 'Not available';
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Not available';
+  }
+
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
+
+export function residentReportStatusSummary(report: SafeReport) {
+  switch (report.status) {
+    case 'PENDING':
+      return 'Waiting for verification';
+    case 'VERIFIED':
+      return report.verifiedAt
+        ? `Verified ${formatResidentReportDateTime(report.verifiedAt)}`
+        : 'Verified by an officer';
+    case 'REJECTED':
+      return report.rejectionReason ?? 'Reviewed and rejected';
+    case 'RESOLVED':
+      return 'Resolved';
+  }
+}
+
+export function buildResidentReportTimeline(report: SafeReport): ResidentReportTimelineItem[] {
+  const timeline: ResidentReportTimelineItem[] = [
+    {
+      id: 'submitted',
+      title: 'Report Submitted',
+      detail: 'Your report was received by SafeAlert.',
+      timeLabel: formatResidentReportDateTime(report.createdAt),
+      tone: 'success'
+    }
+  ];
+
+  const reviewEvents = report.verificationHistory ?? [];
+  const verificationEvent = reviewEvents.find((event) => event.action === 'VERIFY');
+  const rejectionEvent = [...reviewEvents].reverse().find((event) => event.action === 'REJECT');
+
+  if (report.status === 'PENDING') {
+    timeline.push({
+      id: 'waiting',
+      title: 'Waiting for Official Verification',
+      detail: 'A disaster officer has not reviewed this report yet.',
+      tone: 'pending'
+    });
+    return timeline;
+  }
+
+  if (report.status === 'VERIFIED' || report.status === 'RESOLVED') {
+    const verifiedAt = report.verifiedAt ?? (verificationEvent?.action === 'VERIFY' ? verificationEvent.verifiedAt : undefined);
+
+    timeline.push({
+      id: 'verified',
+      title: 'Officially Verified',
+      detail: 'A disaster officer verified this report.',
+      timeLabel: formatResidentReportDateTime(verifiedAt),
+      tone: 'success'
+    });
+  }
+
+  if (report.status === 'REJECTED') {
+    const rejectedAt = report.rejectedAt ?? (rejectionEvent?.action === 'REJECT' ? rejectionEvent.rejectedAt : undefined);
+    const reason = report.rejectionReason ?? (rejectionEvent?.action === 'REJECT' ? rejectionEvent.rejectionReason : undefined);
+
+    timeline.push({
+      id: 'rejected',
+      title: 'Report Rejected',
+      detail: reason ? `Reason: ${reason}` : 'The submitted report was rejected after review.',
+      timeLabel: formatResidentReportDateTime(rejectedAt),
+      tone: 'critical'
+    });
+  }
+
+  if (report.status === 'RESOLVED') {
+    timeline.push({
+      id: 'resolved',
+      title: 'Resolved',
+      detail: 'This report has been marked resolved.',
+      timeLabel: formatResidentReportDateTime(report.updatedAt),
+      tone: 'success'
+    });
+  }
+
+  return timeline;
+}
+
+export function canPreviewResidentReportMedia(mediaReference: string | undefined) {
+  return Boolean(mediaReference && /^(https?:|data:image\/)/i.test(mediaReference));
 }

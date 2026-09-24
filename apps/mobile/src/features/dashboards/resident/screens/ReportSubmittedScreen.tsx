@@ -6,16 +6,19 @@ import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { residentBottomNavItems } from '../mockData';
 import { hazardTypeLabels, severityLabels, useReportHazardDraft } from '../reportDraft';
+import { residentReportStatusHref } from '../reports';
 
 export function ReportSubmittedScreen() {
   const router = useRouter();
   const { submittedReport } = useReportHazardDraft();
 
   const trackReport = () => {
-    router.push({
-      pathname: '/resident/report-status',
-      params: submittedReport ? { reportId: submittedReport.id } : undefined
-    });
+    if (submittedReport) {
+      router.push(residentReportStatusHref(submittedReport.id));
+      return;
+    }
+
+    router.push('/resident/reports');
   };
 
   return (

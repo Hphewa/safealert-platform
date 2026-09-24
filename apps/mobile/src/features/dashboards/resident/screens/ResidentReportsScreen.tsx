@@ -33,6 +33,7 @@ import {
   statusDescriptionForResident,
   statusLabelForResident,
   statusToneForResident,
+  residentReportStatusHref,
   type ResidentReportFilterKey
 } from '../reports';
 
@@ -234,10 +235,7 @@ function ResidentReportCard({ report }: { report: SafeReport }) {
       accessibilityLabel={`Open ${hazardLabel} report details`}
       accessibilityRole="button"
       onPress={() => {
-        router.push({
-          pathname: '/resident/report-status',
-          params: { reportId: report.id }
-        });
+        router.push(residentReportStatusHref(report.id));
       }}
       style={({ pressed }) => [styles.reportCard, pressed && styles.pressed]}
     >
