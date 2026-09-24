@@ -14,6 +14,10 @@ export function clearResponderRequestCache() {
   responseRequestCache.clear();
 }
 
+export function updateCachedResponderRequest(responseRequest: SafeResponseRequest) {
+  responseRequestCache.set(responseRequest.id, responseRequest);
+}
+
 export function getCachedResponderRequest(requestId: string) {
   return responseRequestCache.get(requestId) ?? null;
 }

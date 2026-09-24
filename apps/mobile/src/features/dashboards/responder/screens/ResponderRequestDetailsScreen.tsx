@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { SafeResponseRequest } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -11,11 +11,18 @@ import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { responderBottomNavItems } from '../mockData';
-import { getCachedResponderRequest } from '../requestDetailsCache';
+import { getCachedResponderRequest, updateCachedResponderRequest } from '../requestDetailsCache';
 import { displayValue } from '../requestDetails';
 import { replaceResponderRequestCache } from '../requestDetailsCache';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { acceptResponderRequest, declineResponderRequest } from '../api/responderDecisionApi';
+import { updateResponderRequestProgress } from '../api/responderProgressApi';
+import {
+  canManageResponderProgress,
+  getResponderProgressAction,
+  progressStatusLabel,
+  responderProgressFeedback
+} from '../progressUi';
 import {
   canShowResponderDecisionActions,
   decisionButtonLabel,
@@ -25,11 +32,56 @@ import {
 
 export function ResponderRequestDetailsScreen() {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const params = useLocalSearchParams<{ requestId?: string | string[] }>();
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
-  const responseRequest = requestId ? getCachedResponderRequest(requestId) : null;
+  const [updatedRequest, setUpdatedRequest] = useState<SafeResponseRequest | null>(null);
+  const responseRequest = updatedRequest?.id === requestId && updatedRequest?.assignedResponderId === user?.id
+    ? updatedRequest
+    : requestId ? getCachedResponderRequest(requestId) : null;
   const [decisionAction, setDecisionAction] = useState<ResponderDecisionAction>('idle');
+  const progressInFlightRef = useRef(false);
+  const [progressFeedback, setProgressFeedback] = useState<{
+    requestId: string;
+    kind: 'updating' | 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const currentFeedback = progressFeedback?.requestId === requestId ? progressFeedback : null;
+  const isUpdatingProgress = progressFeedback?.kind === 'updating';
+  const progressAction = getResponderProgressAction(responseRequest, user);
+  const progressDisabled = isUpdatingProgress || !accessToken?.trim();
+
+  const updateProgress = async () => {
+    if (
+      progressInFlightRef.current ||
+      !requestId ||
+      requestId !== responseRequest?.id ||
+      !progressAction ||
+      !accessToken?.trim()
+    ) {
+      return;
+    }
+
+    // The ref blocks repeated taps before React can render the disabled state.
+    progressInFlightRef.current = true;
+    setProgressFeedback({ requestId, kind: 'updating', message: 'Updating progress...' });
+
+    try {
+      const updated = await updateResponderRequestProgress(requestId, progressAction.nextStatus, accessToken);
+      // Keep server-confirmed progress without refreshing the ASSIGNED-only queue.
+      updateCachedResponderRequest(updated);
+      setUpdatedRequest(updated);
+      setProgressFeedback({
+        requestId,
+        kind: 'success',
+        message: `Progress updated: ${progressStatusLabel(updated.status)}.`
+      });
+    } catch (error) {
+      setProgressFeedback({ requestId, kind: 'error', message: responderProgressFeedback(error) });
+    } finally {
+      progressInFlightRef.current = false;
+    }
+  };
 
   const returnToRequests = () => router.replace('/responder');
 
@@ -196,6 +248,48 @@ export function ResponderRequestDetailsScreen() {
         <Text style={styles.heroTitle}>{formatAssistanceType(responseRequest.assistanceType)}</Text>
         <Text style={styles.heroSubtitle}>Request ID: {displayValue(responseRequest.id)}</Text>
       </View>
+
+      {canManageResponderProgress(responseRequest, user) ? (
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>RESPONSE PROGRESS</Text>
+          <Text style={styles.detailValue}>Current status: {progressStatusLabel(responseRequest.status)}</Text>
+          {responseRequest.status === 'COMPLETED' ? (
+            <Text accessibilityLiveRegion="polite" style={styles.progressSuccess}>
+              {'\u2713'} Emergency response completed
+            </Text>
+          ) : progressAction ? (
+            <Pressable
+              accessibilityLabel={progressAction.label}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: progressDisabled, busy: isUpdatingProgress }}
+              disabled={progressDisabled}
+              onPress={() => void updateProgress()}
+              style={({ pressed }) => [
+                styles.backButton,
+                progressDisabled && styles.disabledButton,
+                pressed && !progressDisabled && styles.pressed
+              ]}
+            >
+              {isUpdatingProgress ? <ActivityIndicator color="#ffffff" /> : null}
+              <Text style={styles.backButtonText}>
+                {isUpdatingProgress ? 'Updating progress...' : progressAction.label}
+              </Text>
+            </Pressable>
+          ) : null}
+          {!accessToken?.trim() && responseRequest.status !== 'COMPLETED' ? (
+            <Text style={styles.progressError}>Please log in again to update this request.</Text>
+          ) : null}
+          {currentFeedback && currentFeedback.kind !== 'updating' ? (
+            <Text
+              accessibilityRole={currentFeedback.kind === 'error' ? 'alert' : 'text'}
+              accessibilityLiveRegion="polite"
+              style={currentFeedback.kind === 'error' ? styles.progressError : styles.progressSuccess}
+            >
+              {currentFeedback.message}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       <DetailsSection title="LOCATION">
         <DetailRow label="GPS coordinates" value={formatLocation(responseRequest)} />
@@ -385,10 +479,21 @@ function formatSubmittedAt(createdAt: string) {
 }
 
 function statusTone(status: SafeResponseRequest['status']) {
-  return status === 'ASSIGNED' ? 'success' : 'info';
+  return status === 'ASSIGNED' || status === 'COMPLETED' ? 'success' : 'info';
 }
 
 const styles = StyleSheet.create({
+  progressSuccess: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+    color: dashboardTheme.colors.success
+  },
+  progressError: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: dashboardTheme.colors.critical
+  },
   decisionSection: {
       gap: 10,
       padding: 16,

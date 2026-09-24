@@ -61,7 +61,7 @@ export async function updateResponderRequestProgress(
   }
 }
 
-function progressErrorMessage(error: ApiClientError): string {
+export function progressErrorMessage(error: ApiClientError): string {
   if (error.code === 'INVALID_API_RESPONSE') {
     return 'Unable to confirm the updated request. Refresh it before trying again.';
   }
