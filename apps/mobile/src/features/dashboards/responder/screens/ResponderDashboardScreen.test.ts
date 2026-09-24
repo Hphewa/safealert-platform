@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { Alert } from 'react-native';
 import type { SafeResponseRequest } from '@safealert/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -42,6 +43,7 @@ vi.mock('expo-router', () => ({
 }));
 vi.mock('react-native', () => ({
   ActivityIndicator: 'span', Pressable: 'button', Text: 'span', View: 'div',
+  Alert: { alert: vi.fn() },
   StyleSheet: { create: (styles: unknown) => styles }
 }));
 vi.mock('@/features/auth/hooks/useAuth', () => ({
@@ -56,7 +58,10 @@ vi.mock('../../shared/components/ReportListItem', () => ({
   ReportListItem: vi.fn(({ statusLabel }: { statusLabel: string }) => `request-status:${statusLabel}`)
 }));
 vi.mock('../../shared/components/DashboardGlyph', () => ({ DashboardGlyph: () => null }));
-vi.mock('../api/responderProgressApi', () => ({ updateResponderRequestProgress: vi.fn() }));
+vi.mock('../api/responderProgressApi', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../api/responderProgressApi')>(),
+  updateResponderRequestProgress: vi.fn()
+}));
 vi.mock('../api/responderRequestsApi', () => ({
   listAssignedResponderRequests: vi.fn(), listPendingResponderRequests: vi.fn()
 }));
@@ -110,6 +115,36 @@ function screenText(node: React.ReactNode): string {
   return screenText(node.props.children);
 }
 
+type ButtonProps = {
+  children?: React.ReactNode;
+  accessibilityRole?: string;
+  accessibilityLabel?: string;
+  accessibilityState?: { disabled?: boolean; busy?: boolean };
+  disabled?: boolean;
+  onPress: () => void;
+};
+
+function screenButtons(node: React.ReactNode): ButtonProps[] {
+  if (Array.isArray(node)) return node.flatMap(screenButtons);
+  if (!React.isValidElement<ButtonProps>(node)) return [];
+  if (typeof node.type === 'function') {
+    return screenButtons((node.type as (props: unknown) => React.ReactNode)(node.props));
+  }
+  return node.props.accessibilityRole === 'button' ? [node.props] : screenButtons(node.props.children);
+}
+
+function detailsButton(label: string) {
+  const button = screenButtons(renderDetails()).find((props) =>
+    (props.accessibilityLabel ?? screenText(props.children).trim()) === label
+  );
+  expect(button, `Expected details button: ${label}`).toBeDefined();
+  return button!;
+}
+
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
@@ -132,6 +167,154 @@ beforeEach(() => {
 afterEach(() => {
   clearResponderRequestCache();
   vi.unstubAllGlobals();
+});
+
+describe('responder progress screen lifecycle and errors', () => {
+  beforeEach(async () => {
+    // Use the real API response validation and error mapping while controlling only the transport.
+    const api = await vi.importActual<typeof import('../api/responderProgressApi')>('../api/responderProgressApi');
+    vi.mocked(updateResponderRequestProgress).mockImplementation(api.updateResponderRequestProgress);
+  });
+
+  it('accepts NEW then completes every stage with loading protection, next actions, reopen and Assigned refresh', async () => {
+    updateCachedResponderRequest({ ...assigned, status: 'NEW', assignedResponderId: undefined });
+    lifecycle.params = { requestId: assigned.id, sourceTab: 'PENDING' };
+    let confirmed: SafeResponseRequest = { ...assigned, acceptedAt: '2026-09-24T10:00:00.000Z' };
+    vi.mocked(listAssignedResponderRequests).mockResolvedValue([confirmed]);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(confirmed));
+    vi.stubGlobal('fetch', fetchMock);
+    detailsButton('Accept Request').onPress();
+    await vi.waitFor(() => expect(Alert.alert).toHaveBeenCalledWith(
+      'Request accepted', 'Request accepted successfully.', expect.any(Array)
+    ));
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+      expect.stringContaining(`/response-requests/responder/requests/${assigned.id}/accept`),
+      expect.objectContaining({ method: 'PATCH' })
+    );
+    expect(getCachedResponderRequest(assigned.id)).toEqual(confirmed);
+    vi.mocked(Alert.alert).mock.lastCall?.[2]?.[0]?.onPress?.();
+    expect(navigation.replace).toHaveBeenCalledWith('/responder');
+
+    lifecycle.slots = [];
+    lifecycle.params = {};
+    render();
+    let blur = lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).not.toContain('Loading requests...'));
+    selectTab('Assigned');
+    expect(visibleStatuses()).toEqual(['ASSIGNED']);
+    let dashboardState = lifecycle.slots;
+
+    const stages = [
+      ['Start Dispatch', 'DISPATCHED', 'dispatchedAt', 'Mark as Arrived'],
+      ['Mark as Arrived', 'ARRIVED', 'arrivedAt', 'Start Assistance'],
+      ['Start Assistance', 'IN_PROGRESS', 'inProgressAt', 'Complete Request'],
+      ['Complete Request', 'COMPLETED', 'completedAt', null]
+    ] as const;
+    for (const [index, [label, status, timestampField, nextLabel]] of stages.entries()) {
+      blur?.();
+      lifecycle.slots = [];
+      lifecycle.params = { requestId: assigned.id, sourceTab: 'ASSIGNED' };
+      const transport = deferred<Response>();
+      fetchMock.mockReturnValueOnce(transport.promise);
+      const button = detailsButton(label);
+      const callsBefore = fetchMock.mock.calls.length;
+      button.onPress();
+      button.onPress();
+      const loadingButton = detailsButton(label);
+      expect(loadingButton.disabled).toBe(true);
+      expect(loadingButton.accessibilityState).toEqual({ disabled: true, busy: true });
+      expect(screenText(loadingButton.children)).toContain('Updating progress...');
+      loadingButton.onPress();
+      expect(fetchMock).toHaveBeenCalledTimes(callsBefore + 1);
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        expect.stringContaining(`/response-requests/${assigned.id}/progress`),
+        expect.objectContaining({ method: 'PATCH', body: JSON.stringify({ status }) })
+      );
+      expect(getCachedResponderRequest(assigned.id)).toEqual(confirmed);
+      const timestamp = new Date(Date.parse(assigned.updatedAt) + (index + 1) * 60_000).toISOString();
+      confirmed = { ...confirmed, status, [timestampField]: timestamp, updatedAt: timestamp };
+      transport.resolve(jsonResponse(confirmed));
+      await vi.waitFor(() => expect(getCachedResponderRequest(assigned.id)).toEqual(confirmed));
+      expect(screenText(renderDetails())).toContain('Progress updated:');
+
+      // Remount details to prove the next action comes from confirmed cache data, not local state.
+      lifecycle.slots = [];
+      if (nextLabel) expect(detailsButton(nextLabel).disabled).toBe(false);
+      else {
+        expect(screenText(renderDetails())).toContain('Emergency response completed');
+        expect(screenButtons(renderDetails()).filter((props) =>
+          stages.some(([label]) => label === props.accessibilityLabel)
+        )).toEqual([]);
+      }
+      detailsButton('Back to requests').onPress();
+      expect(navigation.dismissTo).toHaveBeenLastCalledWith({ pathname: '/responder', params: { tab: 'ASSIGNED' } });
+      lifecycle.params = navigation.dismissTo.mock.lastCall![0].params;
+      lifecycle.slots = dashboardState;
+      vi.mocked(listAssignedResponderRequests).mockResolvedValue(status === 'COMPLETED' ? [] : [confirmed]);
+      expect(tabButton('Assigned').props.active).toBe(true);
+      blur = lifecycle.focus();
+      await vi.waitFor(() => expect(screenText(render())).not.toContain('Loading requests...'));
+      expect(visibleStatuses()).toEqual(status === 'COMPLETED' ? [] : [status]);
+      expect(getCachedResponderRequest(pending.id)).toEqual(pending);
+      dashboardState = lifecycle.slots;
+    }
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+    expect(getCachedResponderRequest(assigned.id)).toBeNull();
+  });
+
+  it.each([
+    { name: 'network failure', response: () => Promise.reject(new Error('Raw internal network URL')), message: 'Check your connection' },
+    { name: 'backend failure', response: () => Promise.resolve(jsonResponse({ error: { code: 'INTERNAL_SERVER_ERROR', message: 'Raw internal database error' } }, 500)), message: 'Unable to confirm' },
+    { name: 'conflicting update', response: () => Promise.resolve(jsonResponse({ error: { code: 'REQUEST_PROGRESS_CONFLICT', message: 'Raw internal conflict' } }, 409)), message: 'This request has changed' },
+    { name: 'malformed success', response: () => Promise.resolve(jsonResponse({ status: 'DISPATCHED' })), message: 'Unable to confirm the updated request' },
+    { name: 'empty success', response: () => Promise.resolve(new Response(null, { status: 204 })), message: 'Unable to confirm the updated request' }
+  ])('keeps confirmed state after $name, shows friendly feedback, and allows a manual retry', async ({ response, message }) => {
+    updateCachedResponderRequest(assigned);
+    lifecycle.params = { requestId: assigned.id, sourceTab: 'ASSIGNED' };
+    const fetchMock = vi.fn<typeof fetch>().mockImplementationOnce(response);
+    vi.stubGlobal('fetch', fetchMock);
+    detailsButton('Start Dispatch').onPress();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain(message));
+    expect(screenText(renderDetails())).not.toContain('Raw internal');
+    expect(screenText(renderDetails())).toMatch(/Current status:\s+Assigned/);
+    expect(getCachedResponderRequest(assigned.id)).toEqual(assigned);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const retryButton = detailsButton('Start Dispatch');
+    expect(retryButton.disabled).toBe(false);
+    expect(retryButton.accessibilityState).toEqual({ disabled: false, busy: false });
+
+    const confirmed = { ...assigned, status: 'DISPATCHED' as const, dispatchedAt: '2026-09-24T10:01:00.000Z' };
+    fetchMock.mockResolvedValueOnce(jsonResponse(confirmed));
+    retryButton.onPress();
+    await vi.waitFor(() => expect(getCachedResponderRequest(assigned.id)).toEqual(confirmed));
+    expect(detailsButton('Mark as Arrived').disabled).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screenText(renderDetails())).not.toContain(message);
+  });
+
+  it('revalidates an uncertain write on return and reopens the saved next action without retrying automatically', async () => {
+    updateCachedResponderRequest(assigned);
+    lifecycle.params = { requestId: assigned.id, sourceTab: 'ASSIGNED' };
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error('Connection dropped after write'));
+    vi.stubGlobal('fetch', fetchMock);
+    detailsButton('Start Dispatch').onPress();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Check your connection'));
+    expect(getCachedResponderRequest(assigned.id)).toEqual(assigned);
+    detailsButton('Back to requests').onPress();
+    lifecycle.params = navigation.dismissTo.mock.lastCall![0].params;
+    lifecycle.slots = [];
+    const saved = { ...assigned, status: 'DISPATCHED' as const, dispatchedAt: '2026-09-24T10:01:00.000Z' };
+    vi.mocked(listAssignedResponderRequests).mockResolvedValue([saved]);
+    render();
+    const blur = lifecycle.focus();
+    await vi.waitFor(() => expect(visibleStatuses()).toEqual(['DISPATCHED']));
+    blur?.();
+    lifecycle.slots = [];
+    lifecycle.params = { requestId: assigned.id, sourceTab: 'ASSIGNED' };
+    expect(detailsButton('Mark as Arrived').disabled).toBe(false);
+    expect(getCachedResponderRequest(assigned.id)).toEqual(saved);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('responder dashboard return navigation', () => {

@@ -186,14 +186,36 @@ describe('response request progress API', () => {
     }
   });
 
-  it('persists stage timestamps sequentially, preserves earlier stages, and rejects duplicate writes', async () => {
-    const acceptedAt = new Date().toISOString();
-    const { app, token, responseRequestRepository, storedRequest } = await createProgressContext({ acceptedAt });
-    const startedAt = Date.now();
-    let expected = storedRequest;
-
+  it('completes NEW through LDFEW-130 acceptance and every progress stage, preserving timestamps across queue reloads', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
+    const startedAt = Date.parse('2026-09-24T10:00:00.000Z');
+    vi.setSystemTime(startedAt);
     try {
+      const { app, token, responderId, responseRequestRepository, storedRequest } = await createProgressContext({
+        status: 'NEW'
+      });
+      delete storedRequest.assignedResponderId;
+      responseRequestRepository.seedResponseRequest(storedRequest);
+      const initialPending = await request(app).get('/api/v1/response-requests/responder/pending')
+        .set('Authorization', `Bearer ${token}`);
+      expect(initialPending.status).toBe(200);
+      expect(initialPending.body).toEqual([storedRequest]);
+
+      const accepted = await request(app)
+        .patch(`/api/v1/response-requests/responder/requests/${requestId}/accept`)
+        .set('Authorization', `Bearer ${token}`);
+      let expected: SafeResponseRequest = {
+        ...storedRequest, status: 'ASSIGNED', assignedResponderId: responderId,
+        acceptedAt: new Date(startedAt).toISOString(), updatedAt: new Date(startedAt).toISOString()
+      };
+      expect(accepted.status).toBe(200);
+      expect(accepted.body).toEqual(expected);
+      expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(expected);
+      const assigned = await request(app).get('/api/v1/response-requests/responder/assigned')
+        .set('Authorization', `Bearer ${token}`);
+      expect(assigned.status).toBe(200);
+      expect(assigned.body).toEqual([expected]);
+
       const stages = [
         ['DISPATCHED', 'dispatchedAt'],
         ['ARRIVED', 'arrivedAt'],
@@ -218,6 +240,15 @@ describe('response request progress API', () => {
         expect(response.status).toBe(200);
         expect(response.body).toEqual(expected);
         expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(expected);
+
+        const reloaded = await request(app).get('/api/v1/response-requests/responder/assigned')
+          .set('Authorization', `Bearer ${token}`);
+        expect(reloaded.status).toBe(200);
+        expect(reloaded.body).toEqual(status === 'COMPLETED' ? [] : [expected]);
+        const pending = await request(app).get('/api/v1/response-requests/responder/pending')
+          .set('Authorization', `Bearer ${token}`);
+        expect(pending.status).toBe(200);
+        expect(pending.body).toEqual([]);
 
         vi.setSystemTime(new Date(occurredAt.getTime() + 30_000));
         const duplicate = await request(app)
@@ -507,6 +538,65 @@ describe('response request progress API', () => {
 
     expect(responses.map((response) => response.status).sort()).toEqual([200, 409]);
     expect((await responseRequestRepository.findResponseRequestForProgress(requestId))?.status).toBe('DISPATCHED');
+  });
+
+  it.each(['findResponseRequestForProgress', 'updateResponseRequestProgress'] as const)(
+    'returns a sanitized error after %s fails, preserves state, and permits a later retry', async (operation) => {
+      const { app, token, responseRequestRepository, storedRequest } = await createProgressContext();
+      const failure = new Error('Private database connection details');
+      const repositorySpy = vi.spyOn(responseRequestRepository, operation).mockRejectedValueOnce(failure);
+      const logSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      try {
+        const failed = await request(app).patch(progressPath)
+          .set('Authorization', `Bearer ${token}`).send({ status: 'DISPATCHED' });
+        expect(failed.status).toBe(500);
+        expect(failed.body).toEqual({
+          error: { code: 'INTERNAL_SERVER_ERROR', message: 'An unexpected error occurred.' }
+        });
+        expect(logSpy).toHaveBeenCalled();
+        expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(storedRequest);
+
+        const retried = await request(app).patch(progressPath)
+          .set('Authorization', `Bearer ${token}`).send({ status: 'DISPATCHED' });
+        expect(retried.status).toBe(200);
+        expect(retried.body.status).toBe('DISPATCHED');
+        expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(retried.body);
+      } finally {
+        repositorySpy.mockRestore();
+        logSpy.mockRestore();
+      }
+    }
+  );
+
+  it('does not repeat a committed transition when the first response fails and the responder retries', async () => {
+    const { app, token, responseRequestRepository } = await createProgressContext();
+    const update = responseRequestRepository.updateResponseRequestProgress.bind(responseRequestRepository);
+    const updateSpy = vi.spyOn(responseRequestRepository, 'updateResponseRequestProgress')
+      .mockImplementationOnce(async (...args) => {
+        await update(...args);
+        // A response failure does not establish that the database write failed.
+        throw new Error('Response interrupted after persistence');
+      });
+    const logSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const failed = await request(app).patch(progressPath)
+        .set('Authorization', `Bearer ${token}`).send({ status: 'DISPATCHED' });
+      expect(failed.status).toBe(500);
+      const saved = await responseRequestRepository.findResponseRequestForProgress(requestId);
+      expect(saved).toMatchObject({ status: 'DISPATCHED', dispatchedAt: expect.any(String) });
+      const retried = await request(app).patch(progressPath)
+        .set('Authorization', `Bearer ${token}`).send({ status: 'DISPATCHED' });
+      expect(retried.status).toBe(409);
+      expect(updateSpy).toHaveBeenCalledTimes(1);
+      expect(await responseRequestRepository.findResponseRequestForProgress(requestId)).toEqual(saved);
+      const reloaded = await request(app).get('/api/v1/response-requests/responder/assigned')
+        .set('Authorization', `Bearer ${token}`);
+      expect(reloaded.status).toBe(200);
+      expect(reloaded.body).toEqual([saved]);
+    } finally {
+      updateSpy.mockRestore();
+      logSpy.mockRestore();
+    }
   });
 
   it.each([
