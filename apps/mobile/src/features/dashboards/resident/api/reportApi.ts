@@ -1,4 +1,9 @@
-import type { CreateReportRequest, CreateReportResponse } from '@safealert/contracts';
+import type {
+  CreateReportRequest,
+  CreateReportResponse,
+  GetResidentReportResponse,
+  GetResidentReportsResponse
+} from '@safealert/contracts';
 
 import { apiRequest } from '../../../../services/api/client';
 
@@ -7,5 +12,17 @@ export function createResidentReport(input: CreateReportRequest, accessToken: st
     method: 'POST',
     accessToken,
     body: input
+  });
+}
+
+export function listMyReports(accessToken: string) {
+  return apiRequest<GetResidentReportsResponse>('/reports/mine', {
+    accessToken
+  });
+}
+
+export function getMyReportById(reportId: string, accessToken: string) {
+  return apiRequest<GetResidentReportResponse>(`/reports/mine/${encodeURIComponent(reportId)}`, {
+    accessToken
   });
 }
