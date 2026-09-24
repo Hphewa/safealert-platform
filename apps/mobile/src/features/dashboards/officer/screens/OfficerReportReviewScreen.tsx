@@ -214,6 +214,16 @@ export function OfficerReportReviewScreen() {
           ? 'The report was verified and removed from the pending queue.'
           : 'The report was rejected and removed from the pending queue.',
         [
+          // A successful verification is the first entry into official risk assessment.
+          ...(action === 'VERIFY' ? [{
+            text: 'Assess Risk',
+            onPress: () => {
+              if (isFocusedRef.current && latestReviewRequestIdRef.current === reviewRequestId &&
+                  activeReportIdRef.current === submittedReportId) {
+                router.replace({ pathname: '/officer/assessments/create', params: { hazardReportId: submittedReportId } });
+              }
+            }
+          }] : []),
           {
             text: 'Return to Pending Reports',
             onPress: () => {

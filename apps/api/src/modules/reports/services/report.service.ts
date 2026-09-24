@@ -6,6 +6,7 @@ import type {
   GetCommunityReportsResponse,
   GetPendingOfficerReportResponse,
   GetPendingOfficerReportsResponse,
+  GetVerifiedOfficerReportsResponse,
   ReportReviewRequest,
   ReviewReportResponse
 } from '@safealert/contracts';
@@ -109,6 +110,11 @@ export class ReportService {
     }
 
     return { report };
+  }
+
+  // Separate entry list keeps the pending review queue unchanged.
+  async listVerifiedReportsForOfficer(): Promise<GetVerifiedOfficerReportsResponse> {
+    return { reports: await this.repository.findReportsByStatuses(['VERIFIED']) };
   }
 
   async reviewReport(

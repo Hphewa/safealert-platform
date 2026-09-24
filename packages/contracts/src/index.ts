@@ -11,6 +11,51 @@ export const RISK_LEVELS = ['LOW', 'MODERATE', 'HIGH', 'CRITICAL'] as const;
 
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 
+// Officer observations are independent of the resident's reported severity.
+export const HAZARD_ASSESSMENT_SEVERITIES = ['LOW', 'MODERATE', 'HIGH', 'SEVERE'] as const;
+export type HazardAssessmentSeverity = (typeof HAZARD_ASSESSMENT_SEVERITIES)[number];
+// More precise assessment states preserve the existing emergency-request contract.
+export const ROAD_ACCESSIBILITY_OPTIONS = ['ACCESSIBLE', 'PARTIALLY_BLOCKED', 'FULLY_BLOCKED', 'UNKNOWN'] as const;
+export type AssessmentRoadAccessibility = (typeof ROAD_ACCESSIBILITY_OPTIONS)[number];
+export const INFRASTRUCTURE_IMPACT_LEVELS = ['NONE', 'LOW', 'MODERATE', 'HIGH', 'SEVERE'] as const;
+export type InfrastructureImpact = (typeof INFRASTRUCTURE_IMPACT_LEVELS)[number];
+export const WATER_LEVEL_TRENDS = ['FALLING', 'STABLE', 'RISING', 'RISING_RAPIDLY', 'NOT_APPLICABLE', 'UNKNOWN'] as const;
+export type WaterLevelTrend = (typeof WATER_LEVEL_TRENDS)[number];
+export const WEATHER_CONDITIONS = ['CLEAR', 'LIGHT_RAIN', 'MODERATE_RAIN', 'HEAVY_RAIN', 'STORM', 'UNKNOWN'] as const;
+export type WeatherCondition = (typeof WEATHER_CONDITIONS)[number];
+export const RISK_ASSESSMENT_STATUSES = ['ACTIVE', 'CLOSED', 'VOID'] as const;
+export type RiskAssessmentStatus = (typeof RISK_ASSESSMENT_STATUSES)[number];
+export const RISK_DECISION_REASON_MIN_LENGTH = 10;
+export const RISK_DECISION_REASON_MAX_LENGTH = 500;
+
+export type RiskAssessmentFactors = {
+  hazardSeverity: HazardAssessmentSeverity;
+  peopleAffected: number;
+  vulnerablePeople: number;
+  roadAccessibility: AssessmentRoadAccessibility;
+  infrastructureImpact: InfrastructureImpact;
+  waterLevelTrend: WaterLevelTrend;
+  weatherCondition: WeatherCondition;
+};
+export type CalculateRiskAssessmentRequest = RiskAssessmentFactors & { hazardReportId: string };
+export type CalculateRiskAssessmentResponse = { calculatedScore: number; systemSuggestedRisk: RiskLevel };
+export type CreateRiskAssessmentRequest = CalculateRiskAssessmentRequest & {
+  finalRiskLevel: RiskLevel;
+  decisionReason?: string;
+};
+export type SafeRiskAssessment = CreateRiskAssessmentRequest & CalculateRiskAssessmentResponse & {
+  id: string;
+  assessedById: string;
+  status: RiskAssessmentStatus;
+  assessedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+// Report context is joined at read time, never copied into the stored assessment.
+export type RiskAssessmentResponse = { assessment: SafeRiskAssessment; report: SafeReport };
+export type RiskAssessmentForReportResponse = { assessment: SafeRiskAssessment | null; report: SafeReport };
+export type GetVerifiedOfficerReportsResponse = { reports: SafeReport[] };
+
 export const REPORT_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED', 'RESOLVED'] as const;
 
 export type ReportStatus = (typeof REPORT_STATUSES)[number];

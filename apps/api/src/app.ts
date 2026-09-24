@@ -24,6 +24,10 @@ import type { ResponseRequestRepository } from './modules/response-requests/repo
 import { ResponseRequestService } from './modules/response-requests/services/responseRequest.service.js';
 import { createMediaRouter } from './modules/media/routes/media.routes.js';
 import { LocalMediaStorage } from './modules/media/services/localMediaStorage.js';
+import { createRiskAssessmentRouter } from './modules/risk-assessments/routes/riskAssessment.routes.js';
+import { MongooseRiskAssessmentRepository } from './modules/risk-assessments/repositories/mongooseRiskAssessment.repository.js';
+import type { RiskAssessmentRepository } from './modules/risk-assessments/repositories/riskAssessment.repository.js';
+import { RiskAssessmentService } from './modules/risk-assessments/services/riskAssessment.service.js';
 
 type CreateAppOptions = {
   config: ApiConfig;
@@ -31,6 +35,7 @@ type CreateAppOptions = {
   reportRepository?: ReportRepository;
   fieldConfirmationRepository?: FieldConfirmationRepository;
   responseRequestRepository?: ResponseRequestRepository;
+  riskAssessmentRepository?: RiskAssessmentRepository;
   enableRbacTestRoutes?: boolean;
 };
 
@@ -40,12 +45,19 @@ export function createApp({
   reportRepository,
   fieldConfirmationRepository,
   responseRequestRepository,
+  riskAssessmentRepository,
   enableRbacTestRoutes = false
 }: CreateAppOptions) {
   const app = express();
   const authService = new AuthService(authRepository ?? new MongooseAuthRepository(), config);
   const confirmations = fieldConfirmationRepository ?? new MongooseFieldConfirmationRepository();
   const reportService = new ReportService(reportRepository ?? new MongooseReportRepository(), confirmations);
+
+  const resolvedReportRepository = reportRepository ?? new MongooseReportRepository();
+  // const reportService = new ReportService(resolvedReportRepository);
+  const riskAssessmentService = new RiskAssessmentService(
+    riskAssessmentRepository ?? new MongooseRiskAssessmentRepository(), resolvedReportRepository
+  );
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()
   );
@@ -68,6 +80,8 @@ export function createApp({
   app.use('/api/v1/field-confirmations', createFieldConfirmationRouter(
     new FieldConfirmationService(confirmations, reportService), config
   ));
+  app.use('/api/v1/risk-assessments', createRiskAssessmentRouter(riskAssessmentService, config));
+
   app.use('/api/v1/response-requests', createResponseRequestRouter(responseRequestService, config));
 
   if (enableRbacTestRoutes) {
