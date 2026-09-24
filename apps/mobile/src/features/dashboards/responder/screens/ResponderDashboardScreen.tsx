@@ -23,6 +23,7 @@ import { presentResponderRequest } from '../requestPresentation';
 import {
   getResponderQueueCounts,
   getVisibleResponderRequests,
+  isActiveAssignedResponseStatus,
   type RequestTab,
   type ResponderQueueState
 } from '../queueState';
@@ -61,8 +62,12 @@ export function ResponderDashboardScreen() {
         listAssignedResponderRequests(accessToken)
       ]);
 
-      setQueueState({ pending, assigned });
-      replaceResponderRequestCache([...pending, ...assigned]);
+      const activeAssignedRequests = assigned.filter((request) =>
+        isActiveAssignedResponseStatus(request.status)
+      );
+
+      setQueueState({ pending, assigned: activeAssignedRequests });
+      replaceResponderRequestCache([...pending, ...activeAssignedRequests]);
       setLoadState('ready');
       setIsRefreshing(false);
       setLastUpdated(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));

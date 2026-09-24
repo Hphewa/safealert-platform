@@ -62,4 +62,25 @@ describe('responder queue state', () => {
     expect(getVisibleResponderRequests(queueState, 'ASSIGNED')).toEqual([]);
     expect(getResponderQueueCounts(queueState)).toEqual({ PENDING: 0, ASSIGNED: 0 });
   });
+
+  it('excludes COMPLETED requests from the active assigned queue while keeping live progress statuses', () => {
+    const queueState = {
+      pending: [],
+      assigned: [
+        request('assigned-1', 'ASSIGNED'),
+        request('dispatched-1', 'DISPATCHED'),
+        request('arrived-1', 'ARRIVED'),
+        request('in-progress-1', 'IN_PROGRESS'),
+        request('completed-1', 'COMPLETED')
+      ]
+    };
+
+    expect(getVisibleResponderRequests(queueState, 'ASSIGNED').map(({ id }) => id)).toEqual([
+      'assigned-1',
+      'dispatched-1',
+      'arrived-1',
+      'in-progress-1'
+    ]);
+    expect(getResponderQueueCounts(queueState)).toEqual({ PENDING: 0, ASSIGNED: 4 });
+  });
 });

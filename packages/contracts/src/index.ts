@@ -147,6 +147,13 @@ export const RESPONSE_PROGRESS_ACTIONS = {
   COMPLETED: 'No further action'
 } as const;
 
+export const RESPONSE_ACTIVE_ASSIGNED_STATUSES = [
+  'ASSIGNED',
+  'DISPATCHED',
+  'ARRIVED',
+  'IN_PROGRESS'
+] as const;
+
 export type ResponseProgressActionStatus = keyof typeof RESPONSE_PROGRESS_ACTIONS;
 
 const RESPONSE_PROGRESS_SEQUENCE_STEPS: ReadonlyArray<ResponseProgressActionStatus> = [
