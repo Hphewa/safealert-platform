@@ -1,4 +1,4 @@
-import { canCreateWarning, type CreateWarningRequest, type CreateWarningResponse } from '@safealert/contracts';
+import { canCreateWarning, type CreateWarningRequest, type CreateWarningResponse, type PublishWarningResponse } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 import type { RiskAssessmentRepository } from '../../risk-assessments/repositories/riskAssessment.repository.js';
 import type { WarningRepository } from '../repositories/warning.repository.js';
@@ -15,6 +15,7 @@ export class WarningService {
       throw new ApiError(409, 'WARNING_RISK_NOT_ELIGIBLE', 'Warnings require a saved HIGH or CRITICAL risk assessment.');
     }
     for (const reference of input.attachments ?? []) {
+      if (/^https?:\/\//i.test(reference)) continue;
       const image = await this.images.findById(reference.split('/').pop()!);
       if (!image || image.createdById !== officerId || image.assessmentId !== assessment.id) {
         throw new ApiError(400, 'INVALID_ATTACHMENT', 'Choose and upload your images for this assessment before saving.');
@@ -30,4 +31,14 @@ export class WarningService {
     });
     return { warning };
   }
+  async publish(officerId: string, warningId: string): Promise<PublishWarningResponse> {
+    const existing = await this.warnings.findById(warningId);
+    if (!existing) throw new ApiError(404, 'WARNING_NOT_FOUND', 'Warning not found.');
+    if (existing.status !== 'DRAFT') throw new ApiError(409, 'WARNING_NOT_DRAFT', 'This warning has already been published.');
+    if (!existing.affectedArea.trim()) throw new ApiError(400, 'AFFECTED_AREA_REQUIRED', 'Affected area is required.');
+    const published = await this.warnings.publish(warningId, officerId, new Date().toISOString());
+    if (!published) throw new ApiError(409, 'WARNING_NOT_DRAFT', 'This warning has already been published.');
+    return { warning: published };
+  }
+  async get(warningId: string) { return this.warnings.findById(warningId); }
 }

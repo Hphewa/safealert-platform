@@ -1,10 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { Image, Pressable, StyleSheet } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { canCreateWarning, WARNING_FIELD_LIMITS, type CreateWarningRequest, type SafeWarning } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { getRiskAssessment } from '../api/riskAssessmentApi';
-import { createWarning } from '../api/warningApi';
+import { saveWarningWithPhotos } from '../api/warningApi';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import { AssessmentButton, AssessmentDetail, AssessmentLoadState, assessmentStyles } from '../components/RiskAssessmentComponents';
 import { WarningPage, warningStyles } from '../components/WarningComponents';
@@ -25,6 +27,8 @@ export function CreateWarningScreen() {
   const [saved, setSaved] = useState<SafeWarning | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [photos, setPhotos] = useState<ImagePicker.ImagePickerAsset[]>([]);
+  const [photoError, setPhotoError] = useState<string | null>(null);
   const inFlight = useRef(false);
   const generation = useRef(0);
   const load = useCallback(async () => {
@@ -60,13 +64,32 @@ export function CreateWarningScreen() {
     const current = generation.current;
     inFlight.current = true; setBusy(true); setError(null);
     try {
-      const result = await createWarning(review, accessToken);
+      const uploaded = new Map<string, string>();
+      const result = await saveWarningWithPhotos(review, photos.map((photo) => ({
+        uri: photo.uri, base64: photo.base64 ?? '', mimeType: (photo.mimeType ?? 'image/jpeg') as 'image/jpeg'
+      })), accessToken, uploaded, () => undefined);
       if (generation.current === current) setSaved(result.warning);
     } catch (failure) {
       if (generation.current === current) setError(assessmentErrorMessage(failure));
     } finally {
       if (generation.current === current) { inFlight.current = false; setBusy(false); }
     }
+  };
+  const choosePhotos = async () => {
+    setPhotoError(null);
+    if (photos.length >= 5) { setPhotoError('You can add up to 5 images.'); return; }
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permission.status !== ImagePicker.PermissionStatus.GRANTED) {
+      setPhotoError('Photo access is required to choose images.'); return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsMultipleSelection: true,
+      selectionLimit: 5 - photos.length, quality: 0.8, base64: true
+    });
+    if (result.canceled) return;
+    const selected = result.assets.filter((asset) => asset.type === 'image' && asset.base64);
+    if (selected.length !== result.assets.length) { setPhotoError('Choose supported image files only.'); return; }
+    setPhotos((current) => [...current, ...selected].slice(0, 5));
   };
   const assessment = resource.data?.assessment;
   return <WarningPage key={saved ? 'saved' : review ? 'review' : 'form'}
@@ -81,10 +104,16 @@ export function CreateWarningScreen() {
         <Text style={assessmentStyles.body}>Your warning has been saved. It has not been published.</Text>
         <AssessmentDetail label="Warning Reference" value={saved.id} />
         <AssessmentDetail label="Status" value={saved.status} />
-        <AssessmentButton label="Return to Assessment" onPress={back} />
+        <AssessmentButton label="Publish Warning" onPress={() => router.push({
+          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id }
+        })} />
+        <AssessmentButton label="View Warning" secondary onPress={() => router.push({
+          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id }
+        })} />
+        <AssessmentButton label="Return to Assessment" secondary onPress={back} />
       </View> : <>
         {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
-        {review ? <ReviewWarningScreen warning={review} riskLevel={assessment.finalRiskLevel} busy={busy}
+        {review ? <ReviewWarningScreen warning={review} riskLevel={assessment.finalRiskLevel} busy={busy} photos={photos}
           onEdit={() => { setReview(null); setError(null); }} onSave={() => void save()} /> : <>
           <View style={assessmentStyles.card}>
             <Text style={assessmentStyles.heading}>Warning information</Text>
@@ -107,12 +136,18 @@ export function CreateWarningScreen() {
           </View>
           <View style={assessmentStyles.card}>
             <Text style={assessmentStyles.heading}>Attachments (optional)</Text>
-            <Text style={assessmentStyles.helper}>Add up to 5 uploaded image references, one per line.</Text>
-            <TextInput accessibilityLabel="Attachment links" multiline autoCapitalize="none" autoCorrect={false}
-              value={form.attachments} onChangeText={(value) => update('attachments', value)} placeholder="/api/v1/warning-attachments/..."
-              placeholderTextColor={dashboardTheme.colors.muted}
-              style={[assessmentStyles.input, warningStyles.multiline, !!errors.attachments && warningStyles.invalidInput]} />
-            {errors.attachments ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{errors.attachments}</Text> : null}
+            <Text style={assessmentStyles.helper}>Add up to 5 images.</Text>
+            <Pressable accessibilityRole="button" accessibilityLabel="Add Photos" onPress={() => void choosePhotos()} style={styles.photoPicker}>
+              <Text style={styles.camera}>📷</Text><Text style={styles.photoTitle}>Add Photos</Text>
+              <Text style={assessmentStyles.helper}>Choose images from device</Text>
+            </Pressable>
+            {photos.length ? <View style={styles.thumbnails}>{photos.map((photo, index) => <View key={photo.uri} style={styles.thumbnailWrap}>
+              <Image accessibilityLabel={`Selected image ${index + 1}`} source={{ uri: photo.uri }} style={styles.thumbnail} />
+              <Pressable accessibilityRole="button" accessibilityLabel={`Remove image ${index + 1}`} onPress={() => setPhotos((items) => items.filter((item) => item.uri !== photo.uri))} style={styles.remove}>
+                <Text style={styles.removeText}>×</Text>
+              </Pressable>
+            </View>)}</View> : null}
+            {photoError ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{photoError}</Text> : null}
           </View>
           {Object.keys(errors).length ? <Text accessibilityRole="alert" style={assessmentStyles.error}>Check the highlighted fields before reviewing your warning.</Text> : null}
           <AssessmentButton label="Review Warning" onPress={startReview} />
@@ -120,3 +155,10 @@ export function CreateWarningScreen() {
       </>}
   </WarningPage>;
 }
+
+const styles = StyleSheet.create({
+  photoPicker: { minHeight: 150, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#2563eb', borderRadius: 14, backgroundColor: '#dbeafe', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 18 },
+  camera: { fontSize: 30 }, photoTitle: { color: '#1d4ed8', fontSize: 16, fontWeight: '700' },
+  thumbnails: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }, thumbnailWrap: { position: 'relative', paddingTop: 6, paddingRight: 6 },
+  thumbnail: { width: 86, height: 86, borderRadius: 12 }, remove: { position: 'absolute', right: 0, top: 0, width: 30, height: 30, borderRadius: 15, backgroundColor: '#111827', alignItems: 'center', justifyContent: 'center' }, removeText: { color: '#fff', fontSize: 22 }
+});

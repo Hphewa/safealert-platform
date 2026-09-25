@@ -10,4 +10,12 @@ export class InMemoryWarningRepository implements WarningRepository {
     this.warnings.set(warning.id, warning);
     return warning;
   }
+  async findById(id: string) { return structuredClone(this.warnings.get(id) ?? null); }
+  async publish(id: string, publishedById: string, publishedAt: string) {
+    const warning = this.warnings.get(id);
+    if (!warning) return null;
+    const updated = { ...warning, status: 'PUBLISHED' as const, publishedAt, publishedById, updatedAt: publishedAt };
+    this.warnings.set(id, updated);
+    return structuredClone(updated);
+  }
 }

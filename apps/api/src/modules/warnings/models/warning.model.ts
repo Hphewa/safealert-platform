@@ -14,10 +14,12 @@ const warningSchema = new mongoose.Schema({
   message: requiredText(WARNING_FIELD_LIMITS.message),
   attachments: {
     type: [{ type: String, trim: true, maxlength: WARNING_FIELD_LIMITS.attachmentUrl,
-      validate: (value: string) => WARNING_ATTACHMENT_REFERENCE_PATTERN.test(value) }],
+      validate: (value: string) => WARNING_ATTACHMENT_REFERENCE_PATTERN.test(value) || /^https?:\/\//i.test(value) }],
     default: [], validate: (values: string[]) => values.length <= WARNING_FIELD_LIMITS.attachments
   },
   status: { type: String, enum: WARNING_STATUSES, required: true, default: 'DRAFT' }
+  ,publishedAt: { type: Date },
+  publishedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
 }, { timestamps: true });
 
 type WarningDocument = InferSchemaType<typeof warningSchema> & { _id: mongoose.Types.ObjectId };
@@ -32,6 +34,8 @@ export function toSafeWarning(warning: WarningDocument): SafeWarning {
     requiredAction: warning.requiredAction, unsafeRoads: warning.unsafeRoads,
     ...(warning.safeRoutes ? { safeRoutes: warning.safeRoutes } : {}),
     message: warning.message, attachments: warning.attachments, status: warning.status,
-    createdAt: warning.createdAt.toISOString(), updatedAt: warning.updatedAt.toISOString()
+    createdAt: warning.createdAt.toISOString(), updatedAt: warning.updatedAt.toISOString(),
+    ...(warning.publishedAt ? { publishedAt: warning.publishedAt.toISOString() } : {}),
+    ...(warning.publishedById ? { publishedById: warning.publishedById.toString() } : {})
   };
 }

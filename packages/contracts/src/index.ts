@@ -61,7 +61,7 @@ export type WarningRiskLevel = (typeof WARNING_RISK_LEVELS)[number];
 export function canCreateWarning(riskLevel: RiskLevel): riskLevel is WarningRiskLevel {
   return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
 }
-export const WARNING_STATUSES = ['DRAFT'] as const;
+export const WARNING_STATUSES = ['DRAFT', 'PUBLISHED'] as const;
 export const WARNING_FIELD_LIMITS = {
   affectedArea: 300, requiredAction: 2000, unsafeRoads: 2000,
   safeRoutes: 2000, message: 4000, attachmentUrl: 500, attachments: 5
@@ -81,10 +81,13 @@ export type SafeWarning = CreateWarningRequest & {
   createdById: string;
   riskLevel: WarningRiskLevel;
   status: (typeof WARNING_STATUSES)[number];
+  publishedAt?: string;
+  publishedById?: string;
   createdAt: string;
   updatedAt: string;
 };
 export type CreateWarningResponse = { warning: SafeWarning };
+export type PublishWarningResponse = { warning: SafeWarning };
 export const WARNING_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const WARNING_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export type WarningImageMimeType = (typeof WARNING_IMAGE_MIME_TYPES)[number];
