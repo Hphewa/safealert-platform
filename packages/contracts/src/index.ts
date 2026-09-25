@@ -130,6 +130,7 @@ export const INCIDENT_MATCH_TIME_WINDOW_HOURS = 2;
 
 // Officers select report references; hazard, location and audit fields are server-owned.
 export type CreateIncidentRequest = { reportIds: string[] };
+export type AddIncidentReportRequest = { reportId: string };
 export type SafeIncident = {
   id: string;
   hazardType: HazardType;
@@ -141,6 +142,7 @@ export type SafeIncident = {
   updatedAt: string;
 };
 export type IncidentResponse = { incident: SafeIncident };
+export type IncidentWithReportsResponse = { incident: SafeIncident; reports: SafeReport[] };
 export type IncidentCandidate = {
   incidentId: string;
   hazardType: HazardType;

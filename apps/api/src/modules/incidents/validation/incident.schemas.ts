@@ -14,3 +14,4 @@ export const createIncidentSchema = z.object({
 }).strict();
 
 export const incidentCandidateQuerySchema = z.object({ reportId: incidentObjectIdSchema }).strict();
+export const addIncidentReportSchema = z.object({ reportId: incidentObjectIdSchema }).strict();

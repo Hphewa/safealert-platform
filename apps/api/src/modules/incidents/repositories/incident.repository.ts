@@ -16,6 +16,7 @@ export interface IncidentRepository {
   create(input: CreateIncidentInput): Promise<SafeIncident>;
   findById(incidentId: string): Promise<SafeIncident | null>;
   findActiveByReportIds(reportIds: string[]): Promise<SafeIncident | null>;
+  addReportToActiveIncident(incidentId: string, reportId: string): Promise<SafeIncident | null>;
   findActiveCandidates(query: IncidentCandidateQuery): Promise<ActiveIncidentCandidate[]>;
 }
 

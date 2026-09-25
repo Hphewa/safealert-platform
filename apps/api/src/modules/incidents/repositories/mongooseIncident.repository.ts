@@ -27,6 +27,23 @@ export class MongooseIncidentRepository implements IncidentRepository {
     return incident ? toSafeIncident(incident) : null;
   }
 
+  async addReportToActiveIncident(incidentId: string, reportId: string) {
+    try {
+      const incident = await IncidentModel.findOneAndUpdate(
+        { _id: incidentId, status: 'ACTIVE' },
+        { $addToSet: { reportIds: reportId }, $set: { updatedAt: new Date() } },
+        { new: true, runValidators: true }
+      ).exec();
+      return incident ? toSafeIncident(incident) : null;
+    } catch (error) {
+      // The partial unique multikey index arbitrates concurrent attachment to another active incident.
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 11000) {
+        throw new ActiveIncidentExistsError();
+      }
+      throw error;
+    }
+  }
+
   async findActiveCandidates(query: Parameters<IncidentRepository['findActiveCandidates']>[0]) {
     const incidents = await IncidentModel.aggregate<{ distanceMeters: number }>([
       {

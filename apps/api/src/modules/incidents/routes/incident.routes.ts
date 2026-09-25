@@ -11,6 +11,8 @@ export function createIncidentRouter(service: IncidentService, config: ApiConfig
   router.use(authenticate(config), authorizeRoles('DISASTER_OFFICER'));
   router.post('/', controller.create);
   router.get('/candidates', controller.findCandidates);
+  router.post('/:incidentId/reports', controller.addReport);
+  router.get('/:incidentId/reports', controller.getDetails);
   router.get('/:incidentId', controller.getById);
   return router;
 }

@@ -2,18 +2,20 @@
 
 This module supports explicit Disaster Officer creation of an incident from 1-100 unique
 VERIFIED report references. It does not modify reports or their original evidence. There
-is no mobile integration, automatic grouping/merging, membership-edit endpoint, status
-transition endpoint, or change to Risk Assessment in this milestone. Candidate detection
-is read-only and leaves report membership unchanged.
+is no mobile integration, automatic grouping/merging, status transition endpoint, or change
+to Risk Assessment in this milestone. Candidate detection is read-only; membership changes
+only through the explicit officer attach operation below.
 
 ## API
 
-Both endpoints require the existing Bearer authentication and DISASTER_OFFICER role.
+All endpoints require the existing Bearer authentication and DISASTER_OFFICER role.
 
 | Method | Path | Behavior |
 | --- | --- | --- |
-| POST | `/api/v1/incidents` | HTTP 201 `{ incident }` |
+| POST | `/api/v1/incidents` | HTTP 201 `{ incident }`; creates a new incident from selected VERIFIED reports |
 | GET | `/api/v1/incidents/candidates?reportId=:reportId` | HTTP 200 `{ candidates }` for possible related active incidents |
+| POST | `/api/v1/incidents/:incidentId/reports` | HTTP 200 `{ incident }`; explicitly attaches one VERIFIED report |
+| GET | `/api/v1/incidents/:incidentId/reports` | HTTP 200 `{ incident, reports }` with source evidence |
 | GET | `/api/v1/incidents/:incidentId` | HTTP 200 `{ incident }` |
 
 Creation body:
@@ -36,8 +38,10 @@ incident metadata; they do not join or duplicate report evidence.
 Errors use the shared `{ error: { code, message } }` envelope: 400 validation, 401 missing
 or invalid authentication, 403 wrong role, 404 missing resource, and 409 for unverified
 reports, mixed hazards (`INCIDENT_HAZARD_MISMATCH`), or active membership conflicts
-(`ACTIVE_INCIDENT_EXISTS`). A repeated create request returns 409; it does not create
-another incident. This API does not yet provide an idempotency-key replay response.
+(`ACTIVE_INCIDENT_EXISTS`). Attach also rejects inactive incidents (`INCIDENT_NOT_ACTIVE`)
+and duplicate membership (`REPORT_ALREADY_IN_INCIDENT`). A repeated create request returns
+409; it does not create another incident. This API does not yet provide an idempotency-key
+replay response.
 
 ## Candidate detection
 
@@ -50,6 +54,11 @@ incident ID, hazard type, location, report count, earliest/latest member report 
 and backend-computed distance in meters. Results are ordered by distance, then time
 proximity. An incident already containing the selected report is excluded. The endpoint
 never attaches, merges, or changes reports or incidents.
+
+Candidate results are advisory only. An authenticated Disaster Officer may explicitly attach
+a VERIFIED report to any ACTIVE same-hazard incident, even when its location or reporting time
+falls outside the candidate heuristics. The attach operation still enforces active membership
+uniqueness, so one report cannot be assigned to two ACTIVE incidents.
 
 ## Persistence and concurrency
 
@@ -75,8 +84,9 @@ a read-then-insert check. Direct database administration is outside API enforcem
 
 RESOLVED and CLOSED are supported persisted states for future lifecycle work. Such historical
 incidents do not reserve ACTIVE membership. This milestone does not expose a way to change
-status, remove reports, merge incidents, or append reports after creation. Officers can
-explicitly select several reports when creating an incident.
+status, remove reports, or merge incidents. Officers can explicitly select several reports
+when creating an incident or append one report at a time through the attach endpoint after
+reviewing candidates.
 
 ## Verification
 

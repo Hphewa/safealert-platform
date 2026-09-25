@@ -3,6 +3,7 @@ import {
   INCIDENT_MATCH_TIME_WINDOW_HOURS,
   type CreateIncidentRequest,
   type IncidentCandidatesResponse,
+  type IncidentWithReportsResponse,
   type IncidentResponse
 } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
@@ -49,6 +50,58 @@ export class IncidentService {
     const incident = await this.incidents.findById(incidentId);
     if (!incident) throw new ApiError(404, 'INCIDENT_NOT_FOUND', 'Incident not found.');
     return { incident };
+  }
+
+  async getDetails(incidentId: string): Promise<IncidentWithReportsResponse> {
+    const incident = await this.incidents.findById(incidentId);
+    if (!incident) throw new ApiError(404, 'INCIDENT_NOT_FOUND', 'Incident not found.');
+    const reports = await this.reports.findReportsByIds(incident.reportIds);
+    const reportsById = new Map(reports.map((report) => [report.id, report]));
+    return {
+      incident,
+      // Preserve the incident's membership order so the response remains easy to reconcile with reportIds.
+      reports: incident.reportIds.flatMap((reportId) => {
+        const report = reportsById.get(reportId);
+        return report ? [report] : [];
+      })
+    };
+  }
+
+  async addReport(incidentId: string, reportId: string): Promise<IncidentResponse> {
+    const report = await this.reports.findReportById(reportId);
+    if (!report) throw new ApiError(404, 'REPORT_NOT_FOUND', 'Report not found.');
+    if (report.status !== 'VERIFIED') {
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only verified reports can belong to an incident.');
+    }
+
+    const incident = await this.incidents.findById(incidentId);
+    if (!incident) throw new ApiError(404, 'INCIDENT_NOT_FOUND', 'Incident not found.');
+    if (incident.status !== 'ACTIVE') {
+      throw new ApiError(409, 'INCIDENT_NOT_ACTIVE', 'Reports can only be added to active incidents.');
+    }
+    if (incident.hazardType !== report.hazardType) {
+      throw new ApiError(409, 'INCIDENT_HAZARD_MISMATCH', 'The report hazard type does not match the incident.');
+    }
+    if (incident.reportIds.includes(report.id)) {
+      throw new ApiError(409, 'REPORT_ALREADY_IN_INCIDENT', 'The report is already part of this incident.');
+    }
+
+    const activeOwner = await this.incidents.findActiveByReportIds([report.id]);
+    if (activeOwner && activeOwner.id !== incident.id) {
+      throw new ApiError(409, 'ACTIVE_INCIDENT_EXISTS', 'The report already belongs to another active incident.');
+    }
+
+    try {
+      const updated = await this.incidents.addReportToActiveIncident(incident.id, report.id);
+      if (!updated) throw new ApiError(409, 'INCIDENT_NOT_ACTIVE', 'Reports can only be added to active incidents.');
+      return { incident: updated };
+    } catch (error) {
+      // A concurrent officer can claim the report after the friendly ownership check.
+      if (error instanceof ActiveIncidentExistsError) {
+        throw new ApiError(409, 'ACTIVE_INCIDENT_EXISTS', 'The report already belongs to another active incident.');
+      }
+      throw error;
+    }
   }
 
   async findCandidates(reportId: string): Promise<IncidentCandidatesResponse> {

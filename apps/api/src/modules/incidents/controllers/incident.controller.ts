@@ -2,7 +2,12 @@ import type { RequestHandler } from 'express';
 import { ApiError } from '../../../shared/apiError.js';
 import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { IncidentService } from '../services/incident.service.js';
-import { createIncidentSchema, incidentCandidateQuerySchema, incidentObjectIdSchema } from '../validation/incident.schemas.js';
+import {
+  addIncidentReportSchema,
+  createIncidentSchema,
+  incidentCandidateQuerySchema,
+  incidentObjectIdSchema
+} from '../validation/incident.schemas.js';
 
 export function createIncidentController(service: IncidentService) {
   const create: RequestHandler = asyncHandler(async (request, response) => {
@@ -21,5 +26,16 @@ export function createIncidentController(service: IncidentService) {
     response.json(await service.findCandidates(reportId));
   });
 
-  return { create, getById, findCandidates };
+  const addReport: RequestHandler = asyncHandler(async (request, response) => {
+    const incidentId = incidentObjectIdSchema.parse(request.params.incidentId);
+    const { reportId } = addIncidentReportSchema.parse(request.body);
+    response.json(await service.addReport(incidentId, reportId));
+  });
+
+  const getDetails: RequestHandler = asyncHandler(async (request, response) => {
+    const incidentId = incidentObjectIdSchema.parse(request.params.incidentId);
+    response.json(await service.getDetails(incidentId));
+  });
+
+  return { create, getById, findCandidates, addReport, getDetails };
 }

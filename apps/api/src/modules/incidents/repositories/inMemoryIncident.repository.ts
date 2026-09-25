@@ -29,6 +29,16 @@ export class InMemoryIncidentRepository implements IncidentRepository {
     return structuredClone(this.findActiveOverlap(reportIds));
   }
 
+  async addReportToActiveIncident(incidentId: string, reportId: string) {
+    const incident = this.incidents.get(incidentId);
+    if (!incident || incident.status !== 'ACTIVE') return null;
+    if (incident.reportIds.includes(reportId)) return structuredClone(incident);
+    if (this.findActiveOverlap([reportId])) throw new ActiveIncidentExistsError();
+    incident.reportIds.push(reportId);
+    incident.updatedAt = new Date().toISOString();
+    return structuredClone(incident);
+  }
+
   async findActiveCandidates(query: Parameters<IncidentRepository['findActiveCandidates']>[0]) {
     return [...this.incidents.values()]
       .filter((incident) => incident.status === 'ACTIVE' && incident.hazardType === query.hazardType)
