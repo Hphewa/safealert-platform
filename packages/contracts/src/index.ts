@@ -120,6 +120,38 @@ export type GeoJsonPoint = {
   coordinates: [longitude: number, latitude: number];
 };
 
+export const INCIDENT_STATUSES = ['ACTIVE', 'RESOLVED', 'CLOSED'] as const;
+export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
+export const INCIDENT_MAX_REPORTS = 100;
+// Candidate matching heuristics are intentionally centralized and configurable.
+// They are product defaults, not official disaster-management standards.
+export const INCIDENT_MATCH_RADIUS_METERS = 500;
+export const INCIDENT_MATCH_TIME_WINDOW_HOURS = 2;
+
+// Officers select report references; hazard, location and audit fields are server-owned.
+export type CreateIncidentRequest = { reportIds: string[] };
+export type SafeIncident = {
+  id: string;
+  hazardType: HazardType;
+  location: GeoJsonPoint;
+  reportIds: string[];
+  status: IncidentStatus;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type IncidentResponse = { incident: SafeIncident };
+export type IncidentCandidate = {
+  incidentId: string;
+  hazardType: HazardType;
+  location: GeoJsonPoint;
+  reportCount: number;
+  earliestReportAt: string;
+  latestReportAt: string;
+  distanceMeters: number;
+};
+export type IncidentCandidatesResponse = { candidates: IncidentCandidate[] };
+
 export type CreateReportRequest = {
   hazardType: HazardType;
   description: string;
