@@ -71,6 +71,8 @@ export function statusLabelForResident(status: ReportStatus) {
       return 'Verified';
     case 'REJECTED':
       return 'Rejected';
+    case 'CANCELLED':
+      return 'Cancelled';
     case 'RESOLVED':
       return 'Resolved';
   }
@@ -84,6 +86,8 @@ export function statusDescriptionForResident(status: ReportStatus) {
       return 'Verified by an officer';
     case 'REJECTED':
       return 'Reviewed and rejected';
+    case 'CANCELLED':
+      return 'Cancelled before verification';
     case 'RESOLVED':
       return 'Resolved';
   }
@@ -97,6 +101,8 @@ export function statusToneForResident(status: ReportStatus): BadgeTone {
       return 'success';
     case 'REJECTED':
       return 'critical';
+    case 'CANCELLED':
+      return 'neutral';
     case 'RESOLVED':
       return 'neutral';
   }
@@ -176,6 +182,10 @@ export function residentReportStatusSummary(report: SafeReport) {
         : 'Verified by an officer';
     case 'REJECTED':
       return report.rejectionReason ?? 'Reviewed and rejected';
+    case 'CANCELLED':
+      return report.cancelledAt
+        ? `Cancelled ${formatResidentReportDateTime(report.cancelledAt)}`
+        : 'This report was cancelled before verification.';
     case 'RESOLVED':
       return 'Resolved';
   }
@@ -231,6 +241,16 @@ export function buildResidentReportTimeline(report: SafeReport): ResidentReportT
     });
   }
 
+  if (report.status === 'CANCELLED') {
+    timeline.push({
+      id: 'cancelled',
+      title: 'Report Cancelled',
+      detail: 'This report was cancelled before verification.',
+      timeLabel: formatResidentReportDateTime(report.cancelledAt ?? report.updatedAt),
+      tone: 'neutral'
+    });
+  }
+
   if (report.status === 'RESOLVED') {
     timeline.push({
       id: 'resolved',
@@ -246,4 +266,15 @@ export function buildResidentReportTimeline(report: SafeReport): ResidentReportT
 
 export function canPreviewResidentReportMedia(mediaReference: string | undefined) {
   return Boolean(mediaReference && /^(https?:|data:image\/)/i.test(mediaReference));
+}
+
+export function residentReportEditHref(reportId: string) {
+  return {
+    pathname: '/resident/report-edit',
+    params: { reportId }
+  } as const satisfies Href;
+}
+
+export function isResidentReportEditable(report: SafeReport) {
+  return report.status === 'PENDING';
 }

@@ -3,10 +3,12 @@ import crypto from 'node:crypto';
 import type { CommunityReportSummary, ReportStatus, SafeReport } from '@safealert/contracts';
 
 import type {
+  CancelPendingResidentReportInput,
   CreateReportInput,
   NearbyCommunityReportsQuery,
   ReportRepository,
-  ReviewReportInput
+  ReviewReportInput,
+  UpdatePendingResidentReportInput
 } from './report.repository.js';
 
 export class InMemoryReportRepository implements ReportRepository {
@@ -104,6 +106,43 @@ export class InMemoryReportRepository implements ReportRepository {
 
   seedReport(report: SafeReport) {
     this.reports.set(report.id, report);
+  }
+
+  async updatePendingResidentReport(input: UpdatePendingResidentReportInput) {
+    const report = this.reports.get(input.reportId);
+
+    if (!report || report.residentId !== input.residentId || report.status !== 'PENDING') {
+      return null;
+    }
+
+    const updatedReport: SafeReport = {
+      ...report,
+      ...input.update,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.reports.set(updatedReport.id, updatedReport);
+    return updatedReport;
+  }
+
+  async cancelPendingResidentReport(input: CancelPendingResidentReportInput) {
+    const report = this.reports.get(input.reportId);
+
+    if (!report || report.residentId !== input.residentId || report.status !== 'PENDING') {
+      return null;
+    }
+
+    const cancelledAt = input.cancelledAt.toISOString();
+    const updatedReport: SafeReport = {
+      ...report,
+      status: 'CANCELLED',
+      updatedAt: cancelledAt,
+      cancelledById: input.residentId,
+      cancelledAt
+    };
+
+    this.reports.set(updatedReport.id, updatedReport);
+    return updatedReport;
   }
 
   async reviewReport(input: ReviewReportInput) {

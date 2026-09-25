@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+﻿import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { USER_ROLES, type ReportStatus, type UserRole } from '@safealert/contracts';
@@ -127,7 +127,7 @@ describe('LDFEW-125 field confirmations', () => {
       const { app } = context();
       expect((await request(app).post(`/api/v1/field-confirmations/${id}/${action}`).auth(token('COMMUNITY_VOLUNTEER'), { type: 'bearer' }).send(body)).status).toBe(status);
     });
-    it.each(['VERIFIED', 'REJECTED', 'RESOLVED'] as const)(`${action} rejects ineligible %s report`, async (status) => {
+    it.each(['VERIFIED', 'REJECTED', 'CANCELLED', 'RESOLVED'] as const)(`${action} rejects ineligible %s report`, async (status) => {
       const { app, confirmations } = context(status);
       expect((await request(app).post(`/api/v1/field-confirmations/${reportId}/${action}`).auth(token('COMMUNITY_VOLUNTEER'), { type: 'bearer' }).send(body)).status).toBe(404);
       expect(await confirmations.findByReportId(reportId)).toEqual([]);
@@ -145,3 +145,5 @@ describe('LDFEW-125 field confirmations', () => {
     expect(confirmation.status).toBe('PENDING');
   });
 });
+
+

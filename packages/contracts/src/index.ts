@@ -92,7 +92,7 @@ export const WARNING_ATTACHMENT_REFERENCE_PATTERN = /^\/api\/v1\/warning-attachm
 export type UploadWarningImageRequest = { assessmentId: string; base64: string };
 export type UploadWarningImageResponse = { reference: string };
 
-export const REPORT_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED', 'RESOLVED'] as const;
+export const REPORT_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED', 'CANCELLED', 'RESOLVED'] as const;
 
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
 
@@ -128,6 +128,8 @@ export type CreateReportRequest = {
   mediaReference?: string;
 };
 
+export type UpdateResidentReportRequest = Partial<CreateReportRequest>;
+
 export type SafeReport = {
   id: string;
   residentId: string;
@@ -144,6 +146,8 @@ export type SafeReport = {
   rejectedById?: string;
   rejectedAt?: string;
   rejectionReason?: string;
+  cancelledById?: string;
+  cancelledAt?: string;
   verificationHistory?: ReportReviewEvent[];
 };
 
@@ -172,6 +176,14 @@ export type ReportReviewRequest =
     };
 
 export type CreateReportResponse = {
+  report: SafeReport;
+};
+
+export type UpdateResidentReportResponse = {
+  report: SafeReport;
+};
+
+export type CancelResidentReportResponse = {
   report: SafeReport;
 };
 

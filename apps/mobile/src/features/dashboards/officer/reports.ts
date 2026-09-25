@@ -1,4 +1,4 @@
-import {
+﻿import {
   REPORT_REJECTION_REASON_MAX_LENGTH,
   REPORT_REJECTION_REASON_MIN_LENGTH,
   type HazardType,
@@ -116,6 +116,8 @@ export function statusLabelForOfficer(status: ReportStatus) {
       return 'Verified';
     case 'REJECTED':
       return 'Rejected';
+    case 'CANCELLED':
+      return 'Cancelled';
     case 'RESOLVED':
       return 'Resolved';
   }

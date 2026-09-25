@@ -7,6 +7,8 @@ import {
   formatResidentReportCount,
   formatResidentReportLocation,
   formatResidentReportSubmittedAt,
+  isResidentReportEditable,
+  residentReportEditHref,
   residentReportStatusHref,
   residentReportStatusSummary,
   hazardIconForResident,
@@ -35,6 +37,7 @@ const reports: SafeReport[] = [
   { ...baseReport, id: 'pending', status: 'PENDING' },
   { ...baseReport, id: 'verified', status: 'VERIFIED' },
   { ...baseReport, id: 'rejected', status: 'REJECTED' },
+  { ...baseReport, id: 'cancelled', status: 'CANCELLED' },
   { ...baseReport, id: 'resolved', status: 'RESOLVED' }
 ];
 
@@ -44,6 +47,7 @@ describe('resident report presentation helpers', () => {
       'pending',
       'verified',
       'rejected',
+      'cancelled',
       'resolved'
     ]);
     expect(filterResidentReports(reports, 'active').map((report) => report.id)).toEqual([
@@ -59,8 +63,11 @@ describe('resident report presentation helpers', () => {
     expect(hazardLabelForResident('BLOCKED_ROAD')).toBe('Blocked Road');
     expect(hazardIconForResident('LANDSLIDE')).toBe('leaf-outline');
     expect(statusLabelForResident('PENDING')).toBe('Pending');
+    expect(statusLabelForResident('CANCELLED')).toBe('Cancelled');
     expect(statusDescriptionForResident('PENDING')).toBe('Waiting for verification');
+    expect(statusDescriptionForResident('CANCELLED')).toBe('Cancelled before verification');
     expect(statusToneForResident('REJECTED')).toBe('critical');
+    expect(statusToneForResident('CANCELLED')).toBe('neutral');
     expect(formatResidentReportLocation(baseReport)).toBe('Lat 6.9271, Long 79.8612');
   });
 
@@ -143,9 +150,30 @@ describe('resident report presentation helpers', () => {
     ]);
   });
 
+  it('builds a cancelled timeline and marks only pending reports editable', () => {
+    const cancelled: SafeReport = {
+      ...baseReport,
+      status: 'CANCELLED',
+      cancelledById: 'resident-1',
+      cancelledAt: '2026-08-24T09:30:00.000Z'
+    };
+
+    expect(residentReportStatusSummary(cancelled)).toContain('Cancelled');
+    expect(buildResidentReportTimeline(cancelled).map((item) => [item.title, item.tone])).toEqual([
+      ['Report Submitted', 'success'],
+      ['Report Cancelled', 'neutral']
+    ]);
+    expect(isResidentReportEditable(baseReport)).toBe(true);
+    expect(isResidentReportEditable(cancelled)).toBe(false);
+  });
+
   it('builds report-status navigation params from a backend report id', () => {
     expect(residentReportStatusHref('report/one')).toEqual({
       pathname: '/resident/report-status',
+      params: { reportId: 'report/one' }
+    });
+    expect(residentReportEditHref('report/one')).toEqual({
+      pathname: '/resident/report-edit',
       params: { reportId: 'report/one' }
     });
   });

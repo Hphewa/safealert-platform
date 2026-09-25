@@ -3,7 +3,7 @@ import type { SafeReport } from '@safealert/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ResidentReportDetailsScreen } from './ResidentReportDetailsScreen';
-import { getMyReportById } from '../api/reportApi';
+import { cancelMyPendingReport, getMyReportById } from '../api/reportApi';
 
 const lifecycle = vi.hoisted(() => ({
   slots: [] as unknown[],
@@ -37,8 +37,11 @@ vi.mock('expo-router', () => ({
   useRouter: () => navigation
 }));
 
+const alertMock = vi.hoisted(() => ({ alert: vi.fn() }));
+
 vi.mock('react-native', () => ({
   ActivityIndicator: 'span',
+  Alert: alertMock,
   FlatList: 'div',
   Image: 'img',
   Pressable: 'button',
@@ -75,7 +78,7 @@ vi.mock('../../shared/components/DashboardGlyph', () => ({ DashboardGlyph: () =>
 vi.mock('../../shared/components/StatusBadge', () => ({
   StatusBadge: ({ label }: { label: string }) => <span>{label}</span>
 }));
-vi.mock('../api/reportApi', () => ({ getMyReportById: vi.fn() }));
+vi.mock('../api/reportApi', () => ({ cancelMyPendingReport: vi.fn(), getMyReportById: vi.fn() }));
 
 const pendingReport: SafeReport = {
   id: 'report-1',
@@ -98,6 +101,67 @@ afterEach(() => {
 });
 
 describe('ResidentReportDetailsScreen', () => {
+  it('shows edit and cancel actions for pending reports and navigates to edit by report id', async () => {
+    vi.mocked(getMyReportById).mockResolvedValue({ report: pendingReport });
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Edit Report'));
+
+    const edit = screenButtons(render()).find((button) => screenText(button.children).trim() === 'Edit Report');
+    const cancel = screenButtons(render()).find((button) => screenText(button.children).trim() === 'Cancel Report');
+
+    expect(edit).toBeDefined();
+    expect(cancel).toBeDefined();
+    edit?.onPress();
+    expect(navigation.push).toHaveBeenCalledWith({
+      pathname: '/resident/report-edit',
+      params: { reportId: 'report-1' }
+    });
+  });
+
+  it.each(['VERIFIED', 'REJECTED', 'CANCELLED', 'RESOLVED'] as const)(
+    'hides edit and cancel actions for %s reports',
+    async (status) => {
+      vi.mocked(getMyReportById).mockResolvedValue({ report: { ...pendingReport, status } });
+
+      render();
+      await lifecycle.focus();
+      await vi.waitFor(() => expect(screenText(render())).toContain(status === 'CANCELLED' ? 'Cancelled' : status === 'VERIFIED' ? 'Verified' : status === 'REJECTED' ? 'Rejected' : 'Resolved'));
+
+      expect(screenText(render())).not.toContain('Edit Report');
+      expect(screenText(render())).not.toContain('Cancel Report');
+    }
+  );
+
+  it('confirms before cancelling and displays the cancelled state after success', async () => {
+    const cancelledReport: SafeReport = {
+      ...pendingReport,
+      status: 'CANCELLED',
+      cancelledById: 'resident-1',
+      cancelledAt: '2026-08-24T09:30:00.000Z'
+    };
+    vi.mocked(getMyReportById).mockResolvedValue({ report: pendingReport });
+    vi.mocked(cancelMyPendingReport).mockResolvedValue({ report: cancelledReport });
+
+    render();
+    await lifecycle.focus();
+    const cancel = screenButtons(render()).find((button) => screenText(button.children).trim() === 'Cancel Report');
+    cancel?.onPress();
+
+    expect(alertMock.alert).toHaveBeenCalledWith(
+      'Cancel this report?',
+      expect.any(String),
+      expect.arrayContaining([expect.objectContaining({ text: 'Cancel Report' })])
+    );
+
+    const destructive = alertMock.alert.mock.calls[0]?.[2]?.find((button: { text?: string }) => button.text === 'Cancel Report');
+    destructive?.onPress();
+
+    await vi.waitFor(() => expect(cancelMyPendingReport).toHaveBeenCalledWith('report-1', 'resident-token'));
+    expect(screenText(render())).toContain('Cancelled report');
+  });
+
   it('shows an API error and retries the same report id', async () => {
     vi.mocked(getMyReportById)
       .mockRejectedValueOnce(new Error('Report not found.'))

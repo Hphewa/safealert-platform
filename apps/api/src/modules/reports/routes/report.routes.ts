@@ -12,6 +12,13 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
 
   router.post('/', authenticate(config), authorizeRoles('RESIDENT'), controller.create);
   router.get('/mine', authenticate(config), authorizeRoles('RESIDENT'), controller.listMine);
+  router.patch('/mine/:reportId', authenticate(config), authorizeRoles('RESIDENT'), controller.updateMineById);
+  router.patch(
+    '/mine/:reportId/cancel',
+    authenticate(config),
+    authorizeRoles('RESIDENT'),
+    controller.cancelMineById
+  );
   router.get('/mine/:reportId', authenticate(config), authorizeRoles('RESIDENT'), controller.getMineById);
   router.get(
     '/community',

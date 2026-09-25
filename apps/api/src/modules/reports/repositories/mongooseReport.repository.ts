@@ -3,9 +3,11 @@ import type { CommunityReportSummary } from '@safealert/contracts';
 import { ReportModel, toSafeReport } from '../models/report.model.js';
 import type {
   CreateReportInput,
+  CancelPendingResidentReportInput,
   NearbyCommunityReportsQuery,
   ReportRepository,
-  ReviewReportInput
+  ReviewReportInput,
+  UpdatePendingResidentReportInput
 } from './report.repository.js';
 
 export class MongooseReportRepository implements ReportRepository {
@@ -113,6 +115,48 @@ export class MongooseReportRepository implements ReportRepository {
       createdAt: safeReport.createdAt,
       ...(safeReport.mediaReference ? { mediaReference: safeReport.mediaReference } : {})
     };
+  }
+
+  async updatePendingResidentReport(input: UpdatePendingResidentReportInput) {
+    const report = await ReportModel.findOneAndUpdate(
+      {
+        _id: input.reportId,
+        residentId: input.residentId,
+        status: 'PENDING'
+      },
+      {
+        $set: input.update
+      },
+      {
+        new: true,
+        runValidators: true
+      }
+    ).exec();
+
+    return report ? toSafeReport(report) : null;
+  }
+
+  async cancelPendingResidentReport(input: CancelPendingResidentReportInput) {
+    const report = await ReportModel.findOneAndUpdate(
+      {
+        _id: input.reportId,
+        residentId: input.residentId,
+        status: 'PENDING'
+      },
+      {
+        $set: {
+          status: 'CANCELLED',
+          cancelledById: input.residentId,
+          cancelledAt: input.cancelledAt
+        }
+      },
+      {
+        new: true,
+        runValidators: true
+      }
+    ).exec();
+
+    return report ? toSafeReport(report) : null;
   }
 
   async reviewReport(input: ReviewReportInput) {

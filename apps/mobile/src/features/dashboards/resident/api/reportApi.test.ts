@@ -2,7 +2,7 @@ import type { SafeReport } from '@safealert/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { apiBaseUrl } from '../../../../services/api/client';
-import { getMyReportById, listMyReports } from './reportApi';
+import { cancelMyPendingReport, getMyReportById, listMyReports, updateMyPendingReport } from './reportApi';
 
 const report: SafeReport = {
   id: 'report/one',
@@ -51,6 +51,49 @@ describe('resident report API', () => {
       apiBaseUrl + '/reports/mine/report%2Fone',
       expect.objectContaining({
         method: 'GET',
+        headers: expect.objectContaining({ Authorization: 'Bearer resident-access-token' })
+      })
+    );
+  });
+
+  it('updates an encoded pending resident-owned report id', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ report }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await updateMyPendingReport(
+      'report/one',
+      { description: 'Updated before verification.' },
+      'resident-access-token'
+    );
+
+    expect(response).toEqual({ report });
+    expect(fetchMock).toHaveBeenCalledWith(
+      apiBaseUrl + '/reports/mine/report%2Fone',
+      expect.objectContaining({
+        method: 'PATCH',
+        headers: expect.objectContaining({ Authorization: 'Bearer resident-access-token' }),
+        body: JSON.stringify({ description: 'Updated before verification.' })
+      })
+    );
+  });
+
+  it('cancels an encoded pending resident-owned report id', async () => {
+    const cancelledReport: SafeReport = {
+      ...report,
+      status: 'CANCELLED',
+      cancelledById: 'resident-1',
+      cancelledAt: '2026-08-24T09:30:00.000Z'
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ report: cancelledReport }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await cancelMyPendingReport('report/one', 'resident-access-token');
+
+    expect(response).toEqual({ report: cancelledReport });
+    expect(fetchMock).toHaveBeenCalledWith(
+      apiBaseUrl + '/reports/mine/report%2Fone/cancel',
+      expect.objectContaining({
+        method: 'PATCH',
         headers: expect.objectContaining({ Authorization: 'Bearer resident-access-token' })
       })
     );

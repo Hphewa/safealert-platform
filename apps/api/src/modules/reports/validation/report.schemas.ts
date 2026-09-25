@@ -38,6 +38,13 @@ export const createReportSchema = z.object({
     .optional()
 });
 
+export const updateResidentReportSchema = createReportSchema
+  .partial()
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one report field must be provided.'
+  });
+
 export const communityReportQueryModes = ['incoming', 'nearby'] as const;
 
 const latitudeQuerySchema = z.coerce

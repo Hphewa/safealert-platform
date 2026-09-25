@@ -1,5 +1,6 @@
 import type {
   CommunityReportSummary,
+  CancelResidentReportResponse,
   CreateReportRequest,
   CreateReportResponse,
   GetCommunityReportResponse,
@@ -10,7 +11,9 @@ import type {
   GetResidentReportsResponse,
   GetVerifiedOfficerReportsResponse,
   ReportReviewRequest,
-  ReviewReportResponse
+  ReviewReportResponse,
+  UpdateResidentReportRequest,
+  UpdateResidentReportResponse
 } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 import type { FieldConfirmationRepository } from '../../field-confirmations/repositories/fieldConfirmation.repository.js';
@@ -68,6 +71,61 @@ export class ReportService {
 
     if (!report) {
       throw new ApiError(404, 'REPORT_NOT_FOUND', 'Report not found.');
+    }
+
+    return { report };
+  }
+
+  async updatePendingResidentReport(
+    residentId: string,
+    reportId: string,
+    input: UpdateResidentReportRequest
+  ): Promise<UpdateResidentReportResponse> {
+    const existingReport = await this.repository.findReportByIdAndResidentId(reportId, residentId);
+
+    if (!existingReport) {
+      throw new ApiError(404, 'REPORT_NOT_FOUND', 'Report not found.');
+    }
+
+    if (existingReport.status !== 'PENDING') {
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be changed.');
+    }
+
+    const report = await this.repository.updatePendingResidentReport({
+      reportId,
+      residentId,
+      update: input
+    });
+
+    if (!report) {
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be changed.');
+    }
+
+    return { report };
+  }
+
+  async cancelPendingResidentReport(
+    residentId: string,
+    reportId: string
+  ): Promise<CancelResidentReportResponse> {
+    const existingReport = await this.repository.findReportByIdAndResidentId(reportId, residentId);
+
+    if (!existingReport) {
+      throw new ApiError(404, 'REPORT_NOT_FOUND', 'Report not found.');
+    }
+
+    if (existingReport.status !== 'PENDING') {
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be cancelled.');
+    }
+
+    const report = await this.repository.cancelPendingResidentReport({
+      reportId,
+      residentId,
+      cancelledAt: new Date()
+    });
+
+    if (!report) {
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be cancelled.');
     }
 
     return { report };

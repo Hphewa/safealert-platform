@@ -3,6 +3,7 @@ import type { SafeReport } from '@safealert/contracts';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
   RefreshControl,
@@ -20,7 +21,7 @@ import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
-import { getMyReportById } from '../api/reportApi';
+import { cancelMyPendingReport, getMyReportById } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
 import {
   buildResidentReportTimeline,
@@ -29,6 +30,8 @@ import {
   formatResidentReportLocation,
   hazardIconForResident,
   hazardLabelForResident,
+  isResidentReportEditable,
+  residentReportEditHref,
   residentReportStatusSummary,
   severityToneForResident,
   statusLabelForResident,
@@ -46,7 +49,10 @@ export function ResidentReportDetailsScreen() {
   const [report, setReport] = useState<SafeReport | null>(null);
   const [loadStatus, setLoadStatus] = useState<ResidentReportDetailLoadStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [actionStatus, setActionStatus] = useState<'idle' | 'cancelling'>('idle');
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const inFlightRef = useRef(false);
+  const cancelInFlightRef = useRef(false);
   const latestRequestIdRef = useRef(0);
   const reportRef = useRef<SafeReport | null>(null);
 
@@ -122,6 +128,52 @@ export function ResidentReportDetailsScreen() {
   const isInitialLoading = loadStatus === 'loading' && !report;
   const isRefreshing = loadStatus === 'refreshing';
 
+  const cancelReport = useCallback(async () => {
+    if (!reportId || !accessToken || cancelInFlightRef.current) {
+      return;
+    }
+
+    cancelInFlightRef.current = true;
+    setActionStatus('cancelling');
+    setActionMessage(null);
+
+    try {
+      const response = await cancelMyPendingReport(reportId, accessToken);
+      setReport(response.report);
+      setActionMessage('Report cancelled. It remains in your submitted report history.');
+    } catch (error) {
+      const message =
+        error instanceof ApiClientError && error.status === 409
+          ? 'This report can no longer be changed because its status has been updated.'
+          : error instanceof ApiClientError || error instanceof Error
+            ? error.message
+            : 'Unable to cancel this report right now.';
+
+      setActionMessage(message);
+      await loadReport(true);
+    } finally {
+      cancelInFlightRef.current = false;
+      setActionStatus('idle');
+    }
+  }, [accessToken, loadReport, reportId]);
+
+  const confirmCancelReport = useCallback(() => {
+    Alert.alert(
+      'Cancel this report?',
+      'This report will no longer be sent through the verification process. You cannot edit it after cancellation.',
+      [
+        { text: 'Keep Report', style: 'cancel' },
+        {
+          text: 'Cancel Report',
+          style: 'destructive',
+          onPress: () => {
+            void cancelReport();
+          }
+        }
+      ]
+    );
+  }, [cancelReport]);
+
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <View style={styles.contentWrap}>
@@ -176,7 +228,14 @@ export function ResidentReportDetailsScreen() {
               title="Loading Report"
             />
           ) : report ? (
-            <ReportDetailContent report={report} refreshErrorMessage={errorMessage} />
+            <ReportDetailContent
+              actionMessage={actionMessage}
+              isCancelling={actionStatus === 'cancelling'}
+              onCancelReport={confirmCancelReport}
+              onEditReport={() => router.push(residentReportEditHref(report.id))}
+              report={report}
+              refreshErrorMessage={errorMessage}
+            />
           ) : (
             <ReportDetailStateCard
               actionLabel="Retry"
@@ -195,15 +254,24 @@ export function ResidentReportDetailsScreen() {
 }
 
 function ReportDetailContent({
+  actionMessage,
+  isCancelling,
+  onCancelReport,
+  onEditReport,
   report,
   refreshErrorMessage
 }: {
+  actionMessage: string | null;
+  isCancelling: boolean;
+  onCancelReport: () => void;
+  onEditReport: () => void;
   report: SafeReport;
   refreshErrorMessage: string | null;
 }) {
   const hazardLabel = hazardLabelForResident(report.hazardType);
   const mediaUri = resolveResidentMediaUri(report.mediaReference);
   const timeline = buildResidentReportTimeline(report);
+  const canEdit = isResidentReportEditable(report);
 
   return (
     <>
@@ -222,6 +290,35 @@ function ReportDetailContent({
           <StatusBadge label={`${report.severity} severity`} tone={severityToneForResident(report.severity)} />
         </View>
         {refreshErrorMessage ? <Text style={styles.inlineError}>{refreshErrorMessage}</Text> : null}
+        {actionMessage ? <Text style={styles.inlineNotice}>{actionMessage}</Text> : null}
+        {canEdit ? (
+          <View style={styles.actionRow}>
+            <Pressable
+              accessibilityLabel="Edit report"
+              accessibilityRole="button"
+              onPress={onEditReport}
+              style={({ pressed }) => [styles.editButton, pressed && styles.pressed]}
+            >
+              <Text style={styles.editButtonText}>Edit Report</Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Cancel report"
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isCancelling }}
+              disabled={isCancelling}
+              onPress={onCancelReport}
+              style={({ pressed }) => [
+                styles.cancelReportButton,
+                isCancelling && styles.buttonDisabled,
+                pressed && !isCancelling && styles.pressed
+              ]}
+            >
+              <Text style={styles.cancelReportButtonText}>
+                {isCancelling ? 'Cancelling...' : 'Cancel Report'}
+              </Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
 
       {report.status === 'REJECTED' && report.rejectionReason ? (
@@ -231,6 +328,16 @@ function ReportDetailContent({
             <Text style={styles.rejectionTitle}>Rejection reason</Text>
           </View>
           <Text style={styles.rejectionReason}>{report.rejectionReason}</Text>
+        </View>
+      ) : null}
+
+      {report.status === 'CANCELLED' ? (
+        <View style={styles.cancelledPanel}>
+          <View style={styles.rejectionTitleRow}>
+            <DashboardGlyph color={dashboardTheme.colors.muted} name="close-circle-outline" size={18} />
+            <Text style={styles.cancelledTitle}>Cancelled report</Text>
+          </View>
+          <Text style={styles.rejectionReason}>This report was cancelled before verification.</Text>
         </View>
       ) : null}
 
@@ -244,6 +351,7 @@ function ReportDetailContent({
         <DetailRow label="Last updated" value={formatResidentReportDateTime(report.updatedAt)} />
         {report.verifiedAt ? <DetailRow label="Verified" value={formatResidentReportDateTime(report.verifiedAt)} /> : null}
         {report.rejectedAt ? <DetailRow label="Rejected" value={formatResidentReportDateTime(report.rejectedAt)} /> : null}
+        {report.cancelledAt ? <DetailRow label="Cancelled" value={formatResidentReportDateTime(report.cancelledAt)} /> : null}
       </View>
 
       <View style={styles.panel}>
@@ -359,11 +467,11 @@ function timelineSymbolFor(tone: ResidentReportTimelineItem['tone']) {
     case 'success':
       return '?';
     case 'critical':
-      return '×';
+      return 'ï¿½';
     case 'pending':
       return '?';
     case 'neutral':
-      return '•';
+      return 'ï¿½';
   }
 }
 
@@ -489,6 +597,48 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     color: dashboardTheme.colors.critical
   },
+  inlineNotice: {
+    fontSize: 13,
+    lineHeight: 19,
+    fontWeight: '700',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  actionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10
+  },
+  editButton: {
+    flexGrow: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.primary
+  },
+  editButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#ffffff'
+  },
+  cancelReportButton: {
+    flexGrow: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.critical,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.criticalSoft
+  },
+  cancelReportButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.critical
+  },
+  buttonDisabled: {
+    opacity: 0.55
+  },
   panel: {
     gap: 12,
     padding: 16,
@@ -557,6 +707,19 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     fontWeight: '700',
+    color: dashboardTheme.colors.text
+  },
+  cancelledPanel: {
+    gap: 10,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  cancelledTitle: {
+    fontSize: 16,
+    fontWeight: '800',
     color: dashboardTheme.colors.text
   },
   timelineList: {

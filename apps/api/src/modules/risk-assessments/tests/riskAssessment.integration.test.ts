@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+﻿import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { SafeReport, UserRole } from '@safealert/contracts';
@@ -64,7 +64,7 @@ describe('risk assessment API', () => {
     expect(response.body).toEqual({ calculatedScore: 23, systemSuggestedRisk: 'HIGH' });
     expect(await riskAssessmentRepository.findActiveByHazardReportId(reportId)).toBeNull();
   });
-  it.each(['PENDING', 'REJECTED', 'RESOLVED'] as const)('rejects create and calculate for %s', async (status) => {
+  it.each(['PENDING', 'REJECTED', 'CANCELLED', 'RESOLVED'] as const)('rejects create and calculate for %s', async (status) => {
     const { post, reportRepository } = context();
     reportRepository.seedReport({ ...report, status });
     for (const [path, body] of [[base, payload], [`${base}/calculate`, factors]] as const) {
@@ -139,7 +139,7 @@ describe('risk assessment API', () => {
   });
   it('lists verified reports only', async () => {
     const { get, reportRepository } = context();
-    for (const [index, status] of (['PENDING', 'REJECTED', 'RESOLVED'] as const).entries()) {
+    for (const [index, status] of (['PENDING', 'REJECTED', 'CANCELLED', 'RESOLVED'] as const).entries()) {
       reportRepository.seedReport({ ...report, id: `22345678901234567890123${index}`, status });
     }
     const response = await get('/api/v1/reports/officer/verified');
@@ -157,3 +157,5 @@ describe('risk assessment API', () => {
     expect((await get(`${base}/${created.body.assessment.id}`)).status).toBe(200);
   });
 });
+
+

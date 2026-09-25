@@ -1,8 +1,11 @@
 import type {
   CreateReportRequest,
   CreateReportResponse,
+  CancelResidentReportResponse,
   GetResidentReportResponse,
-  GetResidentReportsResponse
+  GetResidentReportsResponse,
+  UpdateResidentReportRequest,
+  UpdateResidentReportResponse
 } from '@safealert/contracts';
 
 import { apiRequest } from '../../../../services/api/client';
@@ -23,6 +26,25 @@ export function listMyReports(accessToken: string) {
 
 export function getMyReportById(reportId: string, accessToken: string) {
   return apiRequest<GetResidentReportResponse>(`/reports/mine/${encodeURIComponent(reportId)}`, {
+    accessToken
+  });
+}
+
+export function updateMyPendingReport(
+  reportId: string,
+  input: UpdateResidentReportRequest,
+  accessToken: string
+) {
+  return apiRequest<UpdateResidentReportResponse>(`/reports/mine/${encodeURIComponent(reportId)}`, {
+    method: 'PATCH',
+    accessToken,
+    body: input
+  });
+}
+
+export function cancelMyPendingReport(reportId: string, accessToken: string) {
+  return apiRequest<CancelResidentReportResponse>(`/reports/mine/${encodeURIComponent(reportId)}/cancel`, {
+    method: 'PATCH',
     accessToken
   });
 }
