@@ -211,16 +211,21 @@ export function OfficerReportReviewScreen() {
       Alert.alert(
         action === 'VERIFY' ? 'Report Verified' : 'Report Rejected',
         action === 'VERIFY'
-          ? 'The report was verified and removed from the pending queue.'
+            ? response.grouping?.action === 'CREATED'
+            ? 'The report was verified and a new incident was created automatically.'
+            : response.grouping?.action === 'ATTACHED'
+              ? 'The report was verified and added to the matching incident automatically.'
+              : response.grouping?.action === 'ALREADY_ASSIGNED'
+                ? 'The report was verified and is already assigned to an incident.'
+                : 'The report was verified and incident grouping completed.'
           : 'The report was rejected and removed from the pending queue.',
         [
-          // A successful verification is the first entry into official risk assessment.
           ...(action === 'VERIFY' ? [{
-            text: 'Assess Risk',
+            text: 'Continue to Risk Assessments',
             onPress: () => {
               if (isFocusedRef.current && latestReviewRequestIdRef.current === reviewRequestId &&
                   activeReportIdRef.current === submittedReportId) {
-                router.replace({ pathname: '/officer/assessments/create', params: { hazardReportId: submittedReportId } });
+                router.dismissTo('/officer/assessments');
               }
             }
           }] : []),

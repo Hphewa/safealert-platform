@@ -3,6 +3,7 @@ import {
   INCIDENT_MATCH_TIME_WINDOW_HOURS,
   type CreateIncidentRequest,
   type IncidentCandidatesResponse,
+  type GetActiveIncidentsResponse,
   type IncidentWithReportsResponse,
   type IncidentResponse
 } from '@safealert/contracts';
@@ -64,6 +65,13 @@ export class IncidentService {
         const report = reportsById.get(reportId);
         return report ? [report] : [];
       })
+    };
+  }
+
+  async listActive(): Promise<GetActiveIncidentsResponse> {
+    const incidents = await this.incidents.findActive();
+    return {
+      incidents: await Promise.all(incidents.map((incident) => this.getDetails(incident.id)))
     };
   }
 
@@ -155,5 +163,49 @@ export class IncidentService {
       left.candidate.incidentId.localeCompare(right.candidate.incidentId)
     );
     return { candidates: candidates.map(({ candidate }) => candidate) };
+  }
+
+  /**
+   * Groups a newly verified report without asking the client to choose an incident.
+   * The existing candidate heuristic remains the source of truth; the nearest and
+   * temporally strongest candidate is already sorted first by findCandidates().
+   */
+  async automaticallyGroupVerifiedReport(reportId: string, officerId: string) {
+    const report = await this.reports.findReportById(reportId);
+    if (!report) throw new ApiError(404, 'REPORT_NOT_FOUND', 'Report not found.');
+    if (report.status !== 'VERIFIED') {
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only verified reports can be grouped automatically.');
+    }
+
+    // This makes retries after a lost response safe and avoids duplicate ownership.
+    const existing = await this.incidents.findActiveByReportIds([report.id]);
+    if (existing) return { action: 'ALREADY_ASSIGNED' as const, incident: existing };
+
+    const { candidates } = await this.findCandidates(report.id);
+    const candidate = candidates[0];
+    if (!candidate) {
+      try {
+        const created = await this.create(officerId, { reportIds: [report.id] });
+        return { action: 'CREATED' as const, incident: created.incident };
+      } catch (error) {
+        // A concurrent verifier may have created the owner after our precheck.
+        if (error instanceof ActiveIncidentExistsError) {
+          const owner = await this.incidents.findActiveByReportIds([report.id]);
+          if (owner) return { action: 'ALREADY_ASSIGNED' as const, incident: owner };
+        }
+        throw error;
+      }
+    }
+
+    try {
+      const attached = await this.addReport(candidate.incidentId, report.id);
+      return { action: 'ATTACHED' as const, incident: attached.incident, candidate };
+    } catch (error) {
+      if (error instanceof ApiError && error.code === 'ACTIVE_INCIDENT_EXISTS') {
+        const owner = await this.incidents.findActiveByReportIds([report.id]);
+        if (owner) return { action: 'ALREADY_ASSIGNED' as const, incident: owner };
+      }
+      throw error;
+    }
   }
 }

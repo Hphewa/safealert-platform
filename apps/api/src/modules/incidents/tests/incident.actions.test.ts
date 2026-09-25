@@ -195,6 +195,25 @@ describe('incident grouping actions', () => {
     expect(response.body.reports[0].description).toBe('Second evidence');
   });
 
+  it('lists active incidents with their related reports for assessment selection', async () => {
+    const { app, reports, incidents } = context();
+    reports.seedReport(report({ id: memberReportId, description: 'Grouped evidence' }));
+    reports.seedReport(report({ id: secondReportId, createdAt: '2026-09-25T11:00:00.000Z' }));
+    const active = await seedIncident(incidents, [memberReportId, secondReportId]);
+    await seedIncident(incidents, [reportId], { status: 'RESOLVED' });
+
+    const response = await request(app)
+      .get(`${incidentsPath}/active`)
+      .set('Authorization', `Bearer ${token()}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.incidents).toHaveLength(1);
+    expect(response.body.incidents[0]).toMatchObject({
+      incident: active,
+      reports: [expect.objectContaining({ id: memberReportId }), expect.objectContaining({ id: secondReportId })]
+    });
+  });
+
   it.each(['RESIDENT', 'COMMUNITY_VOLUNTEER', 'EMERGENCY_RESPONDER'] as const)(
     'denies %s grouping actions', async (role) => {
       const { app, incidents } = context();

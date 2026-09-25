@@ -9,6 +9,7 @@ import { loadConfig, type ApiConfig } from '../../../config/env.js';
 import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
 import { InMemoryReportRepository } from '../repositories/inMemoryReport.repository.js';
 import { InMemoryFieldConfirmationRepository } from '../../field-confirmations/repositories/inMemoryFieldConfirmation.repository.js';
+import { InMemoryIncidentRepository } from '../../incidents/repositories/inMemoryIncident.repository.js';
 
 function createTestContext(overrides: Partial<ApiConfig> = {}) {
   process.env.NODE_ENV = 'test';
@@ -23,9 +24,10 @@ function createTestContext(overrides: Partial<ApiConfig> = {}) {
   };
   const authRepository = new InMemoryAuthRepository();
   const reportRepository = new InMemoryReportRepository();
-  const app = createApp({ config, authRepository, reportRepository, fieldConfirmationRepository: new InMemoryFieldConfirmationRepository() });
+  const incidentRepository = new InMemoryIncidentRepository();
+  const app = createApp({ config, authRepository, reportRepository, incidentRepository, fieldConfirmationRepository: new InMemoryFieldConfirmationRepository() });
 
-  return { app, authRepository, reportRepository };
+  return { app, authRepository, reportRepository, incidentRepository };
 }
 
 async function registerResident(app: ReturnType<typeof createApp>) {
@@ -818,6 +820,7 @@ describe('report API', () => {
     const verifiedAtMs = Date.parse(verifiedAt);
 
     expect(reviewResponse.status).toBe(200);
+    expect(reviewResponse.body.grouping).toMatchObject({ action: 'CREATED', incident: { reportIds: ['complete-verify-flow'], createdById: officer.user.id } });
     expect(verifiedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(verifiedAtMs).toBeGreaterThanOrEqual(reviewStartedAt);
     expect(verifiedAtMs).toBeLessThanOrEqual(reviewCompletedAt);
@@ -858,6 +861,32 @@ describe('report API', () => {
         }
       ]
     });
+  });
+
+  it('automatically attaches a verified report to the strongest matching active incident', async () => {
+    const { app, authRepository, reportRepository, incidentRepository } = createTestContext();
+    const officer = await createAuthenticatedUser(authRepository, 'DISASTER_OFFICER', 'officer-auto-attach@example.com');
+    seedReport(reportRepository, {
+      id: 'auto-existing-report', status: 'VERIFIED', createdAt: '2026-08-23T12:00:00.000Z',
+      location: { type: 'Point', coordinates: [79.8612, 6.9271] }
+    });
+    await incidentRepository.create({
+      hazardType: 'FLOOD', location: { type: 'Point', coordinates: [79.8612, 6.9271] },
+      reportIds: ['auto-existing-report'], status: 'ACTIVE', createdById: officer.user.id
+    });
+    seedReport(reportRepository, {
+      id: 'auto-attach-report', status: 'PENDING', createdAt: '2026-08-23T12:30:00.000Z',
+      location: { type: 'Point', coordinates: [79.8615, 6.9273] }
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/reports/auto-attach-report/verification')
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({ action: 'VERIFY' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.grouping.action).toBe('ATTACHED');
+    expect(response.body.grouping.incident.reportIds).toEqual(['auto-existing-report', 'auto-attach-report']);
   });
 
   it('completes the Officer rejection flow only after a valid reason', async () => {
@@ -1219,9 +1248,10 @@ describe('report API', () => {
         .send({ action: 'VERIFY' });
       const unchangedReport = await reportRepository.findReportById(reportId);
 
-      expect(response.status).toBe(409);
+      expect(response.status).toBe(status === 'VERIFIED' ? 200 : 409);
       expect(unchangedReport?.status).toBe(status);
       expect(unchangedReport?.verificationHistory).toBeUndefined();
+      if (status === 'VERIFIED') expect(response.body.grouping.action).toBe('CREATED');
     }
   );
 

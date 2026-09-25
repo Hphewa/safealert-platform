@@ -8,7 +8,7 @@ import { z } from 'zod';
 export const riskAssessmentIdSchema = z.string().regex(/^[a-f\d]{24}$/i, 'A valid ObjectId is required.');
 const peopleCountSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
 const factorsSchema = z.object({
-  hazardReportId: riskAssessmentIdSchema,
+  incidentId: riskAssessmentIdSchema,
   hazardSeverity: z.enum(HAZARD_ASSESSMENT_SEVERITIES),
   peopleAffected: peopleCountSchema, vulnerablePeople: peopleCountSchema,
   roadAccessibility: z.enum(ROAD_ACCESSIBILITY_OPTIONS),

@@ -14,6 +14,7 @@ import { ApiError } from '../../../shared/apiError.js';
 import type { FieldConfirmationRepository } from '../../field-confirmations/repositories/fieldConfirmation.repository.js';
 
 import type { ReportRepository } from '../repositories/report.repository.js';
+import type { IncidentService } from '../../incidents/services/incident.service.js';
 
 export type CommunityReportRetrievalOptions =
   | {
@@ -32,7 +33,8 @@ const officerPendingStatuses = ['PENDING'] as const;
 export class ReportService {
   constructor(
     private readonly repository: ReportRepository,
-    private readonly confirmations: FieldConfirmationRepository
+    private readonly confirmations: FieldConfirmationRepository,
+    private readonly incidents?: IncidentService
   ) {}
 
   async createResidentReport(
@@ -129,6 +131,12 @@ export class ReportService {
     }
 
     if (report.status !== 'PENDING') {
+      // Verification retries are safe: they complete grouping if the first response
+      // was lost after the report status was persisted.
+      if (report.status === 'VERIFIED' && review.action === 'VERIFY' && this.incidents) {
+        const grouping = await this.incidents.automaticallyGroupVerifiedReport(report.id, officerId);
+        return { report, grouping };
+      }
       throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be reviewed.');
     }
 
@@ -141,6 +149,11 @@ export class ReportService {
 
     if (!updatedReport) {
       throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be reviewed.');
+    }
+
+    if (review.action === 'VERIFY' && this.incidents) {
+      const grouping = await this.incidents.automaticallyGroupVerifiedReport(updatedReport.id, officerId);
+      return { report: updatedReport, grouping };
     }
 
     return { report: updatedReport };

@@ -1,15 +1,15 @@
 # Disaster Risk Assessment
 
-This milestone creates one ACTIVE official assessment for one VERIFIED report. All endpoints
+This milestone creates one ACTIVE official assessment for one ACTIVE Incident with verified reports. All endpoints
 require an authenticated DISASTER_OFFICER. No dependencies or Expo versions were changed.
 
 ## Request flow
 
-Verified Report → Assess Risk → Calculate → Suggested Risk → Final Decision → Save → Result.
+Verified Reports -> Incident Grouping -> Incident -> Assess Risk -> Calculate -> Suggested Risk -> Final Decision -> Save -> Result.
 
-The officer opens Assessments or chooses Assess Risk after verifying a pending report.
-The create route takes `hazardReportId`, retrieves the report and any active assessment,
-and displays the report as read-only context. The form never derives official severity from
+The officer opens Assessments after grouping verified reports into an Incident.
+The create route takes `incidentId`, retrieves the Incident and all linked reports,
+and displays that evidence as read-only context. The form never derives official severity from
 the resident's Reported Severity. Calculation and decision are two steps of the same route;
 editing factors discards the preview. Saving sends factors and a final decision only.
 The result route fetches persisted state by assessment ID, including on direct navigation.
@@ -20,19 +20,19 @@ The result route fetches persisted state by assessment ID, including on direct n
 | --- | --- | --- |
 | GET | `/api/v1/reports/officer/verified` | `{ reports }` |
 | POST | `/api/v1/risk-assessments/calculate` | `{ calculatedScore, systemSuggestedRisk }` |
-| POST | `/api/v1/risk-assessments` | HTTP 201 `{ assessment, report }` |
-| GET | `/api/v1/risk-assessments/:assessmentId` | `{ assessment, report }` |
-| GET | `/api/v1/risk-assessments/report/:reportId` | `{ assessment, report }`; assessment is null if none is active |
+| POST | `/api/v1/risk-assessments` | HTTP 201 `{ assessment, incident, reports }` |
+| GET | `/api/v1/risk-assessments/:assessmentId` | `{ assessment, incident, reports }` |
+| GET | `/api/v1/risk-assessments/incident/:incidentId` | `{ assessment, incident, reports }`; assessment is null if none is active |
 
-Calculation accepts the same factors as creation, including `hazardReportId`, but without
-`finalRiskLevel` or `decisionReason`. The report ID lets the server retrieve authoritative
-hazard type and report status. Calculation does not persist anything.
+Calculation accepts the same factors as creation, including `incidentId`, but without
+`finalRiskLevel` or `decisionReason`. The Incident lets the server retrieve the authoritative
+hazard type and all linked report statuses. Calculation does not persist anything.
 
 Example create body:
 
 ```json
 {
-  "hazardReportId": "123456789012345678901234",
+  "incidentId": "123456789012345678901234",
   "hazardSeverity": "HIGH",
   "peopleAffected": 80,
   "vulnerablePeople": 12,
@@ -44,7 +44,7 @@ Example create body:
 }
 ```
 
-For a flood report this produces score 23, suggested risk HIGH. A different final risk
+For a FLOOD Incident this produces score 23, suggested risk HIGH. A different final risk
 requires a trimmed reason of 10–500 characters. If a reason is provided when accepting
 the suggestion, the same length rules apply. Counts must be safe nonnegative integers;
 vulnerable people cannot exceed people affected. IDs on the new API must be 24-hex ObjectIds.
@@ -83,17 +83,50 @@ road/water/weather; affected-person counts require explicit entry.
 
 ## MongoDB relationship and duplicates
 
-`RiskAssessment.hazardReportId` is an indexed ObjectId ref to `Report`.
+`RiskAssessment.incidentId` is an indexed ObjectId ref to `Incident`.
 `RiskAssessment.assessedById` is an ObjectId ref to `User`. Report type, description,
 coordinates, and resident identity are retrieved through ReportRepository, not copied into
-the assessment. The result shows current report context, not a frozen historical snapshot.
+the assessment. The result shows current incident context, not a frozen historical snapshot.
 
-A partial unique compound index on `{ hazardReportId: 1, status: 1 }`, filtered to ACTIVE,
+Current automated fixtures use in-memory repositories and no development seed creates
+RiskAssessment documents, so those fixtures can be recreated with `incidentId`. No MongoDB
+data is deleted or rewritten automatically. If a development database contains former
+`hazardReportId` documents or the old index, back it up and run an explicit reviewed
+migration before using the new write path.
+
+The migration is available as `npm --workspace @safealert/api run migrate:risk-assessments`.
+It is a dry run by default and prints every relationship it would change. Review the output,
+resolve any missing or ambiguous report-to-Incident mappings, then rerun with `-- --apply`.
+The apply phase preserves assessment IDs, creates `one_active_assessment_per_incident`, and
+only then removes the old `one_active_assessment_per_report` index.
+
+If the preview reports `NO_INCIDENT_FOR_REPORT`, use
+`npm --workspace @safealert/api run migrate:risk-assessments -- --recover-missing-incidents`
+to preview recovery. This creates a separate single-report Incident only when the original
+report is still VERIFIED and has valid location/type data and an original assessor. It does
+not guess nearby groups or merge official decisions. Review this plan, then append `--apply`.
+Every apply writes a BSON-preserving backup under ignored `build/database-backups/` before
+changing records. Assessment IDs, factors, scores, decisions and audit fields are preserved.
+Restart the API after migration: a failed Mongoose index initialization is cached for the
+life of that process. In PowerShell with script execution disabled, use `npm.cmd`.
+
+Two legacy ACTIVE assessments without `incidentId` can prevent the new unique index from
+building, blocking all new saves. The obsolete report index can also reject otherwise valid
+new incident assessments. These storage failures now return `ASSESSMENT_STORAGE_NOT_READY`
+(503), rather than falsely reporting an existing assessment for the selected Incident.
+
+The mobile list isolates assessment lookup failures to the affected Incident and offers
+refresh; it never labels a failed lookup as "Not assessed". The decision step shows the
+recommendation and manual Final Risk Level selector before evidence summaries. Selecting a
+different risk requires a 10–500 character reason. Form controls receive taps while the
+keyboard is open.
+
+A partial unique compound index on `{ incidentId: 1, status: 1 }`, filtered to ACTIVE,
 prevents concurrent duplicate ACTIVE inserts. The service checks first for a friendly error;
 the repository translates MongoDB duplicate-key errors to the same HTTP 409. The repository
 awaits model initialization before creating records. Current Mongoose defaults create the
 index; deployments that disable automatic index creation must provision
-`one_active_assessment_per_report` before accepting writes. CLOSED/VOID allow future history,
+`one_active_assessment_per_incident` before accepting writes. CLOSED/VOID allow future history,
 but there are no reassessment/status-update endpoints in this milestone.
 
 ## Manual mobile test
@@ -103,11 +136,11 @@ but there are no reassessment/status-update endpoints in this milestone.
    `/api/v1` on a host reachable by the phone. Run `npm run mobile` and open Expo Go SDK 57.
 3. Create a flood report as a resident. Log in with a seeded Disaster Officer account
    (see CONTRIBUTING.md for existing development account seeding).
-4. Open Reports, inspect the report, and VERIFY it. Choose Assess Risk in the success
-   alert, or open the Assessments tab and choose the verified report.
-5. Confirm Hazard Type, Reported Severity, description, coordinates, report status and
-   reference are read-only. A remote HTTP(S) evidence image is previewed when available;
-   local-only media references show an unavailable-preview message.
+4. Open Reports, inspect the report, and VERIFY it. The backend automatically creates or
+   joins an Incident, then open the Assessments tab and choose that Incident.
+5. Confirm the Incident and all linked verified reports are shown before entering factors.
+   A remote HTTP(S) evidence image is previewed when available; local-only media references
+   show an unavailable-preview message.
 6. Enter HIGH, 80 affected, 12 vulnerable, PARTIALLY_BLOCKED, MODERATE infrastructure,
    RISING water and HEAVY_RAIN. Tap CALCULATE RISK. Expect score 23 and HIGH suggested risk.
 7. Select CRITICAL. SAVE ASSESSMENT stays disabled until a reason of at least 10 trimmed
@@ -139,7 +172,7 @@ An Android bundle export checks Metro resolution of the new routes and shared co
 from `apps/mobile`. This is not a native device interaction test. Follow the manual steps
 for keyboard, navigation, evidence preview, and network behavior on a physical device.
 
-Future scope remains deliberately excluded: incident grouping, reassessment/history CRUD,
+Future scope remains deliberately excluded: reassessment/history CRUD,
 volunteer confirmation backend, warnings, notifications, offline sync, weather APIs,
 automatic escalation, maps and responder workflows. Before operational use, validate/calibrate
 the heuristic with domain experts; adding scoring version/history belongs with reassessment.

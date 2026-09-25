@@ -70,12 +70,13 @@ export function createApp({
   const authService = new AuthService(authRepository ?? new MongooseAuthRepository(), config);
   const confirmations = fieldConfirmationRepository ?? new MongooseFieldConfirmationRepository();
   const resolvedReportRepository = reportRepository ?? new MongooseReportRepository();
-  const reportService = new ReportService(resolvedReportRepository, confirmations);
-  const incidentService = new IncidentService(incidentRepository ?? new MongooseIncidentRepository(), resolvedReportRepository);
+  const resolvedIncidentRepository = incidentRepository ?? new MongooseIncidentRepository();
+  const incidentService = new IncidentService(resolvedIncidentRepository, resolvedReportRepository);
+  const reportService = new ReportService(resolvedReportRepository, confirmations, incidentService);
   const resolvedAssessmentRepository = riskAssessmentRepository ?? new MongooseRiskAssessmentRepository();
-  const riskAssessmentService = new RiskAssessmentService(resolvedAssessmentRepository, resolvedReportRepository);
+  const riskAssessmentService = new RiskAssessmentService(resolvedAssessmentRepository, resolvedIncidentRepository, resolvedReportRepository);
   const resolvedImages = warningAttachmentRepository ?? new GridFsWarningAttachmentRepository();
-  const warningService = new WarningService(warningRepository ?? new MongooseWarningRepository(), resolvedAssessmentRepository, resolvedImages);
+  const warningService = new WarningService(warningRepository ?? new MongooseWarningRepository(), resolvedAssessmentRepository, resolvedImages, resolvedIncidentRepository);
   const warningAttachmentService = new WarningAttachmentService(resolvedImages, resolvedAssessmentRepository);
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()

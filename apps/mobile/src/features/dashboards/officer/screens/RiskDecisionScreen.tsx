@@ -20,15 +20,15 @@ export function RiskDecisionScreen({ factors, calculation, finalRisk, reason, sa
   const reasonError = decisionReasonError(finalRisk, calculation.systemSuggestedRisk, reason);
   return <>
     <View style={assessmentStyles.card}>
-      <Text style={assessmentStyles.heading}>System Suggested Risk</Text>
+      <Text style={assessmentStyles.heading}>System suggested risk</Text>
       <PriorityBadge priority={calculation.systemSuggestedRisk} />
       <Text style={assessmentStyles.body}>Calculated Score: {calculation.calculatedScore}</Text>
-      <Text style={assessmentStyles.helper}>Rule-based project guidance. Review the factors before making your official decision.</Text>
+      <Text style={assessmentStyles.helper}>Select your final risk level below. An override requires a decision reason.</Text>
     </View>
-    <AssessmentFactorSummary factors={factors} />
     <View style={assessmentStyles.card}>
-      <Text style={assessmentStyles.heading}>Final decision</Text>
+      <Text style={assessmentStyles.heading}>Final officer decision</Text>
       <AssessmentOptions label="Final Risk Level" options={RISK_LEVELS} value={finalRisk} onChange={onFinalRisk} disabled={saving} />
+      <Text style={assessmentStyles.helper}>Officer selected final risk: {finalRisk}</Text>
       <Text style={assessmentStyles.label}>Decision Reason {override ? '(required)' : '(optional)'}</Text>
       <TextInput accessibilityLabel="Decision Reason" multiline textAlignVertical="top" editable={!saving}
         value={reason} onChangeText={onReason} maxLength={RISK_DECISION_REASON_MAX_LENGTH}
@@ -38,5 +38,6 @@ export function RiskDecisionScreen({ factors, calculation, finalRisk, reason, sa
       <AssessmentButton label={saving ? 'Saving…' : 'SAVE ASSESSMENT'} disabled={saving || Boolean(reasonError)} onPress={onSave} />
       <AssessmentButton label="Edit factors" secondary disabled={saving} onPress={onEdit} />
     </View>
+    <AssessmentFactorSummary factors={factors} />
   </>;
 }

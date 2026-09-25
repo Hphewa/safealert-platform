@@ -7,12 +7,14 @@ import { loadConfig } from '../../../config/env.js';
 import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
 import { InMemoryReportRepository } from '../../reports/repositories/inMemoryReport.repository.js';
 import { InMemoryRiskAssessmentRepository } from '../repositories/inMemoryRiskAssessment.repository.js';
+import { InMemoryIncidentRepository } from '../../incidents/repositories/inMemoryIncident.repository.js';
 
 const reportId = '123456789012345678901234';
+const incidentId = '123456789012345678901240';
 const officerId = '123456789012345678901235';
 const missingId = '123456789012345678901299';
 const factors = {
-  hazardReportId: reportId, hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
+  incidentId, hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
   roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
   waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN'
 };
@@ -30,11 +32,13 @@ function token(role: UserRole = 'DISASTER_OFFICER') {
 function context() {
   const reportRepository = new InMemoryReportRepository();
   reportRepository.seedReport(report);
+  const incidentRepository = new InMemoryIncidentRepository();
+  incidentRepository.seedIncident({ id: incidentId, hazardType: 'FLOOD', location: report.location, reportIds: [reportId], status: 'ACTIVE', createdById: officerId, createdAt: report.createdAt, updatedAt: report.updatedAt });
   const riskAssessmentRepository = new InMemoryRiskAssessmentRepository();
-  const app = createApp({ config: loadConfig(), authRepository: new InMemoryAuthRepository(), reportRepository, riskAssessmentRepository });
+  const app = createApp({ config: loadConfig(), authRepository: new InMemoryAuthRepository(), reportRepository, incidentRepository, riskAssessmentRepository });
   const post = (body: object = payload, path = base) => request(app).post(path).auth(token(), { type: 'bearer' }).send(body);
   const get = (path: string) => request(app).get(path).auth(token(), { type: 'bearer' });
-  return { app, post, get, reportRepository, riskAssessmentRepository };
+  return { app, post, get, reportRepository, riskAssessmentRepository, incidentRepository };
 }
 beforeEach(() => {
   process.env.NODE_ENV = 'test';
@@ -45,7 +49,7 @@ beforeEach(() => {
 describe('risk assessment API', () => {
   const protectedRoutes = [
     ['post', `${base}/calculate`], ['post', base], ['get', `${base}/${reportId}`],
-    ['get', `${base}/report/${reportId}`], ['get', '/api/v1/reports/officer/verified']
+    ['get', `${base}/incident/${incidentId}`], ['get', '/api/v1/reports/officer/verified']
   ] as const;
   it.each(protectedRoutes)('requires authentication for %s %s', async (method, path) => {
     const { app } = context();
@@ -62,7 +66,7 @@ describe('risk assessment API', () => {
     const response = await post(factors, `${base}/calculate`);
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ calculatedScore: 23, systemSuggestedRisk: 'HIGH' });
-    expect(await riskAssessmentRepository.findActiveByHazardReportId(reportId)).toBeNull();
+    expect(await riskAssessmentRepository.findActiveByIncidentId(incidentId)).toBeNull();
   });
   it.each(['PENDING', 'REJECTED', 'RESOLVED'] as const)('rejects create and calculate for %s', async (status) => {
     const { post, reportRepository } = context();
@@ -70,10 +74,18 @@ describe('risk assessment API', () => {
     for (const [path, body] of [[base, payload], [`${base}/calculate`, factors]] as const) {
       const response = await post(body, path);
       expect(response.status).toBe(409);
-      expect(response.body.error.code).toBe('INVALID_REPORT_STATE');
+      expect(response.body.error.code).toBe('INVALID_INCIDENT_STATE');
     }
   });
-  it('creates and retrieves the correct report relationship and authenticated officer', async () => {
+  it('rejects assessment when the incident is not active or has no verified evidence', async () => {
+    const { post, incidentRepository, reportRepository } = context();
+    incidentRepository.seedIncident({ id: incidentId, hazardType: 'FLOOD', location: report.location, reportIds: [reportId], status: 'CLOSED', createdById: officerId, createdAt: report.createdAt, updatedAt: report.updatedAt });
+    expect((await post(payload)).body.error.code).toBe('INCIDENT_NOT_ACTIVE');
+    incidentRepository.seedIncident({ id: incidentId, hazardType: 'FLOOD', location: report.location, reportIds: [reportId], status: 'ACTIVE', createdById: officerId, createdAt: report.createdAt, updatedAt: report.updatedAt });
+    reportRepository.seedReport({ ...report, status: 'PENDING' });
+    expect((await post(payload)).body.error.code).toBe('INVALID_INCIDENT_STATE');
+  });
+  it('creates and retrieves the correct incident relationship and authenticated officer', async () => {
     const { post, get, riskAssessmentRepository } = context();
     const response = await post();
     expect(response.status).toBe(201);
@@ -81,12 +93,12 @@ describe('risk assessment API', () => {
       ...payload, assessedById: officerId, calculatedScore: 23, systemSuggestedRisk: 'HIGH',
       status: 'ACTIVE', assessedAt: expect.any(String), createdAt: expect.any(String), updatedAt: expect.any(String)
     });
-    expect(response.body.report).toEqual(report);
+    expect(response.body.incident).toMatchObject({ id: incidentId, reportIds: [reportId], hazardType: 'FLOOD' });
     expect(await riskAssessmentRepository.findById(response.body.assessment.id)).toEqual(response.body.assessment);
     const fetched = await get(`${base}/${response.body.assessment.id}`);
     expect(fetched.status).toBe(200);
     expect(fetched.body).toEqual(response.body);
-    expect((await get(`${base}/report/${reportId}`)).body).toEqual(response.body);
+    expect((await get(`${base}/incident/${incidentId}`)).body).toEqual(response.body);
     for (const field of ['residentId', 'location', 'description', 'hazardType']) {
       expect(response.body.assessment).not.toHaveProperty(field);
     }
@@ -105,7 +117,7 @@ describe('risk assessment API', () => {
     { peopleAffected: -1 }, { peopleAffected: 1.5 }, { peopleAffected: '80' },
     { peopleAffected: Number.MAX_SAFE_INTEGER + 1 }, { vulnerablePeople: -1 },
     { vulnerablePeople: 81 }, { vulnerablePeople: 1.2 }, { vulnerablePeople: '12' },
-    { hazardReportId: 'not-an-id' }, { decisionReason: 'short' },
+    { incidentId: 'not-an-id' }, { decisionReason: 'short' },
     { decisionReason: '          ' }, { decisionReason: 'x'.repeat(501) }
   ])('rejects invalid input %j', async (invalid) => {
     expect((await context().post({ ...payload, ...invalid })).status).toBe(400);
@@ -129,13 +141,13 @@ describe('risk assessment API', () => {
   });
   it('returns consistent missing-resource and malformed-ID errors', async () => {
     const { post, get } = context();
-    expect((await post({ ...payload, hazardReportId: missingId })).status).toBe(404);
-    expect((await post({ ...factors, hazardReportId: missingId }, `${base}/calculate`)).status).toBe(404);
+    expect((await post({ ...payload, incidentId: missingId })).status).toBe(404);
+    expect((await post({ ...factors, incidentId: missingId }, `${base}/calculate`)).status).toBe(404);
     expect((await get(`${base}/${missingId}`)).status).toBe(404);
-    expect((await get(`${base}/report/${missingId}`)).status).toBe(404);
+    expect((await get(`${base}/incident/${missingId}`)).status).toBe(404);
     expect((await get(`${base}/invalid`)).status).toBe(400);
-    expect((await get(`${base}/report/invalid`)).status).toBe(400);
-    expect((await get(`${base}/report/${reportId}`)).body).toEqual({ report, assessment: null });
+    expect((await get(`${base}/incident/invalid`)).status).toBe(400);
+    expect((await get(`${base}/incident/${incidentId}`)).body).toMatchObject({ incident: expect.objectContaining({ id: incidentId }), assessment: null, reports: [report] });
   });
   it('lists verified reports only', async () => {
     const { get, reportRepository } = context();

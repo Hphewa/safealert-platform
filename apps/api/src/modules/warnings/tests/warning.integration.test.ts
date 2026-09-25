@@ -6,11 +6,11 @@ import { officerId, warningContext, warningToken } from './warning.fixtures.js';
 const path = '/api/v1/warnings';
 describe('LDFEW-112 create warning API', () => {
   it.each(['HIGH', 'CRITICAL'] as const)('creates a %s draft using saved assessment and authenticated officer', async (riskLevel) => {
-    const { app, assessment, assessments, warnings, payload } = await warningContext(riskLevel);
+    const { app, assessment, assessments, warnings, reportId, payload } = await warningContext(riskLevel);
     const response = await request(app).post(path).auth(warningToken(), { type: 'bearer' }).send(payload);
     expect(response.status).toBe(201);
     expect(response.body.warning).toMatchObject({ ...payload, riskLevel, status: 'DRAFT',
-      hazardReportId: assessment.hazardReportId, createdById: officerId,
+      hazardReportId: reportId, createdById: officerId,
       id: expect.any(String), createdAt: expect.any(String), updatedAt: expect.any(String) });
     expect(warnings.warnings.get(response.body.warning.id)).toEqual(response.body.warning);
     expect(await assessments.findById(assessment.id)).toEqual(assessment);

@@ -1,10 +1,10 @@
 # Incident backend foundation
 
-This module supports explicit Disaster Officer creation of an incident from 1-100 unique
-VERIFIED report references. It does not modify reports or their original evidence. There
-is no mobile integration, automatic grouping/merging, status transition endpoint, or change
-to Risk Assessment in this milestone. Candidate detection is read-only; membership changes
-only through the explicit officer attach operation below.
+This module supports automatic grouping after a Disaster Officer verifies a report. The
+backend creates a new Incident when no related active Incident is found, or attaches the
+report to the strongest matching Incident. It does not modify reports or their original
+evidence. The explicit create and attach endpoints remain available for administrative
+correction; candidate detection remains advisory when called directly.
 
 ## API
 
@@ -13,10 +13,15 @@ All endpoints require the existing Bearer authentication and DISASTER_OFFICER ro
 | Method | Path | Behavior |
 | --- | --- | --- |
 | POST | `/api/v1/incidents` | HTTP 201 `{ incident }`; creates a new incident from selected VERIFIED reports |
+| GET | `/api/v1/incidents/active` | HTTP 200 `{ incidents: [{ incident, reports }] }` for officer assessment selection |
 | GET | `/api/v1/incidents/candidates?reportId=:reportId` | HTTP 200 `{ candidates }` for possible related active incidents |
 | POST | `/api/v1/incidents/:incidentId/reports` | HTTP 200 `{ incident }`; explicitly attaches one VERIFIED report |
 | GET | `/api/v1/incidents/:incidentId/reports` | HTTP 200 `{ incident, reports }` with source evidence |
 | GET | `/api/v1/incidents/:incidentId` | HTTP 200 `{ incident }` |
+
+Report verification (`PATCH /api/v1/reports/:reportId/verification` with `action: VERIFY`)
+automatically performs grouping and returns `grouping.action` (`CREATED`, `ATTACHED`, or
+`ALREADY_ASSIGNED`) together with the resulting Incident.
 
 Creation body:
 
@@ -55,10 +60,12 @@ and backend-computed distance in meters. Results are ordered by distance, then t
 proximity. An incident already containing the selected report is excluded. The endpoint
 never attaches, merges, or changes reports or incidents.
 
-Candidate results are advisory only. An authenticated Disaster Officer may explicitly attach
-a VERIFIED report to any ACTIVE same-hazard incident, even when its location or reporting time
-falls outside the candidate heuristics. The attach operation still enforces active membership
-uniqueness, so one report cannot be assigned to two ACTIVE incidents.
+Candidate results are advisory when requested directly. Automatic verification chooses the
+first candidate after backend sorting by distance and time proximity. An authenticated
+Disaster Officer may still explicitly attach a VERIFIED report to any ACTIVE same-hazard
+incident, even when its location or reporting time falls outside the candidate heuristics.
+The attach operation still enforces active membership uniqueness, so one report cannot be
+assigned to two ACTIVE incidents.
 
 ## Persistence and concurrency
 

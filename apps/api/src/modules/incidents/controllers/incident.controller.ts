@@ -37,5 +37,9 @@ export function createIncidentController(service: IncidentService) {
     response.json(await service.getDetails(incidentId));
   });
 
-  return { create, getById, findCandidates, addReport, getDetails };
+  const listActive: RequestHandler = asyncHandler(async (_request, response) => {
+    response.json(await service.listActive());
+  });
+
+  return { create, getById, findCandidates, addReport, getDetails, listActive };
 }

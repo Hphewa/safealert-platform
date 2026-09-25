@@ -8,6 +8,9 @@ import { haversineDistanceMeters } from '../../../shared/geo.js';
 export class InMemoryIncidentRepository implements IncidentRepository {
   private readonly incidents = new Map<string, SafeIncident>();
 
+  /** Test-only fixture hook; production code should use create through IncidentService. */
+  seedIncident(incident: SafeIncident) { this.incidents.set(incident.id, structuredClone(incident)); }
+
   async create(input: CreateIncidentInput): Promise<SafeIncident> {
     // Keep the membership check and insert synchronous to emulate one atomic database insert.
     if (input.status === 'ACTIVE' && this.findActiveOverlap(input.reportIds)) {
@@ -23,6 +26,13 @@ export class InMemoryIncidentRepository implements IncidentRepository {
 
   async findById(incidentId: string) {
     return structuredClone(this.incidents.get(incidentId) ?? null);
+  }
+
+  async findActive() {
+    return [...this.incidents.values()]
+      .filter((incident) => incident.status === 'ACTIVE')
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((incident) => structuredClone(incident));
   }
 
   async findActiveByReportIds(reportIds: string[]) {

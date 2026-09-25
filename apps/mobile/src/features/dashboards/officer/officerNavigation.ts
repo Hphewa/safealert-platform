@@ -18,6 +18,10 @@ export const officerQuickActions: QuickAction[] = [
     href: '/officer/assessments', icon: 'speedometer-outline'
   },
   {
+    title: 'Group Incidents', subtitle: 'Review verified reports for related incidents',
+    href: '/officer/incidents', icon: 'git-branch-outline'
+  },
+  {
     title: 'Monitoring', subtitle: 'Open monitoring',
     href: '/officer/monitoring', icon: 'eye-outline'
   }

@@ -10,6 +10,7 @@ export function createIncidentRouter(service: IncidentService, config: ApiConfig
   const controller = createIncidentController(service);
   router.use(authenticate(config), authorizeRoles('DISASTER_OFFICER'));
   router.post('/', controller.create);
+  router.get('/active', controller.listActive);
   router.get('/candidates', controller.findCandidates);
   router.post('/:incidentId/reports', controller.addReport);
   router.get('/:incidentId/reports', controller.getDetails);

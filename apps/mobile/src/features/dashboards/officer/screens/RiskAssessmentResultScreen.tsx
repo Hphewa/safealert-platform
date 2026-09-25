@@ -8,7 +8,7 @@ import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import {
   AssessmentButton, AssessmentDetail, AssessmentFactorSummary, AssessmentLoadState, AssessmentPage,
-  ReportAssessmentContext, assessmentStyles
+  IncidentAssessmentContext, assessmentStyles
 } from '../components/RiskAssessmentComponents';
 
 export function RiskAssessmentResultScreen() {
@@ -27,11 +27,8 @@ export function RiskAssessmentResultScreen() {
     {!data ? <AssessmentLoadState loading={loading} error={error} retry={() => void reload()} /> : <>
       <View style={assessmentStyles.card}>
         <Text style={assessmentStyles.heading}>Saved assessment · {data.assessment.status}</Text>
-        <Text style={assessmentStyles.label}>System Suggested Risk</Text>
-        <PriorityBadge priority={data.assessment.systemSuggestedRisk} />
         <Text style={assessmentStyles.label}>Final Risk Level</Text>
         <PriorityBadge priority={data.assessment.finalRiskLevel} />
-        <AssessmentDetail label="Calculated Score" value={data.assessment.calculatedScore} />
         <AssessmentDetail label="Decision Reason" value={data.assessment.decisionReason ?? 'Suggested risk accepted without an additional reason.'} />
         <AssessmentDetail label="Assessment Date / Time" value={new Date(data.assessment.assessedAt).toLocaleString()} />
         <AssessmentDetail label="Assessed By" value={user?.id === data.assessment.assessedById ? user.name : data.assessment.assessedById} />
@@ -41,7 +38,13 @@ export function RiskAssessmentResultScreen() {
         pathname: '/officer/warnings/create', params: { assessmentId: data.assessment.id }
       })} /> : null}
       <AssessmentFactorSummary factors={data.assessment} />
-      <ReportAssessmentContext report={data.report} />
+      <IncidentAssessmentContext incident={data.incident} reports={data.reports} />
+      <View style={assessmentStyles.card}>
+        <Text style={assessmentStyles.heading}>System suggested risk</Text>
+        <PriorityBadge priority={data.assessment.systemSuggestedRisk} />
+        <AssessmentDetail label="System Calculated Score" value={data.assessment.calculatedScore} />
+        <Text style={assessmentStyles.helper}>This backend-calculated recommendation is separate from the final officer decision above.</Text>
+      </View>
     </>}
   </AssessmentPage>;
 }

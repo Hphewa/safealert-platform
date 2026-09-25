@@ -5,6 +5,7 @@ import { apiBaseUrl } from '../../../../services/api/client';
 import {
   getPendingOfficerReportById,
   listPendingOfficerReports,
+  listVerifiedOfficerReports,
   reviewOfficerReport
 } from './officerReportsApi';
 
@@ -37,6 +38,21 @@ describe('Officer reports API', () => {
     expect(response).toEqual({ reports: [report] });
     expect(fetchMock).toHaveBeenCalledWith(
       `${apiBaseUrl}/reports/officer/pending`,
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({ Authorization: 'Bearer officer-access-token' })
+      })
+    );
+  });
+
+  it('loads verified reports for incident grouping', async () => {
+    const verifiedReport = { ...report, status: 'VERIFIED' as const };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ reports: [verifiedReport] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(listVerifiedOfficerReports('officer-access-token')).resolves.toEqual({ reports: [verifiedReport] });
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${apiBaseUrl}/reports/officer/verified`,
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({ Authorization: 'Bearer officer-access-token' })

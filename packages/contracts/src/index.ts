@@ -37,7 +37,7 @@ export type RiskAssessmentFactors = {
   waterLevelTrend: WaterLevelTrend;
   weatherCondition: WeatherCondition;
 };
-export type CalculateRiskAssessmentRequest = RiskAssessmentFactors & { hazardReportId: string };
+export type CalculateRiskAssessmentRequest = RiskAssessmentFactors & { incidentId: string };
 export type CalculateRiskAssessmentResponse = { calculatedScore: number; systemSuggestedRisk: RiskLevel };
 export type CreateRiskAssessmentRequest = CalculateRiskAssessmentRequest & {
   finalRiskLevel: RiskLevel;
@@ -52,8 +52,8 @@ export type SafeRiskAssessment = CreateRiskAssessmentRequest & CalculateRiskAsse
   updatedAt: string;
 };
 // Report context is joined at read time, never copied into the stored assessment.
-export type RiskAssessmentResponse = { assessment: SafeRiskAssessment; report: SafeReport };
-export type RiskAssessmentForReportResponse = { assessment: SafeRiskAssessment | null; report: SafeReport };
+export type RiskAssessmentResponse = { assessment: SafeRiskAssessment; incident: SafeIncident; reports: SafeReport[] };
+export type RiskAssessmentForIncidentResponse = { assessment: SafeRiskAssessment | null; incident: SafeIncident; reports: SafeReport[] };
 export type GetVerifiedOfficerReportsResponse = { reports: SafeReport[] };
 
 export const WARNING_RISK_LEVELS = ['HIGH', 'CRITICAL'] as const;
@@ -143,6 +143,7 @@ export type SafeIncident = {
 };
 export type IncidentResponse = { incident: SafeIncident };
 export type IncidentWithReportsResponse = { incident: SafeIncident; reports: SafeReport[] };
+export type GetActiveIncidentsResponse = { incidents: IncidentWithReportsResponse[] };
 export type IncidentCandidate = {
   incidentId: string;
   hazardType: HazardType;
@@ -153,6 +154,13 @@ export type IncidentCandidate = {
   distanceMeters: number;
 };
 export type IncidentCandidatesResponse = { candidates: IncidentCandidate[] };
+export const INCIDENT_GROUPING_ACTIONS = ['CREATED', 'ATTACHED', 'ALREADY_ASSIGNED'] as const;
+export type IncidentGroupingAction = (typeof INCIDENT_GROUPING_ACTIONS)[number];
+export type AutomaticIncidentGrouping = {
+  action: IncidentGroupingAction;
+  incident: SafeIncident;
+  candidate?: IncidentCandidate;
+};
 
 export type CreateReportRequest = {
   hazardType: HazardType;
@@ -218,6 +226,7 @@ export type UploadReportEvidenceResponse = {
 
 export type VerifyReportResponse = {
   report: SafeReport;
+  grouping?: AutomaticIncidentGrouping;
 };
 
 export type ReviewReportResponse = VerifyReportResponse;

@@ -8,7 +8,8 @@ import { loadConfig } from '../../../../../../api/src/config/env.js';
 import { InMemoryAuthRepository } from '../../../../../../api/src/modules/auth/repositories/inMemoryAuth.repository.js';
 import { InMemoryReportRepository } from '../../../../../../api/src/modules/reports/repositories/inMemoryReport.repository.js';
 import { InMemoryRiskAssessmentRepository } from '../../../../../../api/src/modules/risk-assessments/repositories/inMemoryRiskAssessment.repository.js';
-import { calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForReport, listVerifiedOfficerReports } from './riskAssessmentApi';
+import { InMemoryIncidentRepository } from '../../../../../../api/src/modules/incidents/repositories/inMemoryIncident.repository.js';
+import { calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident, listVerifiedOfficerReports } from './riskAssessmentApi';
 import { initialRiskAssessmentForm, parseRiskAssessmentForm } from '../riskAssessmentForm';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -23,7 +24,9 @@ it('runs verified report → mobile calculation → final decision → save → 
     severity: 'MODERATE', status: 'PENDING', location: { type: 'Point', coordinates: [79.86, 6.92] },
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
   });
-  const app = createApp({ config: loadConfig(), authRepository: new InMemoryAuthRepository(), reportRepository: reports, riskAssessmentRepository: new InMemoryRiskAssessmentRepository() });
+  const incidents = new InMemoryIncidentRepository();
+  incidents.seedIncident({ id: '123456789012345678901240', hazardType: 'FLOOD', location: { type: 'Point', coordinates: [79.86, 6.92] }, reportIds: [reportId], status: 'ACTIVE', createdById: 'officer', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  const app = createApp({ config: loadConfig(), authRepository: new InMemoryAuthRepository(), reportRepository: reports, incidentRepository: incidents, riskAssessmentRepository: new InMemoryRiskAssessmentRepository() });
   const token = jwt.sign({ role: 'DISASTER_OFFICER' }, 'test-access-secret', { subject: 'officer', expiresIn: '15m' });
   // Transport adapter drives the real Express routes while exercising the real mobile API client.
   vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
@@ -37,18 +40,19 @@ it('runs verified report → mobile calculation → final decision → save → 
   expect((await listVerifiedOfficerReports(token)).reports).toHaveLength(0);
   expect((await request(app).patch(`/api/v1/reports/${reportId}/verification`).auth(token, { type: 'bearer' }).send({ action: 'VERIFY' })).status).toBe(200);
   expect((await listVerifiedOfficerReports(token)).reports[0]?.id).toBe(reportId);
-  expect((await getRiskAssessmentForReport(reportId, token)).assessment).toBeNull();
+  const incidentId = '123456789012345678901240';
+  expect((await getRiskAssessmentForIncident(incidentId, token)).assessment).toBeNull();
   const factors = parseRiskAssessmentForm({ ...initialRiskAssessmentForm,
     hazardSeverity: 'HIGH', peopleAffected: '80', vulnerablePeople: '12',
     roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE', waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN'
   });
-  const calculated = await calculateRiskAssessment({ hazardReportId: reportId, ...factors }, token);
+  const calculated = await calculateRiskAssessment({ incidentId, ...factors }, token);
   expect(calculated).toEqual({ calculatedScore: 23, systemSuggestedRisk: 'HIGH' });
-  const saved = await createRiskAssessment({ hazardReportId: reportId, ...factors,
+  const saved = await createRiskAssessment({ incidentId, ...factors,
     finalRiskLevel: 'CRITICAL', decisionReason: 'Hospital access is threatened.'
   }, token);
   const result = await getRiskAssessment(saved.assessment.id, token);
   expect(result).toEqual(saved);
-  expect(result.assessment).toMatchObject({ assessedById: 'officer', finalRiskLevel: 'CRITICAL', systemSuggestedRisk: 'HIGH', hazardReportId: reportId });
-  expect((await getRiskAssessmentForReport(reportId, token)).assessment?.id).toBe(saved.assessment.id);
+  expect(result.assessment).toMatchObject({ assessedById: 'officer', finalRiskLevel: 'CRITICAL', systemSuggestedRisk: 'HIGH', incidentId });
+  expect((await getRiskAssessmentForIncident(incidentId, token)).assessment?.id).toBe(saved.assessment.id);
 });
