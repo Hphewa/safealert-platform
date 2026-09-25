@@ -18,7 +18,7 @@ import { ApiClientError } from '@/services/api/client';
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { dashboardTheme } from '../../shared/theme';
-import { officerBottomNavItems } from '../mockData';
+import { officerBottomNavItems } from '../officerNavigation';
 import { listPendingOfficerReports } from '../api/officerReportsApi';
 import { OfficerReportGroupCard } from '../components/OfficerReportGroupCard';
 import {

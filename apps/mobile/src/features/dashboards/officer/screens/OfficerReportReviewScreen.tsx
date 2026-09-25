@@ -13,7 +13,7 @@ import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { badgeToneForReportStatus } from '../../shared/utils';
-import { officerBottomNavItems } from '../mockData';
+import { officerBottomNavItems } from '../officerNavigation';
 import { getPendingOfficerReportById, reviewOfficerReport } from '../api/officerReportsApi';
 import { recordReviewedOfficerReportId } from '../pendingReportsState';
 import {

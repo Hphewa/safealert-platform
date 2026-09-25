@@ -9,7 +9,7 @@ import {
 } from '../components/RiskAssessmentComponents';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
-import { officerBottomNavItems } from '../mockData';
+import { officerBottomNavItems } from '../officerNavigation';
 
 export function OfficerRiskAssessmentsScreen() {
   const { accessToken } = useAuth();

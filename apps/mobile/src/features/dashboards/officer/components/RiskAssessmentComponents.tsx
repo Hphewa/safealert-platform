@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import type { RiskAssessmentFactors, SafeReport } from '@safealert/contracts';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
-import { officerBottomNavItems } from '../mockData';
+import { officerBottomNavItems } from '../officerNavigation';
 
 export const assessmentLabel = (value: string) => value.replace(/_/g, ' ');
 
