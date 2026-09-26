@@ -169,7 +169,7 @@ export function OfficerGroupedReportsScreen() {
                   <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
                 </Pressable>
 
-                <Text style={styles.headerTitle}>Grouped Reports</Text>
+                <Text style={styles.headerTitle}>Pending Reports</Text>
 
                 <Pressable
                   accessibilityLabel="Refresh reports"
@@ -192,14 +192,14 @@ export function OfficerGroupedReportsScreen() {
               </View>
 
               <Text style={styles.description}>
-                Search pending grouped reports by location or resident description before opening a review.
+                Search pending reports by location or resident description before opening a review.
               </Text>
 
               <View style={styles.searchCard}>
                 <View style={styles.searchRow}>
                   <DashboardGlyph color={dashboardTheme.colors.muted} name="search-outline" size={18} />
                   <TextInput
-                    accessibilityLabel="Search grouped reports"
+                    accessibilityLabel="Search pending reports"
                     autoCapitalize="none"
                     autoCorrect={false}
                     onChangeText={setSearchText}
@@ -498,3 +498,4 @@ const styles = StyleSheet.create({
     color: '#ffffff'
   }
 });
+

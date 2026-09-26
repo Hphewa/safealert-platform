@@ -24,7 +24,7 @@ import {
   type OfficerReportReviewRecord
 } from '../reports';
 
-type OfficerReviewAction = 'idle' | 'verifying' | 'rejecting' | 'more-info';
+type OfficerReviewAction = 'idle' | 'verifying' | 'rejecting';
 type OfficerReportLoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
 const checklistItems: ReadonlyArray<{
@@ -600,25 +600,6 @@ export function OfficerReportReviewScreen() {
               </View>
             </View>
           ) : null}
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: isSubmitting }}
-            disabled={isSubmitting}
-            onPress={() => {
-              setActionError(null);
-              setSelectedAction('more-info');
-            }}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              selectedAction === 'more-info' && styles.secondaryButtonSelected,
-              isSubmitting && styles.actionButtonDisabled,
-              pressed && !isSubmitting && styles.pressed
-            ]}
-          >
-            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="help-circle-outline" size={16} />
-            <Text style={styles.secondaryButtonText}>Request More Info</Text>
-          </Pressable>
         </View>
 
         <View style={styles.actionStateBanner}>
@@ -651,8 +632,7 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
 const actionLabelMap: Record<OfficerReviewAction, string> = {
   idle: 'Awaiting officer decision',
   verifying: 'Verification confirmation required',
-  rejecting: 'Rejection reason required',
-  'more-info': 'Request More Info selected'
+  rejecting: 'Rejection reason required'
 };
 
 const styles = StyleSheet.create({
@@ -1196,3 +1176,5 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.muted
   }
 });
+
+
