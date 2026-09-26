@@ -1,25 +1,25 @@
 export const dashboardTheme = {
   colors: {
-    background: '#eef4f8',
+    background: '#f8fafc',
     surface: '#ffffff',
     surfaceMuted: '#f7fafc',
-    border: '#d7e3ec',
-    text: '#102033',
-    muted: '#5f7185',
-    primary: '#0f766e',
-    primarySoft: '#dff7f3',
-    primaryStrong: '#115e59',
-    info: '#0f4c81',
-    infoSoft: '#dcecff',
-    critical: '#b42318',
-    criticalSoft: '#fde7e5',
-    high: '#c2410c',
+    border: '#e2e8f0',
+    text: '#111827',
+    muted: '#64748b',
+    primary: '#2563eb',
+    primarySoft: '#dbeafe',
+    primaryStrong: '#1d4ed8',
+    info: '#2563eb',
+    infoSoft: '#dbeafe',
+    critical: '#dc2626',
+    criticalSoft: '#fee2e2',
+    high: '#f97316',
     highSoft: '#ffedd5',
-    moderate: '#b45309',
-    moderateSoft: '#fef3c7',
-    low: '#166534',
+    moderate: '#f97316',
+    moderateSoft: '#ffedd5',
+    low: '#16a34a',
     lowSoft: '#dcfce7',
-    success: '#166534',
+    success: '#16a34a',
     successSoft: '#dcfce7'
   },
   radius: {
@@ -30,7 +30,7 @@ export const dashboardTheme = {
 } as const;
 
 export const cardShadow = {
-  shadowColor: '#102033',
+  shadowColor: '#111827',
   shadowOpacity: 0.06,
   shadowRadius: 12,
   shadowOffset: {

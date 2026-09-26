@@ -11,6 +11,21 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
   const controller = createReportController(reportService);
 
   router.post('/', authenticate(config), authorizeRoles('RESIDENT'), controller.create);
+  router.get('/mine', authenticate(config), authorizeRoles('RESIDENT'), controller.listMine);
+  router.patch('/mine/:reportId', authenticate(config), authorizeRoles('RESIDENT'), controller.updateMineById);
+  router.patch(
+    '/mine/:reportId/cancel',
+    authenticate(config),
+    authorizeRoles('RESIDENT'),
+    controller.cancelMineById
+  );
+  router.get(
+    '/mine/:reportId/field-confirmations',
+    authenticate(config),
+    authorizeRoles('RESIDENT'),
+    controller.listMineFieldConfirmations
+  );
+  router.get('/mine/:reportId', authenticate(config), authorizeRoles('RESIDENT'), controller.getMineById);
   router.get(
     '/community',
     authenticate(config),
@@ -28,6 +43,12 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
     authenticate(config),
     authorizeRoles('DISASTER_OFFICER'),
     controller.listPendingOfficerReports
+  );
+  router.get(
+    '/officer/verified',
+    authenticate(config),
+    authorizeRoles('DISASTER_OFFICER'),
+    controller.listVerifiedOfficerReports
   );
   router.get(
     '/officer/:reportId',

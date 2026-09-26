@@ -76,7 +76,7 @@ const styles = StyleSheet.create({
     backgroundColor: dashboardTheme.colors.surface
   },
   cardPrimary: {
-    backgroundColor: '#f3fffe'
+    backgroundColor: dashboardTheme.colors.primarySoft
   },
   cardPressed: {
     opacity: 0.82

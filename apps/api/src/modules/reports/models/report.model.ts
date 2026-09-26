@@ -180,6 +180,15 @@ const reportSchema = new mongoose.Schema(
       type: reportRejectionSchema,
       required: false
     },
+    cancelledById: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: false,
+      ref: 'User'
+    },
+    cancelledAt: {
+      type: Date,
+      required: false
+    },
     verificationHistory: {
       type: [reportVerificationHistorySchema],
       required: true,
@@ -207,6 +216,8 @@ export type ReportDocument = InferSchemaType<typeof reportSchema> & {
     rejectedAt: Date;
     rejectionReason: string;
   };
+  cancelledById?: { toString(): string };
+  cancelledAt?: Date;
   verificationHistory?: Array<{
     action: 'VERIFY' | 'REJECT';
     verifiedById?: { toString(): string };
@@ -246,6 +257,11 @@ export function toSafeReport(report: ReportDocument): SafeReport {
     safeReport.rejectedById = report.rejection.rejectedById.toString();
     safeReport.rejectedAt = report.rejection.rejectedAt.toISOString();
     safeReport.rejectionReason = report.rejection.rejectionReason;
+  }
+
+  if (report.cancelledById && report.cancelledAt) {
+    safeReport.cancelledById = report.cancelledById.toString();
+    safeReport.cancelledAt = report.cancelledAt.toISOString();
   }
 
   if (report.verificationHistory?.length) {

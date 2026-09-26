@@ -1,4 +1,4 @@
-import jwt from 'jsonwebtoken';
+﻿import jwt from 'jsonwebtoken';
 import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -8,6 +8,8 @@ import { createApp } from '../../../app.js';
 import { loadConfig, type ApiConfig } from '../../../config/env.js';
 import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
 import { InMemoryReportRepository } from '../repositories/inMemoryReport.repository.js';
+import { InMemoryFieldConfirmationRepository } from '../../field-confirmations/repositories/inMemoryFieldConfirmation.repository.js';
+import { InMemoryIncidentRepository } from '../../incidents/repositories/inMemoryIncident.repository.js';
 
 function createTestContext(overrides: Partial<ApiConfig> = {}) {
   process.env.NODE_ENV = 'test';
@@ -22,9 +24,10 @@ function createTestContext(overrides: Partial<ApiConfig> = {}) {
   };
   const authRepository = new InMemoryAuthRepository();
   const reportRepository = new InMemoryReportRepository();
-  const app = createApp({ config, authRepository, reportRepository });
+  const incidentRepository = new InMemoryIncidentRepository();
+  const app = createApp({ config, authRepository, reportRepository, incidentRepository, fieldConfirmationRepository: new InMemoryFieldConfirmationRepository() });
 
-  return { app, authRepository, reportRepository };
+  return { app, authRepository, reportRepository, incidentRepository };
 }
 
 async function registerResident(app: ReturnType<typeof createApp>) {
@@ -105,7 +108,7 @@ const validReportPayload = {
     type: 'Point',
     coordinates: [79.8612, 6.9271]
   },
-  mediaReference: 'media/reports/flood-photo.jpg'
+  mediaReference: '/api/v1/media/report-evidence/flood-photo.jpg'
 };
 
 const forbiddenReportReviewCases = [
@@ -152,6 +155,8 @@ describe('report API', () => {
       })
     );
     expect(response.body.report.residentId).not.toBe(validReportPayload.residentId);
+    expect(Date.parse(response.body.report.createdAt)).not.toBeNaN();
+    expect(response.body.report.updatedAt).toBe(response.body.report.createdAt);
   });
 
   it.each([
@@ -192,8 +197,57 @@ describe('report API', () => {
       expect(response.body.report.rejectedById).toBeUndefined();
       expect(response.body.report.rejectedAt).toBeUndefined();
       expect(response.body.report.rejectionReason).toBeUndefined();
+      expect(response.body.report.verificationHistory).toBeUndefined();
     }
   );
+
+  it('ignores all client-supplied owner, status, review, and timestamp fields during resident creation', async () => {
+    const { app } = createTestContext();
+    const resident = await registerResident(app);
+
+    const response = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validReportPayload,
+        residentId: 'client-resident-id',
+        status: 'RESOLVED',
+        createdAt: '2000-01-01T00:00:00.000Z',
+        updatedAt: '2000-01-01T00:00:00.000Z',
+        verifiedById: 'client-officer-id',
+        verifiedAt: '2000-01-01T00:00:00.000Z',
+        rejectedById: 'client-officer-id',
+        rejectedAt: '2000-01-01T00:00:00.000Z',
+        rejectionReason: 'Client supplied rejection reason.',
+        verificationHistory: [
+          {
+            action: 'REJECT',
+            rejectedById: 'client-officer-id',
+            rejectedAt: '2000-01-01T00:00:00.000Z',
+            rejectionReason: 'Client supplied rejection reason.'
+          }
+        ]
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.report).toEqual(
+      expect.objectContaining({
+        residentId: resident.body.user.id,
+        status: 'PENDING',
+        createdAt: expect.any(String),
+        updatedAt: expect.any(String)
+      })
+    );
+    expect(response.body.report.residentId).not.toBe('client-resident-id');
+    expect(response.body.report.createdAt).not.toBe('2000-01-01T00:00:00.000Z');
+    expect(response.body.report.updatedAt).toBe(response.body.report.createdAt);
+    expect(response.body.report.verifiedById).toBeUndefined();
+    expect(response.body.report.verifiedAt).toBeUndefined();
+    expect(response.body.report.rejectedById).toBeUndefined();
+    expect(response.body.report.rejectedAt).toBeUndefined();
+    expect(response.body.report.rejectionReason).toBeUndefined();
+    expect(response.body.report.verificationHistory).toBeUndefined();
+  });
 
   it('accepts each supported resident hazard type', async () => {
     const { app } = createTestContext();
@@ -235,6 +289,25 @@ describe('report API', () => {
     expect(response.status).toBe(201);
     expect(response.body.report.mediaReference).toBeUndefined();
     expect(response.body.report.status).toBe('PENDING');
+  });
+
+  it('rejects local file URIs as report media references', async () => {
+    const { app } = createTestContext();
+    const resident = await registerResident(app);
+
+    const response = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validReportPayload,
+        mediaReference: 'file:///resident-device/photo.jpg'
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error).toEqual({
+      code: 'VALIDATION_ERROR',
+      message: 'Media reference must point to uploaded evidence.'
+    });
   });
 
   it('requires authentication and the RESIDENT role', async () => {
@@ -352,6 +425,763 @@ describe('report API', () => {
     expect(response.body.service).toBe('safealert-api');
   });
 
+
+  it('returns only the authenticated resident reports from GET /mine ordered newest first', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const residentA = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-mine-a@example.com'
+    );
+    const residentB = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-mine-b@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'resident-a-older-report',
+      residentId: residentA.user.id,
+      status: 'PENDING',
+      createdAt: '2026-08-23T10:00:00.000Z',
+      description: 'Older flood report from Resident A.'
+    });
+    seedReport(reportRepository, {
+      id: 'resident-b-report',
+      residentId: residentB.user.id,
+      status: 'PENDING',
+      createdAt: '2026-08-23T11:00:00.000Z',
+      description: 'Resident B report must not appear.'
+    });
+    seedReport(reportRepository, {
+      id: 'resident-a-newer-report',
+      residentId: residentA.user.id,
+      status: 'VERIFIED',
+      createdAt: '2026-08-23T12:00:00.000Z',
+      description: 'Newer verified report from Resident A.',
+      mediaReference: 'media/reports/resident-a-newer.jpg'
+    });
+
+    const response = await request(app)
+      .get('/api/v1/reports/mine')
+      .set('Authorization', `Bearer ${residentA.token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.reports.map((report: SafeReport) => report.id)).toEqual([
+      'resident-a-newer-report',
+      'resident-a-older-report'
+    ]);
+    expect(response.body.reports).toEqual([
+      expect.objectContaining({
+        id: 'resident-a-newer-report',
+        residentId: residentA.user.id,
+        status: 'VERIFIED',
+        description: 'Newer verified report from Resident A.',
+        mediaReference: 'media/reports/resident-a-newer.jpg'
+      }),
+      expect.objectContaining({
+        id: 'resident-a-older-report',
+        residentId: residentA.user.id,
+        status: 'PENDING',
+        description: 'Older flood report from Resident A.'
+      })
+    ]);
+    expect(response.body.reports.find((report: SafeReport) => report.id === 'resident-b-report')).toBeUndefined();
+  });
+
+  it('returns an empty resident report list when the authenticated resident has no reports', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-empty-mine@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'other-resident-only-report',
+      residentId: 'other-resident-id',
+      status: 'PENDING',
+      createdAt: '2026-08-23T10:00:00.000Z'
+    });
+
+    const response = await request(app)
+      .get('/api/v1/reports/mine')
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ reports: [] });
+  });
+
+  it('returns resident-owned report detail from GET /mine/:reportId', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-detail-mine@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'resident-owned-detail',
+      residentId: resident.user.id,
+      hazardType: 'LANDSLIDE',
+      severity: 'MODERATE',
+      description: 'Soil has slipped across the small hillside road.',
+      status: 'PENDING',
+      createdAt: '2026-08-23T12:10:00.000Z',
+      updatedAt: '2026-08-23T12:11:00.000Z',
+      mediaReference: 'media/reports/landslide-detail.jpg'
+    });
+
+    const response = await request(app)
+      .get('/api/v1/reports/mine/resident-owned-detail')
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.report).toEqual(
+      expect.objectContaining({
+        id: 'resident-owned-detail',
+        residentId: resident.user.id,
+        hazardType: 'LANDSLIDE',
+        severity: 'MODERATE',
+        description: 'Soil has slipped across the small hillside road.',
+        location: {
+          type: 'Point',
+          coordinates: [79.8612, 6.9271]
+        },
+        mediaReference: 'media/reports/landslide-detail.jpg',
+        status: 'PENDING',
+        createdAt: '2026-08-23T12:10:00.000Z',
+        updatedAt: '2026-08-23T12:11:00.000Z'
+      })
+    );
+  });
+
+  it('does not let one resident retrieve another resident report by id', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const residentA = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-foreign-a@example.com'
+    );
+    const residentB = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-foreign-b@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'resident-a-private-report',
+      residentId: residentA.user.id,
+      status: 'PENDING',
+      createdAt: '2026-08-23T12:20:00.000Z'
+    });
+
+    const response = await request(app)
+      .get('/api/v1/reports/mine/resident-a-private-report')
+      .set('Authorization', `Bearer ${residentB.token}`);
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toEqual({
+      code: 'REPORT_NOT_FOUND',
+      message: 'Report not found.'
+    });
+  });
+
+  it('returns not found for a nonexistent resident-owned report id', async () => {
+    const { app, authRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-missing-detail@example.com'
+    );
+
+    const response = await request(app)
+      .get('/api/v1/reports/mine/missing-resident-report')
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(response.status).toBe(404);
+    expect(response.body.error).toEqual({
+      code: 'REPORT_NOT_FOUND',
+      message: 'Report not found.'
+    });
+  });
+
+  it('protects resident report reads with authentication and resident-only RBAC', async () => {
+    const { app, authRepository } = createTestContext();
+    const volunteerToken = await createVolunteerToken(
+      authRepository,
+      'COMMUNITY_VOLUNTEER',
+      'volunteer-resident-read-attempt@example.com'
+    );
+    const officerToken = await createVolunteerToken(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-resident-read-attempt@example.com'
+    );
+
+    const unauthenticated = await request(app).get('/api/v1/reports/mine');
+    const volunteerForbidden = await request(app)
+      .get('/api/v1/reports/mine')
+      .set('Authorization', `Bearer ${volunteerToken}`);
+    const officerForbidden = await request(app)
+      .get('/api/v1/reports/mine')
+      .set('Authorization', `Bearer ${officerToken}`);
+
+    expect(unauthenticated.status).toBe(401);
+    expect(volunteerForbidden.status).toBe(403);
+    expect(officerForbidden.status).toBe(403);
+  });
+
+  it('returns the current VERIFIED status after an officer verifies a resident report', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-verified-status@example.com'
+    );
+    const officer = await createAuthenticatedUser(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-verified-status@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'resident-report-to-verify',
+      residentId: resident.user.id,
+      status: 'PENDING',
+      createdAt: '2026-08-23T12:30:00.000Z'
+    });
+
+    const reviewResponse = await request(app)
+      .patch('/api/v1/reports/resident-report-to-verify/verification')
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({ action: 'VERIFY' });
+    const residentDetail = await request(app)
+      .get('/api/v1/reports/mine/resident-report-to-verify')
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(reviewResponse.status).toBe(200);
+    expect(residentDetail.status).toBe(200);
+    expect(residentDetail.body.report).toEqual(
+      expect.objectContaining({
+        id: 'resident-report-to-verify',
+        residentId: resident.user.id,
+        status: 'VERIFIED',
+        verifiedById: officer.user.id,
+        verifiedAt: reviewResponse.body.report.verifiedAt,
+        verificationHistory: [
+          {
+            action: 'VERIFY',
+            verifiedById: officer.user.id,
+            verifiedAt: reviewResponse.body.report.verifiedAt
+          }
+        ]
+      })
+    );
+  });
+
+  it('returns REJECTED and rejectionReason after an officer rejects a resident report', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-rejected-status@example.com'
+    );
+    const officer = await createAuthenticatedUser(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-rejected-status@example.com'
+    );
+
+    seedReport(reportRepository, {
+      id: 'resident-report-to-reject',
+      residentId: resident.user.id,
+      status: 'PENDING',
+      createdAt: '2026-08-23T12:40:00.000Z'
+    });
+
+    const reviewResponse = await request(app)
+      .patch('/api/v1/reports/resident-report-to-reject/verification')
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({ action: 'REJECT', rejectionReason: 'The submitted evidence shows a different location.' });
+    const residentDetail = await request(app)
+      .get('/api/v1/reports/mine/resident-report-to-reject')
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(reviewResponse.status).toBe(200);
+    expect(residentDetail.status).toBe(200);
+    expect(residentDetail.body.report).toEqual(
+      expect.objectContaining({
+        id: 'resident-report-to-reject',
+        residentId: resident.user.id,
+        status: 'REJECTED',
+        rejectedById: officer.user.id,
+        rejectedAt: reviewResponse.body.report.rejectedAt,
+        rejectionReason: 'The submitted evidence shows a different location.',
+        verificationHistory: [
+          {
+            action: 'REJECT',
+            rejectedById: officer.user.id,
+            rejectedAt: reviewResponse.body.report.rejectedAt,
+            rejectionReason: 'The submitted evidence shows a different location.'
+          }
+        ]
+      })
+    );
+  });
+
+  it('keeps the resident tracking flow pending after volunteer confirmation and verified only after officer review', async () => {
+    const { app, authRepository } = createTestContext();
+    const residentA = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-flow-a@example.com'
+    );
+    const residentB = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-flow-b@example.com'
+    );
+    const volunteer = await createAuthenticatedUser(
+      authRepository,
+      'COMMUNITY_VOLUNTEER',
+      'volunteer-flow-a@example.com'
+    );
+    const officer = await createAuthenticatedUser(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-flow-a@example.com'
+    );
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${residentA.token}`)
+      .send({
+        ...validReportPayload,
+        description: 'Water is rising near the bridge for the verified flow.'
+      });
+    const reportId = created.body.report.id as string;
+
+    expect(created.status).toBe(201);
+    expect(created.body.report).toEqual(
+      expect.objectContaining({ residentId: residentA.user.id, status: 'PENDING' })
+    );
+
+    const residentAList = await request(app)
+      .get('/api/v1/reports/mine')
+      .set('Authorization', `Bearer ${residentA.token}`);
+    const residentBList = await request(app)
+      .get('/api/v1/reports/mine')
+      .set('Authorization', `Bearer ${residentB.token}`);
+    const residentBForeignDetail = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${residentB.token}`);
+
+    expect(residentAList.status).toBe(200);
+    expect(residentAList.body.reports.map((report: SafeReport) => report.id)).toContain(reportId);
+    expect(residentBList.status).toBe(200);
+    expect(residentBList.body.reports.map((report: SafeReport) => report.id)).not.toContain(reportId);
+    expect(residentBForeignDetail.status).toBe(404);
+
+    const volunteerIncoming = await request(app)
+      .get('/api/v1/reports/community')
+      .set('Authorization', `Bearer ${volunteer.token}`);
+    const volunteerDetail = await request(app)
+      .get(`/api/v1/reports/community/${reportId}`)
+      .set('Authorization', `Bearer ${volunteer.token}`);
+
+    expect(volunteerIncoming.status).toBe(200);
+    expect(volunteerIncoming.body.reports.map((report: { id: string }) => report.id)).toContain(reportId);
+    expect(volunteerDetail.status).toBe(200);
+
+    const confirmation = await request(app)
+      .post(`/api/v1/field-confirmations/${reportId}/confirm`)
+      .set('Authorization', `Bearer ${volunteer.token}`)
+      .send({
+        verificationChecklist: {
+          locationMatches: true,
+          photoMatches: true,
+          situationStillExists: true,
+          severityAppearsCorrect: true
+        },
+        observation: 'The flood is still present near the bridge.',
+        mediaReference: '/api/v1/media/report-evidence/volunteer-field.jpg'
+      });
+    const residentAfterVolunteer = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${residentA.token}`);
+
+    expect(confirmation.status).toBe(201);
+    expect(confirmation.body.confirmation).toEqual(
+      expect.objectContaining({
+        reportId,
+        volunteerId: volunteer.user.id,
+        outcome: 'CONFIRMED',
+        status: 'PENDING',
+        observation: 'The flood is still present near the bridge.',
+        mediaReference: '/api/v1/media/report-evidence/volunteer-field.jpg'
+      })
+    );
+    expect(residentAfterVolunteer.status).toBe(200);
+    expect(residentAfterVolunteer.body.report.status).toBe('PENDING');
+
+    const officerReview = await request(app)
+      .patch(`/api/v1/reports/${reportId}/verification`)
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({ action: 'VERIFY' });
+    const residentAfterVerify = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${residentA.token}`);
+
+    expect(officerReview.status).toBe(200);
+    expect(officerReview.body.report.status).toBe('VERIFIED');
+    expect(residentAfterVerify.status).toBe(200);
+    expect(residentAfterVerify.body.report).toEqual(
+      expect.objectContaining({
+        id: reportId,
+        residentId: residentA.user.id,
+        status: 'VERIFIED',
+        verifiedById: officer.user.id,
+        verifiedAt: officerReview.body.report.verifiedAt
+      })
+    );
+  });
+
+  it('keeps volunteer unable-to-confirm separate from report status until officer rejection', async () => {
+    const { app, authRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(
+      authRepository,
+      'RESIDENT',
+      'resident-flow-b-reject@example.com'
+    );
+    const volunteer = await createAuthenticatedUser(
+      authRepository,
+      'COMMUNITY_VOLUNTEER',
+      'volunteer-flow-b-reject@example.com'
+    );
+    const officer = await createAuthenticatedUser(
+      authRepository,
+      'DISASTER_OFFICER',
+      'officer-flow-b-reject@example.com'
+    );
+    const rejectionReason = 'The submitted evidence shows a different location.';
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send({
+        ...validReportPayload,
+        hazardType: 'BLOCKED_ROAD',
+        severity: 'MODERATE',
+        description: 'A blocked road report for the rejection flow.'
+      });
+    const reportId = created.body.report.id as string;
+
+    expect(created.status).toBe(201);
+    expect(created.body.report.status).toBe('PENDING');
+
+    const unableToConfirm = await request(app)
+      .post(`/api/v1/field-confirmations/${reportId}/unable-to-confirm`)
+      .set('Authorization', `Bearer ${volunteer.token}`)
+      .send({ reason: 'Location does not match' });
+    const residentAfterVolunteer = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(unableToConfirm.status).toBe(201);
+    expect(unableToConfirm.body.confirmation).toEqual(
+      expect.objectContaining({
+        reportId,
+        volunteerId: volunteer.user.id,
+        outcome: 'UNABLE_TO_CONFIRM',
+        reason: 'Location does not match',
+        status: 'PENDING'
+      })
+    );
+    expect(residentAfterVolunteer.status).toBe(200);
+    expect(residentAfterVolunteer.body.report.status).toBe('PENDING');
+
+    const officerReview = await request(app)
+      .patch(`/api/v1/reports/${reportId}/verification`)
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({ action: 'REJECT', rejectionReason });
+    const residentAfterReject = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${resident.token}`);
+    const residentListAfterReject = await request(app)
+      .get('/api/v1/reports/mine')
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(officerReview.status).toBe(200);
+    expect(officerReview.body.report).toEqual(
+      expect.objectContaining({ status: 'REJECTED', rejectedById: officer.user.id, rejectionReason })
+    );
+    expect(residentAfterReject.status).toBe(200);
+    expect(residentAfterReject.body.report).toEqual(
+      expect.objectContaining({
+        id: reportId,
+        residentId: resident.user.id,
+        status: 'REJECTED',
+        rejectedById: officer.user.id,
+        rejectedAt: officerReview.body.report.rejectedAt,
+        rejectionReason
+      })
+    );
+    expect(residentListAfterReject.status).toBe(200);
+    expect(residentListAfterReject.body.reports).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: reportId, status: 'REJECTED', rejectionReason })])
+    );
+  });
+
+  it('returns resident-safe field confirmations only to the owning resident', async () => {
+    const { app, authRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-confirmation-owner@example.com');
+    const otherResident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-confirmation-other@example.com');
+    const volunteer = await createAuthenticatedUser(authRepository, 'COMMUNITY_VOLUNTEER', 'volunteer-confirmation-safe@example.com');
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send(validReportPayload);
+    const reportId = created.body.report.id as string;
+
+    const empty = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}/field-confirmations`)
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual({ confirmations: [] });
+
+    await request(app)
+      .post(`/api/v1/field-confirmations/${reportId}/confirm`)
+      .set('Authorization', `Bearer ${volunteer.token}`)
+      .send({
+        verificationChecklist: {
+          locationMatches: true,
+          photoMatches: false,
+          situationStillExists: true,
+          severityAppearsCorrect: true
+        },
+        observation: 'Confirmed from the field.',
+        mediaReference: '/api/v1/media/report-evidence/safe-field.jpg'
+      });
+
+    const owner = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}/field-confirmations`)
+      .set('Authorization', `Bearer ${resident.token}`);
+    const other = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}/field-confirmations`)
+      .set('Authorization', `Bearer ${otherResident.token}`);
+
+    expect(owner.status).toBe(200);
+    expect(owner.body.confirmations).toEqual([
+      expect.objectContaining({
+        reportId,
+        outcome: 'CONFIRMED',
+        observation: 'Confirmed from the field.',
+        mediaReference: '/api/v1/media/report-evidence/safe-field.jpg'
+      })
+    ]);
+    expect(owner.body.confirmations[0].volunteerId).toBeUndefined();
+    expect(other.status).toBe(404);
+  });
+  it('allows a resident to edit only editable fields on their own pending report', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-edit@example.com');
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send(validReportPayload);
+    const reportId = created.body.report.id as string;
+
+    const response = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send({
+        hazardType: 'LANDSLIDE',
+        severity: 'MODERATE',
+        description: 'Updated resident description before verification.',
+        location: { type: 'Point', coordinates: [80.1234, 7.1234] },
+        mediaReference: '/api/v1/media/report-evidence/updated-photo.jpg'
+      });
+    const stored = await reportRepository.findReportById(reportId);
+
+    expect(response.status).toBe(200);
+    expect(response.body.report).toEqual(
+      expect.objectContaining({
+        id: reportId,
+        residentId: resident.user.id,
+        hazardType: 'LANDSLIDE',
+        severity: 'MODERATE',
+        description: 'Updated resident description before verification.',
+        location: { type: 'Point', coordinates: [80.1234, 7.1234] },
+        mediaReference: '/api/v1/media/report-evidence/updated-photo.jpg',
+        status: 'PENDING'
+      })
+    );
+    expect(stored).toEqual(expect.objectContaining({ id: reportId, status: 'PENDING' }));
+  });
+
+  it('rejects resident edit overposting of server-controlled fields', async () => {
+    const { app, authRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-edit-overpost@example.com');
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send(validReportPayload);
+
+    const response = await request(app)
+      .patch(`/api/v1/reports/mine/${created.body.report.id}`)
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send({
+        description: 'Trying to smuggle server fields.',
+        status: 'VERIFIED',
+        residentId: 'other-resident',
+        verifiedById: 'officer',
+        rejectedById: 'officer',
+        rejectionReason: 'client supplied',
+        verificationHistory: []
+      });
+
+    expect(response.status).toBe(400);
+  });
+
+  it('prevents foreign residents and non-resident roles from editing or cancelling resident reports', async () => {
+    const { app, authRepository } = createTestContext();
+    const residentA = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-owner@example.com');
+    const residentB = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-foreign@example.com');
+    const volunteer = await createAuthenticatedUser(authRepository, 'COMMUNITY_VOLUNTEER', 'volunteer-edit-forbidden@example.com');
+    const officer = await createAuthenticatedUser(authRepository, 'DISASTER_OFFICER', 'officer-edit-forbidden@example.com');
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${residentA.token}`)
+      .send(validReportPayload);
+    const reportId = created.body.report.id as string;
+
+    const foreignEdit = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${residentB.token}`)
+      .send({ description: 'Foreign edit attempt.' });
+    const foreignCancel = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .set('Authorization', `Bearer ${residentB.token}`);
+    const unauthenticatedEdit = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}`)
+      .send({ description: 'Unauthenticated edit attempt.' });
+    const unauthenticatedCancel = await request(app).patch(`/api/v1/reports/mine/${reportId}/cancel`);
+    const volunteerEdit = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${volunteer.token}`)
+      .send({ description: 'Volunteer edit attempt.' });
+    const officerCancel = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .set('Authorization', `Bearer ${officer.token}`);
+
+    expect(foreignEdit.status).toBe(404);
+    expect(foreignCancel.status).toBe(404);
+    expect(unauthenticatedEdit.status).toBe(401);
+    expect(unauthenticatedCancel.status).toBe(401);
+    expect(volunteerEdit.status).toBe(403);
+    expect(officerCancel.status).toBe(403);
+  });
+
+  it('soft-cancels a resident-owned pending report and removes it from pending workflows', async () => {
+    const { app, authRepository, reportRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-cancel@example.com');
+    const volunteer = await createAuthenticatedUser(authRepository, 'COMMUNITY_VOLUNTEER', 'volunteer-cancel-list@example.com');
+    const officer = await createAuthenticatedUser(authRepository, 'DISASTER_OFFICER', 'officer-cancel-list@example.com');
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send(validReportPayload);
+    const reportId = created.body.report.id as string;
+
+    const response = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .set('Authorization', `Bearer ${resident.token}`);
+    const stored = await reportRepository.findReportById(reportId);
+    const volunteerList = await request(app)
+      .get('/api/v1/reports/community')
+      .set('Authorization', `Bearer ${volunteer.token}`);
+    const officerList = await request(app)
+      .get('/api/v1/reports/officer/pending')
+      .set('Authorization', `Bearer ${officer.token}`);
+    const residentDetail = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body.report).toEqual(
+      expect.objectContaining({
+        id: reportId,
+        status: 'CANCELLED',
+        cancelledById: resident.user.id,
+        cancelledAt: expect.any(String)
+      })
+    );
+    expect(stored).toEqual(expect.objectContaining({ id: reportId, status: 'CANCELLED' }));
+    expect(volunteerList.body.reports.map((report: SafeReport) => report.id)).not.toContain(reportId);
+    expect(officerList.body.reports.map((report: SafeReport) => report.id)).not.toContain(reportId);
+    expect(residentDetail.body.report.status).toBe('CANCELLED');
+  });
+
+  it.each(['VERIFIED', 'REJECTED', 'CANCELLED', 'RESOLVED'] as const)(
+    'rejects resident edit and cancel for %s reports',
+    async (status) => {
+      const { app, authRepository, reportRepository } = createTestContext();
+      const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', `resident-lock-${status.toLowerCase()}@example.com`);
+      const reportId = `locked-${status.toLowerCase()}`;
+      seedReport(reportRepository, {
+        id: reportId,
+        residentId: resident.user.id,
+        status,
+        createdAt: '2026-08-24T09:00:00.000Z'
+      });
+
+      const edit = await request(app)
+        .patch(`/api/v1/reports/mine/${reportId}`)
+        .set('Authorization', `Bearer ${resident.token}`)
+        .send({ description: 'Should not be accepted.' });
+      const cancel = await request(app)
+        .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+        .set('Authorization', `Bearer ${resident.token}`);
+
+      expect(edit.status).toBe(409);
+      expect(cancel.status).toBe(409);
+    }
+  );
+
+  it('enforces pending-state atomically when a resident save races with officer verification', async () => {
+    const { app, authRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-race@example.com');
+    const officer = await createAuthenticatedUser(authRepository, 'DISASTER_OFFICER', 'officer-race@example.com');
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send(validReportPayload);
+    const reportId = created.body.report.id as string;
+
+    await request(app)
+      .patch(`/api/v1/reports/${reportId}/verification`)
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({ action: 'VERIFY' });
+
+    const staleEdit = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send({ description: 'Stale resident edit after officer decision.' });
+    const staleCancel = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(staleEdit.status).toBe(409);
+    expect(staleCancel.status).toBe(409);
+  });
   it('returns pending community reports for authenticated volunteers only', async () => {
     const { app, authRepository, reportRepository } = createTestContext();
     const volunteerToken = await createVolunteerToken(
@@ -747,6 +1577,7 @@ describe('report API', () => {
     const verifiedAtMs = Date.parse(verifiedAt);
 
     expect(reviewResponse.status).toBe(200);
+    expect(reviewResponse.body.grouping).toMatchObject({ action: 'CREATED', incident: { reportIds: ['complete-verify-flow'], createdById: officer.user.id } });
     expect(verifiedAt).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     expect(verifiedAtMs).toBeGreaterThanOrEqual(reviewStartedAt);
     expect(verifiedAtMs).toBeLessThanOrEqual(reviewCompletedAt);
@@ -787,6 +1618,32 @@ describe('report API', () => {
         }
       ]
     });
+  });
+
+  it('automatically attaches a verified report to the strongest matching active incident', async () => {
+    const { app, authRepository, reportRepository, incidentRepository } = createTestContext();
+    const officer = await createAuthenticatedUser(authRepository, 'DISASTER_OFFICER', 'officer-auto-attach@example.com');
+    seedReport(reportRepository, {
+      id: 'auto-existing-report', status: 'VERIFIED', createdAt: '2026-08-23T12:00:00.000Z',
+      location: { type: 'Point', coordinates: [79.8612, 6.9271] }
+    });
+    await incidentRepository.create({
+      hazardType: 'FLOOD', location: { type: 'Point', coordinates: [79.8612, 6.9271] },
+      reportIds: ['auto-existing-report'], status: 'ACTIVE', createdById: officer.user.id
+    });
+    seedReport(reportRepository, {
+      id: 'auto-attach-report', status: 'PENDING', createdAt: '2026-08-23T12:30:00.000Z',
+      location: { type: 'Point', coordinates: [79.8615, 6.9273] }
+    });
+
+    const response = await request(app)
+      .patch('/api/v1/reports/auto-attach-report/verification')
+      .set('Authorization', `Bearer ${officer.token}`)
+      .send({ action: 'VERIFY' });
+
+    expect(response.status).toBe(200);
+    expect(response.body.grouping.action).toBe('ATTACHED');
+    expect(response.body.grouping.incident.reportIds).toEqual(['auto-existing-report', 'auto-attach-report']);
   });
 
   it('completes the Officer rejection flow only after a valid reason', async () => {
@@ -1148,9 +2005,10 @@ describe('report API', () => {
         .send({ action: 'VERIFY' });
       const unchangedReport = await reportRepository.findReportById(reportId);
 
-      expect(response.status).toBe(409);
+      expect(response.status).toBe(status === 'VERIFIED' ? 200 : 409);
       expect(unchangedReport?.status).toBe(status);
       expect(unchangedReport?.verificationHistory).toBeUndefined();
+      if (status === 'VERIFIED') expect(response.body.grouping.action).toBe('CREATED');
     }
   );
 

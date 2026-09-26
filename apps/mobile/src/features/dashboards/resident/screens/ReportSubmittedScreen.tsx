@@ -6,17 +6,19 @@ import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { residentBottomNavItems } from '../mockData';
 import { hazardTypeLabels, severityLabels, useReportHazardDraft } from '../reportDraft';
+import { residentReportStatusHref } from '../reports';
 
 export function ReportSubmittedScreen() {
   const router = useRouter();
   const { submittedReport } = useReportHazardDraft();
-  const submittedStatus = submittedReport?.status ?? 'PENDING';
 
   const trackReport = () => {
-    router.push({
-      pathname: '/resident/report-status',
-      params: submittedReport ? { reportId: submittedReport.id } : undefined
-    });
+    if (submittedReport) {
+      router.push(residentReportStatusHref(submittedReport.id));
+      return;
+    }
+
+    router.push('/resident/reports');
   };
 
   return (
@@ -35,22 +37,24 @@ export function ReportSubmittedScreen() {
         <Text style={styles.successText}>Your report has been received.</Text>
       </View>
 
-      <View style={styles.statusCard}>
-        <Text style={styles.statusLabel}>Status</Text>
-        <Text style={styles.statusValue}>{submittedStatus}</Text>
-      </View>
-
       {submittedReport ? (
-        <View style={styles.summaryPanel}>
-          <Text style={styles.panelTitle}>Submission details</Text>
-          <SubmittedDetail label="Report ID" value={submittedReport.id} />
-          <SubmittedDetail label="Hazard" value={hazardTypeLabels[submittedReport.hazardType]} />
-          <SubmittedDetail label="Severity" value={severityLabels[submittedReport.severity]} />
-          <SubmittedDetail
-            label="Coordinates"
-            value={`${submittedReport.location.coordinates[1].toFixed(6)}, ${submittedReport.location.coordinates[0].toFixed(6)}`}
-          />
-        </View>
+        <>
+          <View style={styles.statusCard}>
+            <Text style={styles.statusLabel}>Status</Text>
+            <Text style={styles.statusValue}>{submittedReport.status}</Text>
+          </View>
+
+          <View style={styles.summaryPanel}>
+            <Text style={styles.panelTitle}>Submission details</Text>
+            <SubmittedDetail label="Report ID" value={submittedReport.id} />
+            <SubmittedDetail label="Hazard" value={hazardTypeLabels[submittedReport.hazardType]} />
+            <SubmittedDetail label="Severity" value={severityLabels[submittedReport.severity]} />
+            <SubmittedDetail
+              label="Coordinates"
+              value={`${submittedReport.location.coordinates[1].toFixed(6)}, ${submittedReport.location.coordinates[0].toFixed(6)}`}
+            />
+          </View>
+        </>
       ) : (
         <View style={styles.summaryPanel}>
           <Text style={styles.panelTitle}>Submission details</Text>

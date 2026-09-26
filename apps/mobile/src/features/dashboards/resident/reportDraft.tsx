@@ -42,8 +42,8 @@ export type SelectedPhotoEvidence = {
   mimeType: string | null;
   assetId: string | null;
   source: 'MEDIA_LIBRARY' | 'CAMERA';
-  needsUpload: true;
-  uploadedMediaReference: null;
+  needsUpload: boolean;
+  uploadedMediaReference: string | null;
 };
 
 export type PhotoEvidenceState =
@@ -97,6 +97,7 @@ type ReportHazardDraftContextValue = {
 const ReportHazardDraftContext = createContext<ReportHazardDraftContextValue | null>(null);
 
 export const descriptionMaxLength = 500;
+export const descriptionMinLength = 3;
 
 export const hazardTypeLabels: Record<HazardType, string> = {
   FLOOD: 'Flood',
@@ -178,6 +179,8 @@ export function validateReportHazardDraft(draft: ReportHazardDraft): ReportHazar
 
   if (!trimmedDescription) {
     errors.description = 'Enter a short description.';
+  } else if (trimmedDescription.length < descriptionMinLength) {
+    errors.description = `Enter at least ${descriptionMinLength} characters.`;
   } else if (trimmedDescription.length > descriptionMaxLength) {
     errors.description = `Keep the description under ${descriptionMaxLength} characters.`;
   }

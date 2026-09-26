@@ -128,9 +128,9 @@ const styles = StyleSheet.create({
     minHeight: 42,
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: 999,
-    backgroundColor: '#fff5f4'
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   logoutButtonPressed: {
     opacity: 0.82

@@ -11,7 +11,91 @@ export const RISK_LEVELS = ['LOW', 'MODERATE', 'HIGH', 'CRITICAL'] as const;
 
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 
-export const REPORT_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED', 'RESOLVED'] as const;
+// Officer observations are independent of the resident's reported severity.
+export const HAZARD_ASSESSMENT_SEVERITIES = ['LOW', 'MODERATE', 'HIGH', 'SEVERE'] as const;
+export type HazardAssessmentSeverity = (typeof HAZARD_ASSESSMENT_SEVERITIES)[number];
+// More precise assessment states preserve the existing emergency-request contract.
+export const ROAD_ACCESSIBILITY_OPTIONS = ['ACCESSIBLE', 'PARTIALLY_BLOCKED', 'FULLY_BLOCKED', 'UNKNOWN'] as const;
+export type AssessmentRoadAccessibility = (typeof ROAD_ACCESSIBILITY_OPTIONS)[number];
+export const INFRASTRUCTURE_IMPACT_LEVELS = ['NONE', 'LOW', 'MODERATE', 'HIGH', 'SEVERE'] as const;
+export type InfrastructureImpact = (typeof INFRASTRUCTURE_IMPACT_LEVELS)[number];
+export const WATER_LEVEL_TRENDS = ['FALLING', 'STABLE', 'RISING', 'RISING_RAPIDLY', 'NOT_APPLICABLE', 'UNKNOWN'] as const;
+export type WaterLevelTrend = (typeof WATER_LEVEL_TRENDS)[number];
+export const WEATHER_CONDITIONS = ['CLEAR', 'LIGHT_RAIN', 'MODERATE_RAIN', 'HEAVY_RAIN', 'STORM', 'UNKNOWN'] as const;
+export type WeatherCondition = (typeof WEATHER_CONDITIONS)[number];
+export const RISK_ASSESSMENT_STATUSES = ['ACTIVE', 'CLOSED', 'VOID'] as const;
+export type RiskAssessmentStatus = (typeof RISK_ASSESSMENT_STATUSES)[number];
+export const RISK_DECISION_REASON_MIN_LENGTH = 10;
+export const RISK_DECISION_REASON_MAX_LENGTH = 500;
+
+export type RiskAssessmentFactors = {
+  hazardSeverity: HazardAssessmentSeverity;
+  peopleAffected: number;
+  vulnerablePeople: number;
+  roadAccessibility: AssessmentRoadAccessibility;
+  infrastructureImpact: InfrastructureImpact;
+  waterLevelTrend: WaterLevelTrend;
+  weatherCondition: WeatherCondition;
+};
+export type CalculateRiskAssessmentRequest = RiskAssessmentFactors & { incidentId: string };
+export type CalculateRiskAssessmentResponse = { calculatedScore: number; systemSuggestedRisk: RiskLevel };
+export type CreateRiskAssessmentRequest = CalculateRiskAssessmentRequest & {
+  finalRiskLevel: RiskLevel;
+  decisionReason?: string;
+};
+export type SafeRiskAssessment = CreateRiskAssessmentRequest & CalculateRiskAssessmentResponse & {
+  id: string;
+  assessedById: string;
+  status: RiskAssessmentStatus;
+  assessedAt: string;
+  createdAt: string;
+  updatedAt: string;
+};
+// Report context is joined at read time, never copied into the stored assessment.
+export type RiskAssessmentResponse = { assessment: SafeRiskAssessment; incident: SafeIncident; reports: SafeReport[] };
+export type RiskAssessmentForIncidentResponse = { assessment: SafeRiskAssessment | null; incident: SafeIncident; reports: SafeReport[] };
+export type GetVerifiedOfficerReportsResponse = { reports: SafeReport[] };
+
+export const WARNING_RISK_LEVELS = ['HIGH', 'CRITICAL'] as const;
+export type WarningRiskLevel = (typeof WARNING_RISK_LEVELS)[number];
+export function canCreateWarning(riskLevel: RiskLevel): riskLevel is WarningRiskLevel {
+  return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
+}
+export const WARNING_STATUSES = ['DRAFT', 'PUBLISHED'] as const;
+export const WARNING_FIELD_LIMITS = {
+  affectedArea: 300, requiredAction: 2000, unsafeRoads: 2000,
+  safeRoutes: 2000, message: 4000, attachmentUrl: 500, attachments: 5
+} as const;
+export type CreateWarningRequest = {
+  assessmentId: string;
+  affectedArea: string;
+  requiredAction: string;
+  unsafeRoads: string;
+  safeRoutes?: string;
+  message: string;
+  attachments?: string[];
+};
+export type SafeWarning = CreateWarningRequest & {
+  id: string;
+  hazardReportId: string;
+  createdById: string;
+  riskLevel: WarningRiskLevel;
+  status: (typeof WARNING_STATUSES)[number];
+  publishedAt?: string;
+  publishedById?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type CreateWarningResponse = { warning: SafeWarning };
+export type PublishWarningResponse = { warning: SafeWarning };
+export const WARNING_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+export const WARNING_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export type WarningImageMimeType = (typeof WARNING_IMAGE_MIME_TYPES)[number];
+export const WARNING_ATTACHMENT_REFERENCE_PATTERN = /^\/api\/v1\/warning-attachments\/[a-f\d]{24}$/i;
+export type UploadWarningImageRequest = { assessmentId: string; base64: string };
+export type UploadWarningImageResponse = { reference: string };
+
+export const REPORT_STATUSES = ['PENDING', 'VERIFIED', 'REJECTED', 'CANCELLED', 'RESOLVED'] as const;
 
 export type ReportStatus = (typeof REPORT_STATUSES)[number];
 
@@ -39,6 +123,48 @@ export type GeoJsonPoint = {
   coordinates: [longitude: number, latitude: number];
 };
 
+export const INCIDENT_STATUSES = ['ACTIVE', 'RESOLVED', 'CLOSED'] as const;
+export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
+export const INCIDENT_MAX_REPORTS = 100;
+// Candidate matching heuristics are intentionally centralized and configurable.
+// They are product defaults, not official disaster-management standards.
+export const INCIDENT_MATCH_RADIUS_METERS = 500;
+export const INCIDENT_MATCH_TIME_WINDOW_HOURS = 2;
+
+// Officers select report references; hazard, location and audit fields are server-owned.
+export type CreateIncidentRequest = { reportIds: string[] };
+export type AddIncidentReportRequest = { reportId: string };
+export type SafeIncident = {
+  id: string;
+  hazardType: HazardType;
+  location: GeoJsonPoint;
+  reportIds: string[];
+  status: IncidentStatus;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type IncidentResponse = { incident: SafeIncident };
+export type IncidentWithReportsResponse = { incident: SafeIncident; reports: SafeReport[] };
+export type GetActiveIncidentsResponse = { incidents: IncidentWithReportsResponse[] };
+export type IncidentCandidate = {
+  incidentId: string;
+  hazardType: HazardType;
+  location: GeoJsonPoint;
+  reportCount: number;
+  earliestReportAt: string;
+  latestReportAt: string;
+  distanceMeters: number;
+};
+export type IncidentCandidatesResponse = { candidates: IncidentCandidate[] };
+export const INCIDENT_GROUPING_ACTIONS = ['CREATED', 'ATTACHED', 'ALREADY_ASSIGNED'] as const;
+export type IncidentGroupingAction = (typeof INCIDENT_GROUPING_ACTIONS)[number];
+export type AutomaticIncidentGrouping = {
+  action: IncidentGroupingAction;
+  incident: SafeIncident;
+  candidate?: IncidentCandidate;
+};
+
 export type CreateReportRequest = {
   hazardType: HazardType;
   description: string;
@@ -46,6 +172,8 @@ export type CreateReportRequest = {
   location: GeoJsonPoint;
   mediaReference?: string;
 };
+
+export type UpdateResidentReportRequest = Partial<CreateReportRequest>;
 
 export type SafeReport = {
   id: string;
@@ -63,6 +191,8 @@ export type SafeReport = {
   rejectedById?: string;
   rejectedAt?: string;
   rejectionReason?: string;
+  cancelledById?: string;
+  cancelledAt?: string;
   verificationHistory?: ReportReviewEvent[];
 };
 
@@ -94,8 +224,24 @@ export type CreateReportResponse = {
   report: SafeReport;
 };
 
+export type UpdateResidentReportResponse = {
+  report: SafeReport;
+};
+
+export type CancelResidentReportResponse = {
+  report: SafeReport;
+};
+
+export type UploadReportEvidenceResponse = {
+  mediaReference: string;
+  contentType: string;
+  size: number;
+  url?: string;
+};
+
 export type VerifyReportResponse = {
   report: SafeReport;
+  grouping?: AutomaticIncidentGrouping;
 };
 
 export type ReviewReportResponse = VerifyReportResponse;
@@ -120,6 +266,14 @@ export type GetCommunityReportResponse = {
   report: CommunityReportSummary;
 };
 
+export type GetResidentReportsResponse = {
+  reports: SafeReport[];
+};
+
+export type GetResidentReportResponse = {
+  report: SafeReport;
+};
+
 export type GetPendingOfficerReportsResponse = {
   reports: SafeReport[];
 };
@@ -138,6 +292,103 @@ export const RESPONSE_STATUSES = [
 ] as const;
 
 export type ResponseStatus = (typeof RESPONSE_STATUSES)[number];
+
+export const RESPONSE_PROGRESS_ACTIONS = {
+  ASSIGNED: 'Start Dispatch',
+  DISPATCHED: 'Mark as Arrived',
+  ARRIVED: 'Start Assistance',
+  IN_PROGRESS: 'Complete Request',
+  COMPLETED: 'No further action'
+} as const;
+
+export const RESPONSE_ACTIVE_ASSIGNED_STATUSES = [
+  'ASSIGNED',
+  'DISPATCHED',
+  'ARRIVED',
+  'IN_PROGRESS'
+] as const;
+
+export type ResponseProgressActionStatus = keyof typeof RESPONSE_PROGRESS_ACTIONS;
+
+const RESPONSE_PROGRESS_SEQUENCE_STEPS: ReadonlyArray<ResponseProgressActionStatus> = [
+  'ASSIGNED',
+  'DISPATCHED',
+  'ARRIVED',
+  'IN_PROGRESS',
+  'COMPLETED'
+];
+
+const RESPONSE_PROGRESS_NEXT_STATUS: Record<ResponseProgressActionStatus, ResponseProgressActionStatus> = {
+  ASSIGNED: 'DISPATCHED',
+  DISPATCHED: 'ARRIVED',
+  ARRIVED: 'IN_PROGRESS',
+  IN_PROGRESS: 'COMPLETED',
+  COMPLETED: 'COMPLETED'
+};
+
+export function getNextResponseProgressStatus(
+  currentStatus: ResponseStatus
+): ResponseStatus | null {
+  if (currentStatus === 'NEW') {
+    return null;
+  }
+
+  if (currentStatus === 'COMPLETED') {
+    return null;
+  }
+
+  const progressStatus = currentStatus as ResponseProgressActionStatus;
+
+  if (!(progressStatus in RESPONSE_PROGRESS_NEXT_STATUS)) {
+    return null;
+  }
+
+  return RESPONSE_PROGRESS_NEXT_STATUS[progressStatus];
+}
+
+export function isValidResponseProgressTransition(
+  currentStatus: ResponseStatus,
+  nextStatus: ResponseStatus
+): boolean {
+  if (currentStatus === nextStatus) {
+    return false;
+  }
+
+  if (currentStatus === 'NEW') {
+    return false;
+  }
+
+  if (currentStatus === 'COMPLETED') {
+    return false;
+  }
+
+  const expectedNextStatus = getNextResponseProgressStatus(currentStatus);
+
+  return expectedNextStatus !== null && expectedNextStatus === nextStatus;
+}
+
+export function getResponseProgressAction(
+  currentStatus: ResponseStatus
+): { nextStatus: ResponseStatus; label: string } | null {
+  if (currentStatus === 'NEW' || currentStatus === 'COMPLETED') {
+    return null;
+  }
+
+  const nextStatus = getNextResponseProgressStatus(currentStatus);
+
+  if (!nextStatus) {
+    return null;
+  }
+
+  return {
+    nextStatus,
+    label: RESPONSE_PROGRESS_ACTIONS[currentStatus as ResponseProgressActionStatus]
+  };
+}
+
+// LDFEW-121 begins after a request has already been assigned.
+// NEW -> ASSIGNED is handled by LDFEW-130 accept/decline logic and is intentionally excluded here.
+export const RESPONSE_PROGRESS_SEQUENCE = RESPONSE_PROGRESS_SEQUENCE_STEPS;
 
 export const EMERGENCY_ASSISTANCE_TYPES = [
   'RESCUE_EVACUATION',
@@ -182,6 +433,15 @@ export type CreateResponseRequestRequest = {
 export type SafeResponseRequest = {
   id: string;
   residentId: string;
+  // Set when the emergency request is assigned to a specific responder.
+  assignedResponderId?: string;
+  // Keeps responder-specific declines without changing the emergency status.
+  declinedByResponderIds?: string[];
+  acceptedAt?: string;
+  dispatchedAt?: string;
+  arrivedAt?: string;
+  inProgressAt?: string;
+  completedAt?: string;
   assistanceType: EmergencyAssistanceType;
   location: GeoJsonPoint;
   affectedPeople: number;
@@ -253,3 +513,43 @@ export type ApiErrorResponse = {
   };
 };
 
+export const UNABLE_TO_CONFIRM_REASONS = [
+  'Situation no longer exists',
+  'Location does not match',
+  'Report information is incorrect',
+  'Unable to access location',
+  'Other'
+] as const;
+export const FIELD_CONFIRMATION_REASON_MAX_LENGTH = 500;
+export const FIELD_CONFIRMATION_OBSERVATION_MAX_LENGTH = 1000;
+export type UnableToConfirmReason = (typeof UNABLE_TO_CONFIRM_REASONS)[number];
+export type FieldVerificationChecklist = {
+  locationMatches: boolean;
+  photoMatches: boolean;
+  situationStillExists: boolean;
+  severityAppearsCorrect: boolean;
+};
+export type CreateFieldConfirmationRequest =
+  | {
+      outcome: 'CONFIRMED';
+      verificationChecklist: FieldVerificationChecklist;
+      observation?: string;
+      mediaReference?: string;
+    }
+  | { outcome: 'UNABLE_TO_CONFIRM'; reason: UnableToConfirmReason; reasonDetails?: string };
+export type FieldConfirmation = CreateFieldConfirmationRequest & {
+  id: string;
+  reportId: string;
+  volunteerId: string;
+  status: 'PENDING';
+  createdAt: string;
+  updatedAt: string;
+};
+export type CreateFieldConfirmationResponse = { confirmation: FieldConfirmation };
+export type GetFieldConfirmationsResponse = { confirmations: FieldConfirmation[] };
+export type ResidentFieldConfirmation = FieldConfirmation extends infer T
+  ? T extends FieldConfirmation
+    ? Omit<T, 'volunteerId'>
+    : never
+  : never;
+export type GetResidentFieldConfirmationsResponse = { confirmations: ResidentFieldConfirmation[] };

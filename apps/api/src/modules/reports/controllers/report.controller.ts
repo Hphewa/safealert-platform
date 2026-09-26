@@ -1,4 +1,4 @@
-import type { CreateReportRequest } from '@safealert/contracts';
+import type { CreateReportRequest, UpdateResidentReportRequest } from '@safealert/contracts';
 import type { RequestHandler } from 'express';
 
 import { ApiError } from '../../../shared/apiError.js';
@@ -8,10 +8,14 @@ import {
   communityReportQuerySchema,
   createReportSchema,
   maxCommunityReportRadiusKm,
-  reportReviewActionSchema
+  reportReviewActionSchema,
+  updateResidentReportSchema
 } from '../validation/report.schemas.js';
 
 export function createReportController(reportService: ReportService) {
+  const listVerifiedOfficerReports: RequestHandler = asyncHandler(async (_request, response) => {
+    response.json(await reportService.listVerifiedReportsForOfficer());
+  });
   const create: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
@@ -30,7 +34,90 @@ export function createReportController(reportService: ReportService) {
     response.status(201).json(result);
   });
 
+  const listMine: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const result = await reportService.listResidentReports(request.auth.id);
+
+    response.status(200).json(result);
+  });
+
+  const getMineById: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const reportId = request.params.reportId;
+
+    if (!reportId) {
+      throw new ApiError(400, 'INVALID_REPORT_ID', 'Report id is required.');
+    }
+
+    const result = await reportService.getResidentReportById(request.auth.id, reportId);
+
+    response.status(200).json(result);
+  });
+
+  const listMineFieldConfirmations: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const reportId = request.params.reportId;
+
+    if (!reportId) {
+      throw new ApiError(400, 'INVALID_REPORT_ID', 'Report id is required.');
+    }
+
+    response.status(200).json(await reportService.listResidentFieldConfirmations(request.auth.id, reportId));
+  });
+
+  const updateMineById: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const reportId = request.params.reportId;
+
+    if (!reportId) {
+      throw new ApiError(400, 'INVALID_REPORT_ID', 'Report id is required.');
+    }
+
+    const parsedInput = updateResidentReportSchema.parse(request.body);
+    const input: UpdateResidentReportRequest = {
+      ...(parsedInput.hazardType ? { hazardType: parsedInput.hazardType } : {}),
+      ...(parsedInput.description ? { description: parsedInput.description } : {}),
+      ...(parsedInput.severity ? { severity: parsedInput.severity } : {}),
+      ...(parsedInput.location ? { location: parsedInput.location } : {}),
+      ...(parsedInput.mediaReference ? { mediaReference: parsedInput.mediaReference } : {})
+    };
+    const result = await reportService.updatePendingResidentReport(request.auth.id, reportId, input);
+
+    response.status(200).json(result);
+  });
+
+  const cancelMineById: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const reportId = request.params.reportId;
+
+    if (!reportId) {
+      throw new ApiError(400, 'INVALID_REPORT_ID', 'Report id is required.');
+    }
+
+    const result = await reportService.cancelPendingResidentReport(request.auth.id, reportId);
+
+    response.status(200).json(result);
+  });
+
   const listCommunity: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
     const parsedQuery = communityReportQuerySchema.parse(request.query);
     const resolvedMode =
       parsedQuery.mode ??
@@ -38,13 +125,13 @@ export function createReportController(reportService: ReportService) {
 
     const result =
       resolvedMode === 'nearby' && parsedQuery.latitude !== undefined && parsedQuery.longitude !== undefined
-        ? await reportService.listCommunityReportsForVolunteer({
+        ? await reportService.listCommunityReportsForVolunteer(request.auth.id, {
             mode: 'nearby',
             latitude: parsedQuery.latitude,
             longitude: parsedQuery.longitude,
             radiusKm: parsedQuery.radiusKm ?? maxCommunityReportRadiusKm
           })
-        : await reportService.listCommunityReportsForVolunteer({
+        : await reportService.listCommunityReportsForVolunteer(request.auth.id, {
             mode: 'incoming'
           });
 
@@ -108,7 +195,13 @@ export function createReportController(reportService: ReportService) {
   });
 
   return {
+    listVerifiedOfficerReports,
     create,
+    listMine,
+    getMineById,
+    listMineFieldConfirmations,
+    updateMineById,
+    cancelMineById,
     listCommunity,
     getCommunityById,
     listPendingOfficerReports,

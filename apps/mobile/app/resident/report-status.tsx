@@ -1,5 +1,5 @@
-import { ReportStatusPlaceholderScreen } from '../../src/features/dashboards/resident/screens/ReportStatusPlaceholderScreen';
+import { ResidentReportDetailsScreen } from '../../src/features/dashboards/resident/screens/ResidentReportDetailsScreen';
 
 export default function ReportStatusRoute() {
-  return <ReportStatusPlaceholderScreen />;
+  return <ResidentReportDetailsScreen />;
 }

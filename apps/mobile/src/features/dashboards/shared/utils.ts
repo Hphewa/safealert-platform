@@ -1,4 +1,4 @@
-import type { RiskLevel, ReportStatus } from '@safealert/contracts';
+﻿import type { RiskLevel, ReportStatus } from '@safealert/contracts';
 
 import type { BadgeTone } from './types';
 
@@ -29,6 +29,8 @@ export function badgeToneForReportStatus(status: ReportStatus): BadgeTone {
       return 'success';
     case 'REJECTED':
       return 'critical';
+    case 'CANCELLED':
+      return 'neutral';
     case 'RESOLVED':
       return 'low';
   }

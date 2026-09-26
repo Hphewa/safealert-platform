@@ -11,7 +11,7 @@ export const authStyles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#0f172a'
+    color: '#111827'
   },
   subtitle: {
     fontSize: 16,
@@ -29,14 +29,14 @@ export const authStyles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 16,
     backgroundColor: '#ffffff',
-    color: '#0f172a'
+    color: '#111827'
   },
   button: {
     minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 8,
-    backgroundColor: '#0369a1',
+    backgroundColor: '#2563eb',
     paddingHorizontal: 16
   },
   secondaryButton: {
@@ -45,7 +45,7 @@ export const authStyles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#0369a1',
+    borderColor: '#2563eb',
     paddingHorizontal: 16
   },
   buttonText: {
@@ -56,12 +56,12 @@ export const authStyles = StyleSheet.create({
   secondaryButtonText: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0369a1'
+    color: '#2563eb'
   },
   error: {
     fontSize: 14,
     lineHeight: 20,
-    color: '#b91c1c'
+    color: '#dc2626'
   },
   helper: {
     fontSize: 13,

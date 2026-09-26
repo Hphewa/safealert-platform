@@ -693,7 +693,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.md,
-    backgroundColor: '#f3fffe',
+    backgroundColor: dashboardTheme.colors.primarySoft,
     ...cardShadow
   },
   introTitle: {
@@ -813,8 +813,8 @@ const styles = StyleSheet.create({
   },
   retryActionButton: {
     borderWidth: 1,
-    borderColor: '#f0c6c1',
-    backgroundColor: '#fff5f4'
+    borderColor: dashboardTheme.colors.criticalSoft,
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   retryActionButtonText: {
     color: dashboardTheme.colors.critical

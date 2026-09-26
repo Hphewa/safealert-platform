@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -141,7 +141,7 @@ export function VolunteerCommunityReportsScreen() {
           setErrorMessage('Unable to load community reports right now.');
         }
       } finally {
-        if (inFlightTabRef.current === tab) {
+        if (latestRequestIdRef.current === requestId && inFlightTabRef.current === tab) {
           inFlightTabRef.current = null;
         }
       }
@@ -149,9 +149,13 @@ export function VolunteerCommunityReportsScreen() {
     [accessToken]
   );
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     void loadReports(activeTab);
-  }, [activeTab, loadReports]);
+    return () => {
+      latestRequestIdRef.current += 1;
+      inFlightTabRef.current = null;
+    };
+  }, [activeTab, loadReports]));
 
   const isLoading = loadStatus === 'loading' || loadStatus === 'refreshing';
   const isNearby = activeTab === 'nearby';

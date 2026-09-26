@@ -3,7 +3,8 @@ import type {
   CreateReportRequest,
   ReportReviewRequest,
   ReportStatus,
-  SafeReport
+  SafeReport,
+  UpdateResidentReportRequest
 } from '@safealert/contracts';
 
 export type CreateReportInput = CreateReportRequest & {
@@ -24,11 +25,29 @@ export type ReviewReportInput = ReportReviewRequest & {
   reviewedAt: Date;
 };
 
+export type UpdatePendingResidentReportInput = {
+  reportId: string;
+  residentId: string;
+  update: UpdateResidentReportRequest;
+};
+
+export type CancelPendingResidentReportInput = {
+  reportId: string;
+  residentId: string;
+  cancelledAt: Date;
+};
+
 export interface ReportRepository {
   createReport(input: CreateReportInput): Promise<SafeReport>;
   findReportById(reportId: string): Promise<SafeReport | null>;
+  findReportsByResidentId(residentId: string): Promise<SafeReport[]>;
+  findReportByIdAndResidentId(reportId: string, residentId: string): Promise<SafeReport | null>;
+  findReportsByIds(reportIds: string[]): Promise<SafeReport[]>;
+
   findReportsByStatuses(statuses: ReportStatus[]): Promise<SafeReport[]>;
   findNearbyCommunityReports(query: NearbyCommunityReportsQuery): Promise<CommunityReportSummary[]>;
   findCommunityReportById(reportId: string, statuses: ReportStatus[]): Promise<CommunityReportSummary | null>;
+  updatePendingResidentReport(input: UpdatePendingResidentReportInput): Promise<SafeReport | null>;
+  cancelPendingResidentReport(input: CancelPendingResidentReportInput): Promise<SafeReport | null>;
   reviewReport(input: ReviewReportInput): Promise<SafeReport | null>;
 }

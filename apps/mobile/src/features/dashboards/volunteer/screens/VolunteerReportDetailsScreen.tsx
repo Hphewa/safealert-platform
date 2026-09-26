@@ -20,6 +20,10 @@ import {
   type VolunteerCommunityReport
 } from '../reports';
 
+function volunteerConfirmationHref(reportId: string, mode: 'confirmed' | 'unable') {
+  return `/volunteer/reports/${encodeURIComponent(reportId)}/confirm?mode=${mode}` as const;
+}
+
 export function VolunteerReportDetailsScreen() {
   const router = useRouter();
   const { accessToken } = useAuth();
@@ -179,17 +183,31 @@ export function VolunteerReportDetailsScreen() {
 
       <View style={styles.actionCard}>
         <View style={styles.actionCopy}>
-          <Text style={styles.actionTitle}>Confirm in Field</Text>
+          <Text style={styles.actionTitle}>Community Field Check</Text>
           <Text style={styles.actionBody}>
-            Field confirmation submission will be added in a later volunteer story. The original resident report stays read-only here.
+            Confirm the current situation or flag why you are unable to confirm it for Disaster Officer review.
           </Text>
         </View>
         <Pressable
           accessibilityRole="button"
-          onPress={() => router.push('/volunteer/confirmations')}
+          onPress={() => router.push(volunteerConfirmationHref(report.id, 'confirmed'))}
           style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
         >
-          <Text style={styles.primaryButtonText}>Confirm in Field</Text>
+          <Text style={styles.primaryButtonText}>Confirm Current Situation</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push(volunteerConfirmationHref(report.id, 'confirmed'))}
+          style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.secondaryButtonText}>Add Field Evidence</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="button"
+          onPress={() => router.push(volunteerConfirmationHref(report.id, 'unable'))}
+          style={({ pressed }) => [styles.flagButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.flagButtonText}>Unable to Confirm / Flag Issue</Text>
         </Pressable>
       </View>
     </DashboardScreen>
@@ -331,6 +349,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: '#ffffff'
+  },
+  secondaryButton: {
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.primary,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  secondaryButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  flagButton: {
+    minHeight: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.moderate,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.moderateSoft
+  },
+  flagButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#9a3412'
   },
   pressed: {
     opacity: 0.82

@@ -4,6 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { REPORT_REJECTION_REASON_MAX_LENGTH } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { OfficerFieldConfirmations } from '../components/OfficerFieldConfirmations';
 import { ApiClientError } from '@/services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
@@ -12,7 +13,7 @@ import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { badgeToneForReportStatus } from '../../shared/utils';
-import { officerBottomNavItems } from '../mockData';
+import { officerBottomNavItems } from '../officerNavigation';
 import { getPendingOfficerReportById, reviewOfficerReport } from '../api/officerReportsApi';
 import { recordReviewedOfficerReportId } from '../pendingReportsState';
 import {
@@ -23,7 +24,7 @@ import {
   type OfficerReportReviewRecord
 } from '../reports';
 
-type OfficerReviewAction = 'idle' | 'verifying' | 'rejecting' | 'more-info';
+type OfficerReviewAction = 'idle' | 'verifying' | 'rejecting';
 type OfficerReportLoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
 const checklistItems: ReadonlyArray<{
@@ -210,9 +211,24 @@ export function OfficerReportReviewScreen() {
       Alert.alert(
         action === 'VERIFY' ? 'Report Verified' : 'Report Rejected',
         action === 'VERIFY'
-          ? 'The report was verified and removed from the pending queue.'
+            ? response.grouping?.action === 'CREATED'
+            ? 'The report was verified and a new incident was created automatically.'
+            : response.grouping?.action === 'ATTACHED'
+              ? 'The report was verified and added to the matching incident automatically.'
+              : response.grouping?.action === 'ALREADY_ASSIGNED'
+                ? 'The report was verified and is already assigned to an incident.'
+                : 'The report was verified and incident grouping completed.'
           : 'The report was rejected and removed from the pending queue.',
         [
+          ...(action === 'VERIFY' ? [{
+            text: 'Continue to Risk Assessments',
+            onPress: () => {
+              if (isFocusedRef.current && latestReviewRequestIdRef.current === reviewRequestId &&
+                  activeReportIdRef.current === submittedReportId) {
+                router.dismissTo('/officer/assessments');
+              }
+            }
+          }] : []),
           {
             text: 'Return to Pending Reports',
             onPress: () => {
@@ -369,39 +385,7 @@ export function OfficerReportReviewScreen() {
         )}
       </SectionCard>
 
-      <SectionCard title="Volunteer Field Information">
-        {report.volunteerEvidence.length ? (
-          <View style={styles.stack}>
-            {report.volunteerEvidence.map((evidence) => (
-              <View key={evidence.id} style={styles.evidenceCard}>
-                <View style={styles.evidenceHeader}>
-                  <Text style={styles.evidenceTitle}>Field Update</Text>
-                  <Text style={styles.evidenceTime}>{evidence.confirmedAtLabel}</Text>
-                </View>
-                <Text style={styles.panelBody}>{evidence.observation}</Text>
-                {evidence.roadCondition ? (
-                  <Text style={styles.metaText}>Road condition: {evidence.roadCondition}</Text>
-                ) : null}
-                {evidence.waterLevel ? (
-                  <Text style={styles.metaText}>Water level: {evidence.waterLevel}</Text>
-                ) : null}
-                {evidence.photoUrl ? (
-                  <View style={styles.mediaBlock}>
-                    <Image
-                      accessibilityLabel={evidence.photoLabel ?? 'Volunteer photo evidence'}
-                      source={{ uri: evidence.photoUrl }}
-                      style={styles.mediaPreview}
-                    />
-                    {evidence.photoLabel ? <Text style={styles.caption}>{evidence.photoLabel}</Text> : null}
-                  </View>
-                ) : null}
-              </View>
-            ))}
-          </View>
-        ) : (
-          <Text style={styles.emptyCopy}>No volunteer field evidence has been recorded for this report yet.</Text>
-        )}
-      </SectionCard>
+      <OfficerFieldConfirmations reportId={report.id} />
 
       <SectionCard title="Evidence Timeline">
         {report.timeline.length ? (
@@ -621,25 +605,6 @@ export function OfficerReportReviewScreen() {
               </View>
             </View>
           ) : null}
-
-          <Pressable
-            accessibilityRole="button"
-            accessibilityState={{ disabled: isSubmitting }}
-            disabled={isSubmitting}
-            onPress={() => {
-              setActionError(null);
-              setSelectedAction('more-info');
-            }}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              selectedAction === 'more-info' && styles.secondaryButtonSelected,
-              isSubmitting && styles.actionButtonDisabled,
-              pressed && !isSubmitting && styles.pressed
-            ]}
-          >
-            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="help-circle-outline" size={16} />
-            <Text style={styles.secondaryButtonText}>Request More Info</Text>
-          </Pressable>
         </View>
 
         <View style={styles.actionStateBanner}>
@@ -672,8 +637,7 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
 const actionLabelMap: Record<OfficerReviewAction, string> = {
   idle: 'Awaiting officer decision',
   verifying: 'Verification confirmation required',
-  rejecting: 'Rejection reason required',
-  'more-info': 'Request More Info selected'
+  rejecting: 'Rejection reason required'
 };
 
 const styles = StyleSheet.create({
@@ -970,7 +934,7 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: dashboardTheme.radius.sm,
     backgroundColor: dashboardTheme.colors.criticalSoft
   },
@@ -1008,11 +972,11 @@ const styles = StyleSheet.create({
     gap: 8,
     borderRadius: dashboardTheme.radius.md,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
-    backgroundColor: '#fff5f4'
+    borderColor: dashboardTheme.colors.criticalSoft,
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   destructiveButtonSelected: {
-    backgroundColor: '#ffe7e4'
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   destructiveButtonText: {
     fontSize: 16,
@@ -1023,7 +987,7 @@ const styles = StyleSheet.create({
     gap: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#b8dfc1',
+    borderColor: dashboardTheme.colors.successSoft,
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.successSoft
   },
@@ -1034,9 +998,9 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: dashboardTheme.radius.md,
-    backgroundColor: '#fffafa'
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   fieldLabelRow: {
     flexDirection: 'row',
@@ -1068,7 +1032,7 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.text
   },
   reasonInputError: {
-    borderColor: '#e7a29b'
+    borderColor: dashboardTheme.colors.critical
   },
   fieldMetaRow: {
     flexDirection: 'row',
@@ -1121,7 +1085,7 @@ const styles = StyleSheet.create({
     backgroundColor: dashboardTheme.colors.critical
   },
   confirmRejectButtonDisabled: {
-    backgroundColor: '#ead9d7'
+    backgroundColor: dashboardTheme.colors.surfaceMuted
   },
   confirmRejectButtonText: {
     fontSize: 15,
@@ -1129,7 +1093,7 @@ const styles = StyleSheet.create({
     color: '#ffffff'
   },
   confirmRejectButtonTextDisabled: {
-    color: '#8f7774'
+    color: dashboardTheme.colors.muted
   },
   confirmVerifyButton: {
     minHeight: 46,
@@ -1217,3 +1181,5 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.muted
   }
 });
+
+

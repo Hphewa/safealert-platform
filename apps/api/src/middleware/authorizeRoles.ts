@@ -11,7 +11,8 @@ export function authorizeRoles(...allowedRoles: UserRole[]): RequestHandler {
     }
 
     if (!allowedRoles.includes(request.auth.role)) {
-      next(new ApiError(403, 'FORBIDDEN', 'You are not allowed to perform this action.'));
+      next(new ApiError(403, 'FORBIDDEN', allowedRoles.includes('DISASTER_OFFICER')
+        ? 'You are not authorized to publish warnings.' : 'You are not allowed to perform this action.'));
       return;
     }
 

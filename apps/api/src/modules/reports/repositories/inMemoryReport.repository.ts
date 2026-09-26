@@ -3,11 +3,14 @@ import crypto from 'node:crypto';
 import type { CommunityReportSummary, ReportStatus, SafeReport } from '@safealert/contracts';
 
 import type {
+  CancelPendingResidentReportInput,
   CreateReportInput,
   NearbyCommunityReportsQuery,
   ReportRepository,
-  ReviewReportInput
+  ReviewReportInput,
+  UpdatePendingResidentReportInput
 } from './report.repository.js';
+import { haversineDistanceKm } from '../../../shared/geo.js';
 
 export class InMemoryReportRepository implements ReportRepository {
   private readonly reports = new Map<string, SafeReport>();
@@ -15,7 +18,7 @@ export class InMemoryReportRepository implements ReportRepository {
   async createReport(input: CreateReportInput): Promise<SafeReport> {
     const now = new Date().toISOString();
     const report: SafeReport = {
-      id: crypto.randomUUID(),
+      id: crypto.randomBytes(12).toString('hex'),
       residentId: input.residentId,
       hazardType: input.hazardType,
       description: input.description,
@@ -36,6 +39,23 @@ export class InMemoryReportRepository implements ReportRepository {
 
   async findReportById(id: string) {
     return this.reports.get(id) ?? null;
+  }
+
+  async findReportsByResidentId(residentId: string) {
+    return [...this.reports.values()]
+      .filter((report) => report.residentId === residentId)
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async findReportByIdAndResidentId(reportId: string, residentId: string) {
+    const report = this.reports.get(reportId);
+
+    return report?.residentId === residentId ? report : null;
+  }
+
+  async findReportsByIds(ids: string[]) {
+    const selectedIds = new Set(ids.map((id) => id.toLowerCase()));
+    return [...this.reports.values()].filter((report) => selectedIds.has(report.id.toLowerCase()));
   }
 
   async findReportsByStatuses(statuses: ReportStatus[]) {
@@ -94,6 +114,43 @@ export class InMemoryReportRepository implements ReportRepository {
     this.reports.set(report.id, report);
   }
 
+  async updatePendingResidentReport(input: UpdatePendingResidentReportInput) {
+    const report = this.reports.get(input.reportId);
+
+    if (!report || report.residentId !== input.residentId || report.status !== 'PENDING') {
+      return null;
+    }
+
+    const updatedReport: SafeReport = {
+      ...report,
+      ...input.update,
+      updatedAt: new Date().toISOString()
+    };
+
+    this.reports.set(updatedReport.id, updatedReport);
+    return updatedReport;
+  }
+
+  async cancelPendingResidentReport(input: CancelPendingResidentReportInput) {
+    const report = this.reports.get(input.reportId);
+
+    if (!report || report.residentId !== input.residentId || report.status !== 'PENDING') {
+      return null;
+    }
+
+    const cancelledAt = input.cancelledAt.toISOString();
+    const updatedReport: SafeReport = {
+      ...report,
+      status: 'CANCELLED',
+      updatedAt: cancelledAt,
+      cancelledById: input.residentId,
+      cancelledAt
+    };
+
+    this.reports.set(updatedReport.id, updatedReport);
+    return updatedReport;
+  }
+
   async reviewReport(input: ReviewReportInput) {
     const report = this.reports.get(input.reportId);
 
@@ -140,32 +197,4 @@ export class InMemoryReportRepository implements ReportRepository {
     this.reports.set(updatedReport.id, updatedReport);
     return updatedReport;
   }
-}
-
-function haversineDistanceKm(
-  fromLatitude: number,
-  fromLongitude: number,
-  toLatitude: number,
-  toLongitude: number
-) {
-  const earthRadiusKm = 6371;
-  const latitudeDelta = toRadians(toLatitude - fromLatitude);
-  const longitudeDelta = toRadians(toLongitude - fromLongitude);
-  const startLatitude = toRadians(fromLatitude);
-  const endLatitude = toRadians(toLatitude);
-
-  const a =
-    Math.sin(latitudeDelta / 2) * Math.sin(latitudeDelta / 2) +
-    Math.cos(startLatitude) *
-      Math.cos(endLatitude) *
-      Math.sin(longitudeDelta / 2) *
-      Math.sin(longitudeDelta / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return earthRadiusKm * c;
-}
-
-function toRadians(value: number) {
-  return (value * Math.PI) / 180;
 }

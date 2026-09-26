@@ -1,7 +1,6 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import type { CreateReportRequest } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
@@ -10,24 +9,38 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { createResidentReport } from '../api/reportApi';
+import { uploadReportEvidence } from '../api/mediaApi';
 import { residentBottomNavItems } from '../mockData';
-import { hazardTypeLabels, severityLabels, useReportHazardDraft } from '../reportDraft';
+import {
+  hazardTypeLabels,
+  severityLabels,
+  useReportHazardDraft,
+  type ReportHazardDraft
+} from '../reportDraft';
+import {
+  beginReportSubmission,
+  canSubmitReport,
+  clearReportSubmission,
+  isReportSubmissionActive
+} from '../reportSubmissionGuard';
+import { ReportSubmissionError, submitResidentReportDraft } from '../reportSubmission';
 
 const connectionStatus = 'Online';
 
 type SubmitState = {
-  status: 'idle' | 'submitting' | 'error';
-  reason?: 'validation' | 'auth' | 'network' | 'server';
+  status: 'idle' | 'uploading' | 'submitting' | 'error';
+  reason?: 'validation' | 'auth' | 'network' | 'upload' | 'server';
   message: string | null;
 };
 
 export function ReviewReportScreen() {
   const router = useRouter();
   const { accessToken } = useAuth();
-  const { draft, resetDraft, setSubmittedReport, validation } = useReportHazardDraft();
+  const { draft, resetDraft, setDraft, setSubmittedReport, validation } = useReportHazardDraft();
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
-  const isSubmitting = submitState.status === 'submitting';
-  const canSubmit = validation.isValid && !isSubmitting;
+  const submitInFlightRef = useRef(false);
+  const isSubmitting = isReportSubmissionActive(submitState.status);
+  const canSubmit = canSubmitReport({ isValid: validation.isValid, status: submitState.status });
 
   const editReport = () => {
     router.push('/resident/report-hazard');
@@ -56,24 +69,46 @@ export function ReviewReportScreen() {
       return;
     }
 
-    const payload: CreateReportRequest = {
-      hazardType: draft.hazardType,
-      severity: draft.severity,
-      description: draft.description.trim(),
-      location: {
-        type: 'Point',
-        coordinates: [draft.location.longitude, draft.location.latitude]
-      }
-    };
+    if (!beginReportSubmission(submitInFlightRef, isSubmitting)) {
+      return;
+    }
 
-    setSubmitState({ status: 'submitting', message: null });
+    setSubmittedReport(null);
+    setSubmitState(photoNeedsUpload(draft) ? { status: 'uploading', message: null } : { status: 'submitting', message: null });
 
     try {
-      const response = await createResidentReport(payload, accessToken);
-      setSubmittedReport(response.report);
+      const result = await submitResidentReportDraft({
+        draft,
+        accessToken,
+        uploadReportEvidence,
+        createResidentReport,
+        onEvidenceUploaded: (mediaReference) => {
+          setDraft((current) => {
+            if (current.photoEvidence.status !== 'LOCAL_SELECTED') {
+              return current;
+            }
+
+            return {
+              ...current,
+              photoEvidence: {
+                ...current.photoEvidence,
+                selected: {
+                  ...current.photoEvidence.selected,
+                  needsUpload: false,
+                  uploadedMediaReference: mediaReference
+                },
+                message: 'Photo evidence uploaded. It will be attached when this report is submitted.'
+              }
+            };
+          });
+          setSubmitState({ status: 'submitting', message: null });
+        }
+      });
+      setSubmittedReport(result.response.report);
       resetDraft();
       router.replace('/resident/report-submitted');
     } catch (error) {
+      clearReportSubmission(submitInFlightRef);
       setSubmitState({
         status: 'error',
         ...submitErrorStateFor(error)
@@ -151,7 +186,9 @@ export function ReviewReportScreen() {
               style={styles.photoPreview}
             />
             <Text style={styles.helperText}>
-              Photo selected locally. No media upload service exists yet, so this local device URI is not sent to the API.
+              {draft.photoEvidence.selected.uploadedMediaReference
+                ? 'Photo evidence has been uploaded and will be attached to this report.'
+                : 'Photo selected locally. It will upload before the report is submitted.'}
             </Text>
           </View>
         ) : (
@@ -197,7 +234,10 @@ export function ReviewReportScreen() {
       {submitState.status === 'error' ? (
         <View style={styles.validationPanel}>
           <Text style={styles.errorText}>{submitState.message}</Text>
-          {submitState.reason === 'network' || submitState.reason === 'server' ? (
+          {submitState.reason === 'network' ||
+          submitState.reason === 'upload' ||
+          submitState.reason === 'validation' ||
+          submitState.reason === 'server' ? (
             <Pressable
               accessibilityLabel="Retry report submission"
               accessibilityRole="button"
@@ -242,7 +282,12 @@ export function ReviewReportScreen() {
           ]}
         >
           {isSubmitting ? (
-            <ActivityIndicator color="#ffffff" size="small" />
+            <View style={styles.submitProgress}>
+              <ActivityIndicator color="#ffffff" size="small" />
+              <Text style={styles.submitButtonText}>
+                {submitState.status === 'uploading' ? 'Uploading evidence...' : 'Submitting report...'}
+              </Text>
+            </View>
           ) : (
             <Text style={[styles.submitButtonText, !canSubmit && styles.submitButtonTextDisabled]}>
               {submitState.status === 'error' ? 'Try Submit Again' : 'Submit Report'}
@@ -264,11 +309,15 @@ function ReviewDetail({ label, value }: { label: string; value: string }) {
 }
 
 function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'message'> {
+  if (error instanceof ReportSubmissionError) {
+    return submitErrorStateForStage(error);
+  }
+
   if (error instanceof ApiClientError) {
     if (error.status === 0) {
       return {
         reason: 'network',
-        message: 'Cannot reach SafeAlert right now. Your report draft was not lost. Check your connection and retry.'
+        message: 'Could not submit the report. Check your connection and try again.'
       };
     }
 
@@ -286,6 +335,13 @@ function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'mess
       };
     }
 
+    if (error.status === 413 || error.status === 415) {
+      return {
+        reason: 'upload',
+        message: 'That photo could not be uploaded. Choose a supported JPG or PNG and try again.'
+      };
+    }
+
     return {
       reason: 'server',
       message: 'SafeAlert could not submit the report right now. Your draft is still here, so you can retry.'
@@ -298,8 +354,96 @@ function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'mess
   };
 }
 
+function submitErrorStateForStage(error: ReportSubmissionError): Pick<SubmitState, 'reason' | 'message'> {
+  const originalError = error.originalError;
+
+  if (originalError instanceof ApiClientError) {
+    if (originalError.status === 401 || originalError.status === 403) {
+      return {
+        reason: 'auth',
+        message: 'Your session could not submit this report. Please log in again.'
+      };
+    }
+
+    if (error.stage === 'upload') {
+      if (originalError.status === 0) {
+        return {
+          reason: 'network',
+          message: "Couldn't upload the photo. Check your connection and try again."
+        };
+      }
+
+      return {
+        reason: 'upload',
+        message: uploadFailureMessageFor(originalError)
+      };
+    }
+
+    if (originalError.status === 0) {
+      return {
+        reason: 'network',
+        message: error.mediaReference
+          ? 'Your photo was uploaded, but the report could not be submitted. Check your connection and try again.'
+          : 'Could not submit the report. Check your connection and try again.'
+      };
+    }
+
+    return {
+      reason: originalError.status === 400 ? 'validation' : 'server',
+      message: error.mediaReference
+        ? 'Your photo was uploaded, but the report could not be submitted. Try again.'
+        : reportCreateFailureMessageFor(originalError)
+    };
+  }
+
+  if (error.stage === 'upload') {
+    return {
+      reason: 'upload',
+      message: "Couldn't upload the photo. Try again."
+    };
+  }
+
+  return {
+    reason: 'server',
+    message: error.mediaReference
+      ? 'Your photo was uploaded, but the report could not be submitted. Try again.'
+      : 'SafeAlert could not submit the report right now. Your draft is still here, so you can retry.'
+  };
+}
+
+function uploadFailureMessageFor(error: ApiClientError) {
+  if (error.status === 413) {
+    return 'That photo is too large to upload. Choose a smaller image and try again.';
+  }
+
+  if (error.status === 415) {
+    return 'That photo format is not supported. Choose a JPG or PNG and try again.';
+  }
+
+  if (error.status === 400) {
+    return 'That photo could not be uploaded. Choose a supported JPG or PNG and try again.';
+  }
+
+  return "Couldn't upload the photo right now. Try again.";
+}
+
+function reportCreateFailureMessageFor(error: ApiClientError) {
+  if (error.status === 400) {
+    return 'Some report details are invalid. Please edit the report and try again.';
+  }
+
+  return 'SafeAlert could not submit the report right now. Your draft is still here, so you can retry.';
+}
+
 function formatCoordinate(value: number) {
   return value.toFixed(6);
+}
+
+function photoNeedsUpload(draft: ReportHazardDraft) {
+  return (
+    draft.photoEvidence.status === 'LOCAL_SELECTED' &&
+    !draft.photoEvidence.selected.uploadedMediaReference
+  );
 }
 
 const styles = StyleSheet.create({
@@ -405,7 +549,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.md,
-    backgroundColor: '#f3fffe'
+    backgroundColor: dashboardTheme.colors.primarySoft
   },
   locationPreviewTitle: {
     fontSize: 14,
@@ -475,9 +619,9 @@ const styles = StyleSheet.create({
     gap: 6,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: dashboardTheme.radius.sm,
-    backgroundColor: '#fff5f4'
+    backgroundColor: dashboardTheme.colors.criticalSoft
   },
   errorText: {
     fontSize: 14,
@@ -491,7 +635,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: '#f0c6c1',
+    borderColor: dashboardTheme.colors.criticalSoft,
     borderRadius: dashboardTheme.radius.sm,
     backgroundColor: dashboardTheme.colors.surface
   },
@@ -549,6 +693,11 @@ const styles = StyleSheet.create({
   },
   submitButtonTextDisabled: {
     color: dashboardTheme.colors.muted
+  },
+  submitProgress: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8
   },
   pressed: {
     opacity: 0.82
