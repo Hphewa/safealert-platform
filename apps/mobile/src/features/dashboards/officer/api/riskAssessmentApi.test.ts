@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CalculateRiskAssessmentRequest } from '@safealert/contracts';
 import { apiBaseUrl } from '../../../../services/api/client';
-import { calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForReport, listVerifiedOfficerReports } from './riskAssessmentApi';
+import { calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident, listVerifiedOfficerReports } from './riskAssessmentApi';
 
 const factors: CalculateRiskAssessmentRequest = {
-  hazardReportId: '123456789012345678901234', hazardSeverity: 'HIGH', peopleAffected: 80,
+  incidentId: '123456789012345678901234', hazardSeverity: 'HIGH', peopleAffected: 80,
   vulnerablePeople: 12, roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
   waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN'
 };
@@ -26,10 +26,10 @@ describe('risk assessment authenticated API adapter', () => {
     const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => new Response('{}'));
     vi.stubGlobal('fetch', fetchMock);
     await getRiskAssessment('assessment/one', 'officer-token');
-    await getRiskAssessmentForReport('report/one', 'officer-token');
+    await getRiskAssessmentForIncident('report/one', 'officer-token');
     await listVerifiedOfficerReports('officer-token');
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      `${apiBaseUrl}/risk-assessments/assessment%2Fone`, `${apiBaseUrl}/risk-assessments/report/report%2Fone`, `${apiBaseUrl}/reports/officer/verified`
+      `${apiBaseUrl}/risk-assessments/assessment%2Fone`, `${apiBaseUrl}/risk-assessments/incident/report%2Fone`, `${apiBaseUrl}/reports/officer/verified`
     ]);
     for (const [, options] of fetchMock.mock.calls) {
       expect(options).toMatchObject({ method: 'GET', headers: { Authorization: 'Bearer officer-token' } });
@@ -43,6 +43,6 @@ describe('risk assessment authenticated API adapter', () => {
   });
   it('uses the central network-error response', async () => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockRejectedValue(new Error('Offline')));
-    await expect(getRiskAssessmentForReport(factors.hazardReportId, 'token')).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+    await expect(getRiskAssessmentForIncident(factors.incidentId, 'token')).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
   });
 });

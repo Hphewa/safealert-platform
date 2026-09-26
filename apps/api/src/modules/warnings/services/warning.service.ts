@@ -1,12 +1,13 @@
 import { canCreateWarning, type CreateWarningRequest, type CreateWarningResponse, type PublishWarningResponse } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 import type { RiskAssessmentRepository } from '../../risk-assessments/repositories/riskAssessment.repository.js';
+import type { IncidentRepository } from '../../incidents/repositories/incident.repository.js';
 import type { WarningRepository } from '../repositories/warning.repository.js';
 import type { WarningAttachmentRepository } from '../repositories/warningAttachment.repository.js';
 
 export class WarningService {
   constructor(private readonly warnings: WarningRepository, private readonly assessments: RiskAssessmentRepository,
-    private readonly images: WarningAttachmentRepository) {}
+    private readonly images: WarningAttachmentRepository, private readonly incidents?: IncidentRepository) {}
 
   async create(officerId: string, input: CreateWarningRequest): Promise<CreateWarningResponse> {
     const assessment = await this.assessments.findById(input.assessmentId);
@@ -21,8 +22,11 @@ export class WarningService {
         throw new ApiError(400, 'INVALID_ATTACHMENT', 'Choose and upload your images for this assessment before saving.');
       }
     }
+    const incident = this.incidents ? await this.incidents.findById(assessment.incidentId) : null;
+    const hazardReportId = incident?.reportIds[0];
+    if (!hazardReportId) throw new ApiError(409, 'INVALID_INCIDENT_STATE', 'The assessment incident has no source report.');
     const warning = await this.warnings.create({
-      assessmentId: assessment.id, hazardReportId: assessment.hazardReportId,
+      assessmentId: assessment.id, hazardReportId,
       createdById: officerId, riskLevel: assessment.finalRiskLevel, status: 'DRAFT',
       affectedArea: input.affectedArea, requiredAction: input.requiredAction,
       unsafeRoads: input.unsafeRoads, message: input.message,

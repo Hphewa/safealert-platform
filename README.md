@@ -64,17 +64,18 @@ npm install
 
 ```bash
 npm run mobile
+npm run mobile:android
 npm run api
 npm run typecheck
 npm run lint
 npm --workspace @safealert/api test
 ```
 
-`npm run mobile` starts Expo from `apps/mobile`.
+`npm run mobile` starts Expo from `apps/mobile`. For the Android emulator, start the `Pixel_7a` AVD in Android Studio and run `npm run mobile:android` from the repository root. This opens the Expo app on the emulator.
 
 `npm run api` starts the Express API in watch mode from `apps/api`.
 
-The API requires `apps/api/.env` with `MONGODB_URI`, JWT secrets, and token expiration settings. The mobile app reads `EXPO_PUBLIC_API_URL` from `apps/mobile/.env`; treat that value as public/client-visible.
+The API requires `apps/api/.env` with `MONGODB_URI`, JWT secrets, and token expiration settings. The mobile app reads `EXPO_PUBLIC_API_URL` from `apps/mobile/.env`; treat that value as public/client-visible. For an Android emulator, use `http://10.0.2.2:4000/api/v1` to reach the API running on the host computer. For a physical device, use the computer's LAN IP instead.
 
 The API health endpoint is:
 

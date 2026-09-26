@@ -42,6 +42,8 @@ export interface ReportRepository {
   findReportById(reportId: string): Promise<SafeReport | null>;
   findReportsByResidentId(residentId: string): Promise<SafeReport[]>;
   findReportByIdAndResidentId(reportId: string, residentId: string): Promise<SafeReport | null>;
+  findReportsByIds(reportIds: string[]): Promise<SafeReport[]>;
+
   findReportsByStatuses(statuses: ReportStatus[]): Promise<SafeReport[]>;
   findNearbyCommunityReports(query: NearbyCommunityReportsQuery): Promise<CommunityReportSummary[]>;
   findCommunityReportById(reportId: string, statuses: ReportStatus[]): Promise<CommunityReportSummary | null>;

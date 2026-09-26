@@ -10,6 +10,7 @@ import type {
   ReviewReportInput,
   UpdatePendingResidentReportInput
 } from './report.repository.js';
+import { haversineDistanceKm } from '../../../shared/geo.js';
 
 export class InMemoryReportRepository implements ReportRepository {
   private readonly reports = new Map<string, SafeReport>();
@@ -50,6 +51,11 @@ export class InMemoryReportRepository implements ReportRepository {
     const report = this.reports.get(reportId);
 
     return report?.residentId === residentId ? report : null;
+  }
+
+  async findReportsByIds(ids: string[]) {
+    const selectedIds = new Set(ids.map((id) => id.toLowerCase()));
+    return [...this.reports.values()].filter((report) => selectedIds.has(report.id.toLowerCase()));
   }
 
   async findReportsByStatuses(statuses: ReportStatus[]) {
@@ -191,32 +197,4 @@ export class InMemoryReportRepository implements ReportRepository {
     this.reports.set(updatedReport.id, updatedReport);
     return updatedReport;
   }
-}
-
-function haversineDistanceKm(
-  fromLatitude: number,
-  fromLongitude: number,
-  toLatitude: number,
-  toLongitude: number
-) {
-  const earthRadiusKm = 6371;
-  const latitudeDelta = toRadians(toLatitude - fromLatitude);
-  const longitudeDelta = toRadians(toLongitude - fromLongitude);
-  const startLatitude = toRadians(fromLatitude);
-  const endLatitude = toRadians(toLatitude);
-
-  const a =
-    Math.sin(latitudeDelta / 2) * Math.sin(latitudeDelta / 2) +
-    Math.cos(startLatitude) *
-      Math.cos(endLatitude) *
-      Math.sin(longitudeDelta / 2) *
-      Math.sin(longitudeDelta / 2);
-
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return earthRadiusKm * c;
-}
-
-function toRadians(value: number) {
-  return (value * Math.PI) / 180;
 }

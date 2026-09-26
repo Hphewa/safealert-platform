@@ -36,6 +36,10 @@ import type { WarningAttachmentRepository } from './modules/warnings/repositorie
 import { GridFsWarningAttachmentRepository } from './modules/warnings/repositories/gridFsWarningAttachment.repository.js';
 import { WarningAttachmentService } from './modules/warnings/services/warningAttachment.service.js';
 import { createWarningAttachmentRouter } from './modules/warnings/routes/warningAttachment.routes.js';
+import type { IncidentRepository } from './modules/incidents/repositories/incident.repository.js';
+import { MongooseIncidentRepository } from './modules/incidents/repositories/mongooseIncident.repository.js';
+import { IncidentService } from './modules/incidents/services/incident.service.js';
+import { createIncidentRouter } from './modules/incidents/routes/incident.routes.js';
 
 type CreateAppOptions = {
   config: ApiConfig;
@@ -46,6 +50,7 @@ type CreateAppOptions = {
   riskAssessmentRepository?: RiskAssessmentRepository;
   warningRepository?: WarningRepository;
   warningAttachmentRepository?: WarningAttachmentRepository;
+  incidentRepository?: IncidentRepository;
   enableRbacTestRoutes?: boolean;
 };
 
@@ -58,17 +63,20 @@ export function createApp({
   riskAssessmentRepository,
   warningRepository,
   warningAttachmentRepository,
+  incidentRepository,
   enableRbacTestRoutes = false
 }: CreateAppOptions) {
   const app = express();
   const authService = new AuthService(authRepository ?? new MongooseAuthRepository(), config);
   const confirmations = fieldConfirmationRepository ?? new MongooseFieldConfirmationRepository();
   const resolvedReportRepository = reportRepository ?? new MongooseReportRepository();
-  const reportService = new ReportService(resolvedReportRepository, confirmations);
+  const resolvedIncidentRepository = incidentRepository ?? new MongooseIncidentRepository();
+  const incidentService = new IncidentService(resolvedIncidentRepository, resolvedReportRepository);
+  const reportService = new ReportService(resolvedReportRepository, confirmations, incidentService);
   const resolvedAssessmentRepository = riskAssessmentRepository ?? new MongooseRiskAssessmentRepository();
-  const riskAssessmentService = new RiskAssessmentService(resolvedAssessmentRepository, resolvedReportRepository);
+  const riskAssessmentService = new RiskAssessmentService(resolvedAssessmentRepository, resolvedIncidentRepository, resolvedReportRepository);
   const resolvedImages = warningAttachmentRepository ?? new GridFsWarningAttachmentRepository();
-  const warningService = new WarningService(warningRepository ?? new MongooseWarningRepository(), resolvedAssessmentRepository, resolvedImages);
+  const warningService = new WarningService(warningRepository ?? new MongooseWarningRepository(), resolvedAssessmentRepository, resolvedImages, resolvedIncidentRepository);
   const warningAttachmentService = new WarningAttachmentService(resolvedImages, resolvedAssessmentRepository);
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()
@@ -89,6 +97,7 @@ export function createApp({
 
   app.use('/api/v1/auth', createAuthRouter(authService, config));
   app.use('/api/v1/reports', createReportRouter(reportService, config));
+  app.use('/api/v1/incidents', createIncidentRouter(incidentService, config));
   app.use('/api/v1/media', createMediaRouter(mediaStorage, config));
   app.use('/api/v1/field-confirmations', createFieldConfirmationRouter(
     new FieldConfirmationService(confirmations, reportService), config

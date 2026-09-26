@@ -1,6 +1,7 @@
 import type {
   GetPendingOfficerReportResponse,
   GetPendingOfficerReportsResponse,
+  GetVerifiedOfficerReportsResponse,
   ReportReviewRequest,
   ReviewReportResponse
 } from '@safealert/contracts';
@@ -9,6 +10,12 @@ import { apiRequest } from '../../../../services/api/client';
 
 export function listPendingOfficerReports(accessToken: string) {
   return apiRequest<GetPendingOfficerReportsResponse>('/reports/officer/pending', {
+    accessToken
+  });
+}
+
+export function listVerifiedOfficerReports(accessToken: string) {
+  return apiRequest<GetVerifiedOfficerReportsResponse>('/reports/officer/verified', {
     accessToken
   });
 }

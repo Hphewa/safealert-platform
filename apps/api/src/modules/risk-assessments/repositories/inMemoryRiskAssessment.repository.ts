@@ -9,7 +9,7 @@ export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepositor
   async create(input: CreateRiskAssessmentInput): Promise<SafeRiskAssessment> {
     // No await between uniqueness check and insertion: emulate the atomic DB insert.
     if (input.status === 'ACTIVE' && [...this.assessments.values()].some(
-      (assessment) => assessment.hazardReportId === input.hazardReportId && assessment.status === 'ACTIVE'
+      (assessment) => assessment.incidentId === input.incidentId && assessment.status === 'ACTIVE'
     )) throw new ActiveRiskAssessmentExistsError();
     const now = new Date().toISOString();
     const assessment: SafeRiskAssessment = {
@@ -21,9 +21,9 @@ export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepositor
   async findById(assessmentId: string) {
     return structuredClone(this.assessments.get(assessmentId) ?? null);
   }
-  async findActiveByHazardReportId(hazardReportId: string) {
+  async findActiveByIncidentId(incidentId: string) {
     return structuredClone([...this.assessments.values()].find(
-      (assessment) => assessment.hazardReportId === hazardReportId && assessment.status === 'ACTIVE'
+      (assessment) => assessment.incidentId === incidentId && assessment.status === 'ACTIVE'
     ) ?? null);
   }
 }

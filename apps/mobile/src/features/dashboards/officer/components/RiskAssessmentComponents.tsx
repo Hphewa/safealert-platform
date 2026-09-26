@@ -1,17 +1,18 @@
-import { useState, type ReactNode } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import type { RiskAssessmentFactors, SafeReport } from '@safealert/contracts';
+import type { RiskAssessmentFactors, SafeIncident, SafeReport } from '@safealert/contracts';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
-import { officerBottomNavItems } from '../mockData';
+import { officerBottomNavItems } from '../officerNavigation';
 
 export const assessmentLabel = (value: string) => value.replace(/_/g, ' ');
 
 export function AssessmentPage({ title, children }: { title: string; children: ReactNode }) {
   const router = useRouter();
+  const refresh = useMemo(() => Date.now().toString(), []);
   return <DashboardScreen bottomNavItems={officerBottomNavItems}>
-    <AssessmentButton label="Back to Assessments" secondary onPress={() => router.replace('/officer/assessments')} />
+    <AssessmentButton label="Back to Assessments" secondary onPress={() => router.replace({ pathname: '/officer/assessments', params: { refresh } })} />
     <Text style={assessmentStyles.title}>{title}</Text>
     {children}
   </DashboardScreen>;
@@ -52,6 +53,16 @@ export function ReportAssessmentContext({ report }: { report: SafeReport }) {
     {canShowImage && !imageFailed ? <Image accessibilityLabel="Resident evidence" source={{ uri: report.mediaReference }}
       onError={() => setImageFailed(true)} style={assessmentStyles.image} resizeMode="cover" /> : null}
     {report.mediaReference && (!canShowImage || imageFailed) ? <Text style={assessmentStyles.helper}>Resident evidence is not available for preview.</Text> : null}
+  </View>;
+}
+export function IncidentAssessmentContext({ incident, reports }: { incident?: SafeIncident; reports?: SafeReport[] }) {
+  if (!incident || !reports) return null;
+  return <View style={assessmentStyles.card}>
+    <Text style={assessmentStyles.heading}>Incident evidence</Text>
+    <AssessmentDetail label="Hazard Type" value={assessmentLabel(incident.hazardType)} />
+    <AssessmentDetail label="Verified Reports" value={reports.length} />
+    <AssessmentDetail label="Incident Location (latitude, longitude)" value={`${incident.location.coordinates[1]}, ${incident.location.coordinates[0]}`} />
+    {reports.map((report) => <ReportAssessmentContext key={report.id} report={report} />)}
   </View>;
 }
 // Factor summaries are shared by the decision and saved result views.
@@ -99,5 +110,6 @@ export const assessmentStyles = StyleSheet.create({
   selectedOption: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.primarySoft },
   optionText: { fontSize: 13, fontWeight: '600', color: dashboardTheme.colors.text },
   input: { minHeight: 48, padding: 12, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 12, fontSize: 16, color: dashboardTheme.colors.text, backgroundColor: dashboardTheme.colors.surface },
+  inputError: { borderColor: dashboardTheme.colors.critical },
   image: { width: '100%', height: 190, borderRadius: 12 }
 });

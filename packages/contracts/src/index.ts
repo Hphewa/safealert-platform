@@ -37,7 +37,7 @@ export type RiskAssessmentFactors = {
   waterLevelTrend: WaterLevelTrend;
   weatherCondition: WeatherCondition;
 };
-export type CalculateRiskAssessmentRequest = RiskAssessmentFactors & { hazardReportId: string };
+export type CalculateRiskAssessmentRequest = RiskAssessmentFactors & { incidentId: string };
 export type CalculateRiskAssessmentResponse = { calculatedScore: number; systemSuggestedRisk: RiskLevel };
 export type CreateRiskAssessmentRequest = CalculateRiskAssessmentRequest & {
   finalRiskLevel: RiskLevel;
@@ -52,8 +52,8 @@ export type SafeRiskAssessment = CreateRiskAssessmentRequest & CalculateRiskAsse
   updatedAt: string;
 };
 // Report context is joined at read time, never copied into the stored assessment.
-export type RiskAssessmentResponse = { assessment: SafeRiskAssessment; report: SafeReport };
-export type RiskAssessmentForReportResponse = { assessment: SafeRiskAssessment | null; report: SafeReport };
+export type RiskAssessmentResponse = { assessment: SafeRiskAssessment; incident: SafeIncident; reports: SafeReport[] };
+export type RiskAssessmentForIncidentResponse = { assessment: SafeRiskAssessment | null; incident: SafeIncident; reports: SafeReport[] };
 export type GetVerifiedOfficerReportsResponse = { reports: SafeReport[] };
 
 export const WARNING_RISK_LEVELS = ['HIGH', 'CRITICAL'] as const;
@@ -121,6 +121,48 @@ export type ReportSeverity = (typeof REPORT_SEVERITIES)[number];
 export type GeoJsonPoint = {
   type: 'Point';
   coordinates: [longitude: number, latitude: number];
+};
+
+export const INCIDENT_STATUSES = ['ACTIVE', 'RESOLVED', 'CLOSED'] as const;
+export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
+export const INCIDENT_MAX_REPORTS = 100;
+// Candidate matching heuristics are intentionally centralized and configurable.
+// They are product defaults, not official disaster-management standards.
+export const INCIDENT_MATCH_RADIUS_METERS = 500;
+export const INCIDENT_MATCH_TIME_WINDOW_HOURS = 2;
+
+// Officers select report references; hazard, location and audit fields are server-owned.
+export type CreateIncidentRequest = { reportIds: string[] };
+export type AddIncidentReportRequest = { reportId: string };
+export type SafeIncident = {
+  id: string;
+  hazardType: HazardType;
+  location: GeoJsonPoint;
+  reportIds: string[];
+  status: IncidentStatus;
+  createdById: string;
+  createdAt: string;
+  updatedAt: string;
+};
+export type IncidentResponse = { incident: SafeIncident };
+export type IncidentWithReportsResponse = { incident: SafeIncident; reports: SafeReport[] };
+export type GetActiveIncidentsResponse = { incidents: IncidentWithReportsResponse[] };
+export type IncidentCandidate = {
+  incidentId: string;
+  hazardType: HazardType;
+  location: GeoJsonPoint;
+  reportCount: number;
+  earliestReportAt: string;
+  latestReportAt: string;
+  distanceMeters: number;
+};
+export type IncidentCandidatesResponse = { candidates: IncidentCandidate[] };
+export const INCIDENT_GROUPING_ACTIONS = ['CREATED', 'ATTACHED', 'ALREADY_ASSIGNED'] as const;
+export type IncidentGroupingAction = (typeof INCIDENT_GROUPING_ACTIONS)[number];
+export type AutomaticIncidentGrouping = {
+  action: IncidentGroupingAction;
+  incident: SafeIncident;
+  candidate?: IncidentCandidate;
 };
 
 export type CreateReportRequest = {
@@ -199,6 +241,7 @@ export type UploadReportEvidenceResponse = {
 
 export type VerifyReportResponse = {
   report: SafeReport;
+  grouping?: AutomaticIncidentGrouping;
 };
 
 export type ReviewReportResponse = VerifyReportResponse;

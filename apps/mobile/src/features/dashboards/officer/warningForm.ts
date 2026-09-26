@@ -48,7 +48,7 @@ export function parseWarningForm(assessmentId: string, form: WarningForm): Creat
     assessmentId, affectedArea: form.affectedArea.trim(), requiredAction: form.requiredAction.trim(),
     unsafeRoads: form.unsafeRoads.trim(), message: form.message.trim(),
     ...(form.safeRoutes.trim() ? { safeRoutes: form.safeRoutes.trim() } : {}),
-    ...(attachments.length ? { attachments } : {})
+    attachments
   };
 }
 

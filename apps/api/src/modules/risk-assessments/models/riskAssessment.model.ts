@@ -10,7 +10,7 @@ const countDefinition = {
   type: Number, required: true, min: 0, max: Number.MAX_SAFE_INTEGER, validate: Number.isSafeInteger
 } as const;
 const riskAssessmentSchema = new mongoose.Schema({
-  hazardReportId: { type: mongoose.Schema.Types.ObjectId, ref: 'Report', required: true, index: true },
+  incidentId: { type: mongoose.Schema.Types.ObjectId, ref: 'Incident', required: true, index: true },
   assessedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   hazardSeverity: { type: String, enum: HAZARD_ASSESSMENT_SEVERITIES, required: true },
   peopleAffected: countDefinition,
@@ -31,8 +31,8 @@ const riskAssessmentSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Database uniqueness arbitrates racing requests; CLOSED/VOID records can coexist later.
-riskAssessmentSchema.index({ hazardReportId: 1, status: 1 }, {
-  unique: true, partialFilterExpression: { status: 'ACTIVE' }, name: 'one_active_assessment_per_report'
+riskAssessmentSchema.index({ incidentId: 1, status: 1 }, {
+  unique: true, partialFilterExpression: { status: 'ACTIVE' }, name: 'one_active_assessment_per_incident'
 });
 riskAssessmentSchema.pre('validate', function () {
   if (this.vulnerablePeople > this.peopleAffected) {
@@ -50,7 +50,7 @@ export const RiskAssessmentModel =
 // Explicit serialization keeps Mongoose internals out of API responses.
 export function toSafeRiskAssessment(assessment: RiskAssessmentDocument): SafeRiskAssessment {
   return {
-    id: assessment._id.toString(), hazardReportId: assessment.hazardReportId.toString(),
+    id: assessment._id.toString(), incidentId: assessment.incidentId.toString(),
     assessedById: assessment.assessedById.toString(), hazardSeverity: assessment.hazardSeverity,
     peopleAffected: assessment.peopleAffected, vulnerablePeople: assessment.vulnerablePeople,
     roadAccessibility: assessment.roadAccessibility, infrastructureImpact: assessment.infrastructureImpact,

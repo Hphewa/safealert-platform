@@ -23,6 +23,9 @@ export function ReviewWarningScreen({ warning, riskLevel, busy, onEdit, onSave, 
       {photos.length ? <View style={warningStyles.field}>
         <Text style={assessmentStyles.label}>Attachments ({photos.length})</Text>
         <WarningPhotoPreviews photos={photos} />
+      </View> : warning.attachments?.length ? <View style={warningStyles.field}>
+        <Text style={assessmentStyles.label}>Attachments ({warning.attachments.length})</Text>
+        {warning.attachments.map((attachment) => <Text key={attachment} style={assessmentStyles.helper}>{attachment}</Text>)}
       </View> : null}
     </View>
     <View style={warningStyles.notice}><Text style={assessmentStyles.body}>This saves a draft. It will not publish a warning or notify residents.</Text></View>
