@@ -9,6 +9,8 @@ import {
   type SetStateAction
 } from 'react';
 
+import type { LocalVoiceEvidence } from '../shared/voice/voiceEvidence';
+
 export type HazardType = 'FLOOD' | 'BLOCKED_ROAD' | 'LANDSLIDE' | 'OTHER';
 export type HazardSeverity = 'LOW' | 'MODERATE' | 'HIGH';
 
@@ -68,10 +70,23 @@ export type PhotoEvidenceState =
       message: string;
     };
 
+export type VoiceEvidenceState =
+  | {
+      status: 'EMPTY';
+      selected: null;
+      message: string | null;
+    }
+  | {
+      status: 'LOCAL_SELECTED';
+      selected: LocalVoiceEvidence;
+      message: string;
+    };
+
 export type ReportHazardDraft = {
   hazardType: HazardType | null;
   location: ReportLocationState;
   photoEvidence: PhotoEvidenceState;
+  voiceEvidence: VoiceEvidenceState;
   severity: HazardSeverity | null;
   description: string;
 };
@@ -121,6 +136,11 @@ const initialReportHazardDraft: ReportHazardDraft = {
     errorMessage: null
   },
   photoEvidence: {
+    status: 'EMPTY',
+    selected: null,
+    message: null
+  },
+  voiceEvidence: {
     status: 'EMPTY',
     selected: null,
     message: null

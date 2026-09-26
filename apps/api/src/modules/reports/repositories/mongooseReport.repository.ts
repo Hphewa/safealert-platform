@@ -87,6 +87,7 @@ export class MongooseReportRepository implements ReportRepository {
             }
           },
           mediaReference: 1,
+          voiceEvidence: 1,
           distanceKm: {
             $round: [{ $divide: ['$distanceMeters', 1000] }, 2]
           }
@@ -119,20 +120,32 @@ export class MongooseReportRepository implements ReportRepository {
       location: safeReport.location,
       status: safeReport.status,
       createdAt: safeReport.createdAt,
-      ...(safeReport.mediaReference ? { mediaReference: safeReport.mediaReference } : {})
+      ...(safeReport.mediaReference ? { mediaReference: safeReport.mediaReference } : {}),
+      ...(safeReport.voiceEvidence ? { voiceEvidence: safeReport.voiceEvidence } : {})
     };
   }
 
   async updatePendingResidentReport(input: UpdatePendingResidentReportInput) {
+    const { voiceEvidence, ...setUpdate } = input.update;
+    const unsetUpdate = voiceEvidence === null ? { voiceEvidence: '' } : undefined;
+    const updateDocument = {
+      ...(Object.keys(setUpdate).length > 0 || voiceEvidence
+        ? {
+            $set: {
+              ...setUpdate,
+              ...(voiceEvidence ? { voiceEvidence } : {})
+            }
+          }
+        : {}),
+      ...(unsetUpdate ? { $unset: unsetUpdate } : {})
+    };
     const report = await ReportModel.findOneAndUpdate(
       {
         _id: input.reportId,
         residentId: input.residentId,
         status: 'PENDING'
       },
-      {
-        $set: input.update
-      },
+      updateDocument,
       {
         new: true,
         runValidators: true

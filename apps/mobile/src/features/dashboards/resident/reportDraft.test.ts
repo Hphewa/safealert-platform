@@ -18,6 +18,11 @@ const validDraft: ReportHazardDraft = {
     status: 'EMPTY',
     selected: null,
     message: null
+  },
+  voiceEvidence: {
+    status: 'EMPTY',
+    selected: null,
+    message: null
   }
 };
 

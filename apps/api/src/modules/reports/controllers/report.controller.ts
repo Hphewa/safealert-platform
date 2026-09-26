@@ -27,7 +27,8 @@ export function createReportController(reportService: ReportService) {
       description: parsedInput.description,
       severity: parsedInput.severity,
       location: parsedInput.location,
-      ...(parsedInput.mediaReference ? { mediaReference: parsedInput.mediaReference } : {})
+      ...(parsedInput.mediaReference ? { mediaReference: parsedInput.mediaReference } : {}),
+      ...(parsedInput.voiceEvidence ? { voiceEvidence: parsedInput.voiceEvidence } : {})
     };
     const result = await reportService.createResidentReport(request.auth.id, input);
 
@@ -93,6 +94,11 @@ export function createReportController(reportService: ReportService) {
       ...(parsedInput.location ? { location: parsedInput.location } : {}),
       ...(parsedInput.mediaReference ? { mediaReference: parsedInput.mediaReference } : {})
     };
+
+    if (parsedInput.voiceEvidence !== undefined) {
+      input.voiceEvidence = parsedInput.voiceEvidence;
+    }
+
     const result = await reportService.updatePendingResidentReport(request.auth.id, reportId, input);
 
     response.status(200).json(result);

@@ -1,5 +1,7 @@
 import {
   HAZARD_TYPES,
+  REPORT_VOICE_MAX_DURATION_SECONDS,
+  REPORT_VOICE_MIME_TYPES,
   REPORT_REJECTION_REASON_MAX_LENGTH,
   REPORT_REJECTION_REASON_MIN_LENGTH,
   REPORT_SEVERITIES
@@ -18,6 +20,27 @@ export const geoJsonPointSchema = z.object({
     })
 });
 
+const uploadedMediaReferenceSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(500)
+  .refine((value) => !/^file:\/\//i.test(value), {
+    message: 'Media reference must point to uploaded evidence.'
+  });
+
+export const voiceEvidenceSchema = z
+  .object({
+    mediaReference: uploadedMediaReferenceSchema,
+    contentType: z.enum(REPORT_VOICE_MIME_TYPES),
+    durationSeconds: z
+      .number()
+      .positive('Voice note duration must be greater than 0 seconds.')
+      .max(REPORT_VOICE_MAX_DURATION_SECONDS, `Voice note must be ${REPORT_VOICE_MAX_DURATION_SECONDS} seconds or shorter.`)
+      .refine(Number.isFinite, 'Voice note duration must be a finite number.')
+  })
+  .strict();
+
 export const createReportSchema = z.object({
   hazardType: z.enum(HAZARD_TYPES),
   description: z
@@ -27,18 +50,14 @@ export const createReportSchema = z.object({
     .max(1000, 'Description must be at most 1000 characters.'),
   severity: z.enum(REPORT_SEVERITIES),
   location: geoJsonPointSchema,
-  mediaReference: z
-    .string()
-    .trim()
-    .min(1)
-    .max(500)
-    .refine((value) => !/^file:\/\//i.test(value), {
-      message: 'Media reference must point to uploaded evidence.'
-    })
-    .optional()
+  mediaReference: uploadedMediaReferenceSchema.optional(),
+  voiceEvidence: voiceEvidenceSchema.optional()
 });
 
 export const updateResidentReportSchema = createReportSchema
+  .extend({
+    voiceEvidence: z.union([voiceEvidenceSchema, z.null()]).optional()
+  })
   .partial()
   .strict()
   .refine((value) => Object.keys(value).length > 0, {

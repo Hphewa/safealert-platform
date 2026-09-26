@@ -24,7 +24,7 @@ export function parseSingleFileMultipartBody(
   const file = files.find((part) => part.fieldName === expectedFieldName);
 
   if (!file || file.buffer.length === 0) {
-    throw new ApiError(400, 'MEDIA_FILE_REQUIRED', 'Upload one image file.');
+    throw new ApiError(400, 'MEDIA_FILE_REQUIRED', 'Upload one evidence file.');
   }
 
   return file;

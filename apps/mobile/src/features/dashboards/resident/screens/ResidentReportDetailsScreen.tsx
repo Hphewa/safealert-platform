@@ -15,14 +15,16 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { ApiClientError, apiBaseUrl } from '@/services/api/client';
+import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { LocationPreview } from '../../shared/maps/LocationPreview';
 import { geoJsonPointToMapCoordinates } from '../../shared/maps/types';
+import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { VoiceNotePlayer } from '../../shared/voice/VoiceNotePlayer';
 import { cancelMyPendingReport, getMyReportById, listMyReportFieldConfirmations } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
 import {
@@ -280,7 +282,8 @@ function ReportDetailContent({
   refreshErrorMessage: string | null;
 }) {
   const hazardLabel = hazardLabelForResident(report.hazardType);
-  const mediaUri = resolveResidentMediaUri(report.mediaReference);
+  const mediaUri = resolveMediaReferenceUri(report.mediaReference);
+  const voiceUri = resolveMediaReferenceUri(report.voiceEvidence?.mediaReference);
   const timeline = buildResidentReportTimeline(report);
   const canEdit = isResidentReportEditable(report);
   const reportCoordinates = geoJsonPointToMapCoordinates(report.location);
@@ -387,6 +390,17 @@ function ReportDetailContent({
         </View>
       ) : null}
 
+      {report.voiceEvidence ? (
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Voice Evidence</Text>
+          <VoiceNotePlayer
+            durationSeconds={report.voiceEvidence.durationSeconds}
+            title="Voice Note"
+            uri={voiceUri}
+          />
+        </View>
+      ) : null}
+
       <View style={styles.panel}>
         <Text style={styles.panelTitle}>Status Timeline</Text>
         <View style={styles.timelineList}>
@@ -413,7 +427,7 @@ function ReportDetailContent({
 }
 
 function CommunityFieldCheckCard({ confirmation }: { confirmation: ResidentFieldConfirmation }) {
-  const mediaUri = confirmation.outcome === 'CONFIRMED' ? resolveResidentMediaUri(confirmation.mediaReference) : undefined;
+  const mediaUri = confirmation.outcome === 'CONFIRMED' ? resolveMediaReferenceUri(confirmation.mediaReference) : undefined;
   return (
     <View style={styles.communityCard}>
       <Text style={styles.timelineTitle}>
@@ -504,22 +518,6 @@ function ReportDetailStateCard({
       ) : null}
     </View>
   );
-}
-
-function resolveResidentMediaUri(mediaReference: string | undefined) {
-  if (!mediaReference) {
-    return undefined;
-  }
-
-  if (/^(https?:|data:image\/)/i.test(mediaReference)) {
-    return mediaReference;
-  }
-
-  if (mediaReference.startsWith('/')) {
-    return `${apiBaseUrl.replace(/\/api\/v1\/?$/, '')}${mediaReference}`;
-  }
-
-  return undefined;
 }
 
 function timelineSymbolFor(tone: ResidentReportTimelineItem['tone']) {

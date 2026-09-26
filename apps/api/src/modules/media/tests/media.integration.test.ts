@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../../app.js';
 import { loadConfig, type ApiConfig } from '../../../config/env.js';
-import { reportEvidenceFileSizeLimitBytes } from '../validation/media.schemas.js';
+import {
+  reportEvidenceImageFileSizeLimitBytes,
+  reportEvidenceVoiceFileSizeLimitBytes
+} from '../validation/media.schemas.js';
 
 let uploadRoot: string;
 let config: ApiConfig;
@@ -87,6 +90,28 @@ describe('report evidence media upload API', () => {
     );
   });
 
+  it('allows an authenticated resident to upload supported voice evidence', async () => {
+    const response = await request(app())
+      .post('/api/v1/media/report-evidence')
+      .auth(residentToken(), { type: 'bearer' })
+      .attach('file', Buffer.from('fake m4a content'), {
+        filename: 'resident-voice.m4a',
+        contentType: 'audio/mp4'
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body).toEqual({
+      mediaReference: expect.stringMatching(
+        /^\/api\/v1\/media\/report-evidence\/\d{4}-\d{2}-\d{2}-[0-9a-f-]+\.m4a$/
+      ),
+      contentType: 'audio/mp4',
+      size: Buffer.byteLength('fake m4a content'),
+      url: expect.stringMatching(
+        /^http:\/\/127\.0\.0\.1:\d+\/api\/v1\/media\/report-evidence\/\d{4}-\d{2}-\d{2}-[0-9a-f-]+\.m4a$/
+      )
+    });
+  });
+
   it('rejects unauthenticated uploads', async () => {
     const response = await request(app())
       .post('/api/v1/media/report-evidence')
@@ -111,7 +136,7 @@ describe('report evidence media upload API', () => {
     expect(response.status).toBe(415);
     expect(response.body.error).toEqual({
       code: 'UNSUPPORTED_MEDIA_TYPE',
-      message: 'Only JPEG and PNG images are supported.'
+      message: 'Only JPEG, PNG, M4A, AAC, and WebM evidence files are supported.'
     });
   });
 
@@ -119,7 +144,7 @@ describe('report evidence media upload API', () => {
     const response = await request(app())
       .post('/api/v1/media/report-evidence')
       .auth(residentToken(), { type: 'bearer' })
-      .attach('file', Buffer.alloc(reportEvidenceFileSizeLimitBytes + 1), {
+      .attach('file', Buffer.alloc(reportEvidenceImageFileSizeLimitBytes + 1), {
         filename: 'large.png',
         contentType: 'image/png'
       });
@@ -127,7 +152,23 @@ describe('report evidence media upload API', () => {
     expect(response.status).toBe(413);
     expect(response.body.error).toEqual({
       code: 'MEDIA_FILE_TOO_LARGE',
-      message: 'Image must be 5 MB or smaller.'
+      message: 'Evidence file is too large.'
+    });
+  });
+
+  it('rejects oversized voice uploads', async () => {
+    const response = await request(app())
+      .post('/api/v1/media/report-evidence')
+      .auth(residentToken(), { type: 'bearer' })
+      .attach('file', Buffer.alloc(reportEvidenceVoiceFileSizeLimitBytes + 1), {
+        filename: 'large.m4a',
+        contentType: 'audio/mp4'
+      });
+
+    expect(response.status).toBe(413);
+    expect(response.body.error).toEqual({
+      code: 'MEDIA_FILE_TOO_LARGE',
+      message: 'Evidence file is too large.'
     });
   });
 
@@ -140,7 +181,7 @@ describe('report evidence media upload API', () => {
     expect(response.status).toBe(400);
     expect(response.body.error).toEqual({
       code: 'MEDIA_FILE_REQUIRED',
-      message: 'Upload one image file.'
+      message: 'Upload one evidence file.'
     });
   });
 

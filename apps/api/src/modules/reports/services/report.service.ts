@@ -55,6 +55,7 @@ export class ReportService {
       severity: input.severity,
       location: input.location,
       ...(input.mediaReference ? { mediaReference: input.mediaReference } : {}),
+      ...(input.voiceEvidence ? { voiceEvidence: input.voiceEvidence } : {}),
       status: 'PENDING'
     });
 
@@ -179,7 +180,8 @@ export class ReportService {
         location: report.location,
         status: report.status,
         createdAt: report.createdAt,
-        ...(report.mediaReference ? { mediaReference: report.mediaReference } : {})
+        ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
+        ...(report.voiceEvidence ? { voiceEvidence: report.voiceEvidence } : {})
       }))
     };
   }

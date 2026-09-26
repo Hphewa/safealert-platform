@@ -109,6 +109,17 @@ export type ReportReviewAction = (typeof REPORT_REVIEW_ACTIONS)[number];
 
 export const REPORT_REJECTION_REASON_MIN_LENGTH = 10;
 export const REPORT_REJECTION_REASON_MAX_LENGTH = 500;
+export const REPORT_VOICE_MAX_DURATION_SECONDS = 60;
+export const REPORT_VOICE_MAX_BYTES = 3 * 1024 * 1024;
+export const REPORT_VOICE_MIME_TYPES = ['audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/webm'] as const;
+
+export type ReportVoiceMimeType = (typeof REPORT_VOICE_MIME_TYPES)[number];
+
+export type ReportVoiceEvidence = {
+  mediaReference: string;
+  contentType: ReportVoiceMimeType;
+  durationSeconds: number;
+};
 
 export const HAZARD_TYPES = ['FLOOD', 'BLOCKED_ROAD', 'LANDSLIDE', 'OTHER'] as const;
 
@@ -171,9 +182,12 @@ export type CreateReportRequest = {
   severity: ReportSeverity;
   location: GeoJsonPoint;
   mediaReference?: string;
+  voiceEvidence?: ReportVoiceEvidence;
 };
 
-export type UpdateResidentReportRequest = Partial<CreateReportRequest>;
+export type UpdateResidentReportRequest = Partial<Omit<CreateReportRequest, 'voiceEvidence'>> & {
+  voiceEvidence?: ReportVoiceEvidence | null;
+};
 
 export type SafeReport = {
   id: string;
@@ -183,6 +197,7 @@ export type SafeReport = {
   severity: ReportSeverity;
   location: GeoJsonPoint;
   mediaReference?: string;
+  voiceEvidence?: ReportVoiceEvidence;
   status: ReportStatus;
   createdAt: string;
   updatedAt: string;
@@ -253,6 +268,7 @@ export type CommunityReportSummary = {
   severity: ReportSeverity;
   location: GeoJsonPoint;
   mediaReference?: string;
+  voiceEvidence?: ReportVoiceEvidence;
   status: ReportStatus;
   createdAt: string;
   distanceKm?: number;

@@ -93,7 +93,8 @@ function seedReport(
     status: overrides.status,
     createdAt: overrides.createdAt,
     updatedAt: overrides.updatedAt ?? overrides.createdAt,
-    ...(overrides.mediaReference ? { mediaReference: overrides.mediaReference } : {})
+    ...(overrides.mediaReference ? { mediaReference: overrides.mediaReference } : {}),
+    ...(overrides.voiceEvidence ? { voiceEvidence: overrides.voiceEvidence } : {})
   };
 
   reportRepository.seedReport(report);
@@ -157,6 +158,32 @@ describe('report API', () => {
     expect(response.body.report.residentId).not.toBe(validReportPayload.residentId);
     expect(Date.parse(response.body.report.createdAt)).not.toBeNaN();
     expect(response.body.report.updatedAt).toBe(response.body.report.createdAt);
+  });
+
+  it('creates a pending resident hazard report with optional voice evidence metadata', async () => {
+    const { app } = createTestContext();
+    const resident = await registerResident(app);
+    const voiceEvidence = {
+      mediaReference: '/api/v1/media/report-evidence/resident-voice.m4a',
+      contentType: 'audio/mp4',
+      durationSeconds: 42
+    };
+
+    const response = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validReportPayload,
+        voiceEvidence
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.report).toEqual(
+      expect.objectContaining({
+        residentId: resident.body.user.id,
+        voiceEvidence
+      })
+    );
   });
 
   it.each([
@@ -1003,7 +1030,12 @@ describe('report API', () => {
         severity: 'MODERATE',
         description: 'Updated resident description before verification.',
         location: { type: 'Point', coordinates: [80.1234, 7.1234] },
-        mediaReference: '/api/v1/media/report-evidence/updated-photo.jpg'
+        mediaReference: '/api/v1/media/report-evidence/updated-photo.jpg',
+        voiceEvidence: {
+          mediaReference: '/api/v1/media/report-evidence/updated-voice.m4a',
+          contentType: 'audio/mp4',
+          durationSeconds: 37
+        }
       });
     const stored = await reportRepository.findReportById(reportId);
 
@@ -1017,10 +1049,43 @@ describe('report API', () => {
         description: 'Updated resident description before verification.',
         location: { type: 'Point', coordinates: [80.1234, 7.1234] },
         mediaReference: '/api/v1/media/report-evidence/updated-photo.jpg',
+        voiceEvidence: {
+          mediaReference: '/api/v1/media/report-evidence/updated-voice.m4a',
+          contentType: 'audio/mp4',
+          durationSeconds: 37
+        },
         status: 'PENDING'
       })
     );
     expect(stored).toEqual(expect.objectContaining({ id: reportId, status: 'PENDING' }));
+  });
+
+  it('allows a resident to remove voice evidence from their own pending report', async () => {
+    const { app, authRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-edit-remove-voice@example.com');
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send({
+        ...validReportPayload,
+        voiceEvidence: {
+          mediaReference: '/api/v1/media/report-evidence/original-voice.m4a',
+          contentType: 'audio/mp4',
+          durationSeconds: 22
+        }
+      });
+    const reportId = created.body.report.id as string;
+
+    const response = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send({
+        voiceEvidence: null
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.report.voiceEvidence).toBeUndefined();
   });
 
   it('rejects resident edit overposting of server-controlled fields', async () => {
@@ -1400,7 +1465,12 @@ describe('report API', () => {
       status: 'PENDING',
       createdAt: '2026-08-23T11:05:00.000Z',
       description: 'Flooding has started to cross the side lane.',
-      mediaReference: 'media/reports/flood-detail.jpg'
+      mediaReference: 'media/reports/flood-detail.jpg',
+      voiceEvidence: {
+        mediaReference: '/api/v1/media/report-evidence/detail-voice.m4a',
+        contentType: 'audio/mp4',
+        durationSeconds: 31
+      }
     });
 
     const response = await request(app)
@@ -1419,6 +1489,11 @@ describe('report API', () => {
           coordinates: [79.8612, 6.9271]
         },
         mediaReference: 'media/reports/flood-detail.jpg',
+        voiceEvidence: {
+          mediaReference: '/api/v1/media/report-evidence/detail-voice.m4a',
+          contentType: 'audio/mp4',
+          durationSeconds: 31
+        },
         status: 'PENDING',
         createdAt: '2026-08-23T11:05:00.000Z'
       }

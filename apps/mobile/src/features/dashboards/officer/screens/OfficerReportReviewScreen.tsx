@@ -11,8 +11,10 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
+import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { badgeToneForReportStatus } from '../../shared/utils';
+import { VoiceNotePlayer } from '../../shared/voice/VoiceNotePlayer';
 import { officerBottomNavItems } from '../officerNavigation';
 import { getPendingOfficerReportById, reviewOfficerReport } from '../api/officerReportsApi';
 import { recordReviewedOfficerReportId } from '../pendingReportsState';
@@ -382,6 +384,15 @@ export function OfficerReportReviewScreen() {
           </View>
         ) : (
           <Text style={styles.emptyCopy}>No resident photo evidence is attached to this report.</Text>
+        )}
+        {report.residentVoiceEvidence ? (
+          <VoiceNotePlayer
+            durationSeconds={report.residentVoiceEvidence.durationSeconds}
+            title="Voice Note"
+            uri={resolveMediaReferenceUri(report.residentVoiceEvidence.mediaReference)}
+          />
+        ) : (
+          <Text style={styles.emptyCopy}>No resident voice note is attached to this report.</Text>
         )}
       </SectionCard>
 

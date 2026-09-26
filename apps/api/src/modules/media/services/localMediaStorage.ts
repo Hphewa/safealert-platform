@@ -8,7 +8,7 @@ import type { ApiConfig } from '../../../config/env.js';
 import { ApiError } from '../../../shared/apiError.js';
 import {
   isSupportedReportEvidenceContentType,
-  reportEvidenceFileSizeLimitBytes,
+  reportEvidenceFileSizeLimitFor,
   type SupportedReportEvidenceContentType
 } from '../validation/media.schemas.js';
 
@@ -20,7 +20,12 @@ type StoreReportEvidenceInput = {
 
 const extensionByContentType: Record<SupportedReportEvidenceContentType, string> = {
   'image/jpeg': 'jpg',
-  'image/png': 'png'
+  'image/png': 'png',
+  'audio/mp4': 'm4a',
+  'audio/m4a': 'm4a',
+  'audio/x-m4a': 'm4a',
+  'audio/aac': 'aac',
+  'audio/webm': 'webm'
 };
 
 export class LocalMediaStorage {
@@ -28,11 +33,11 @@ export class LocalMediaStorage {
 
   async storeReportEvidence(input: StoreReportEvidenceInput): Promise<UploadReportEvidenceResponse> {
     if (!isSupportedReportEvidenceContentType(input.contentType)) {
-      throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Only JPEG and PNG images are supported.');
+      throw new ApiError(415, 'UNSUPPORTED_MEDIA_TYPE', 'Only JPEG, PNG, M4A, AAC, and WebM evidence files are supported.');
     }
 
-    if (input.buffer.length > reportEvidenceFileSizeLimitBytes) {
-      throw new ApiError(413, 'MEDIA_FILE_TOO_LARGE', 'Image must be 5 MB or smaller.');
+    if (input.buffer.length > reportEvidenceFileSizeLimitFor(input.contentType)) {
+      throw new ApiError(413, 'MEDIA_FILE_TOO_LARGE', 'Evidence file is too large.');
     }
 
     const extension = extensionByContentType[input.contentType];

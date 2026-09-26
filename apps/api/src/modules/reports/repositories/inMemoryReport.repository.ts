@@ -33,6 +33,10 @@ export class InMemoryReportRepository implements ReportRepository {
       report.mediaReference = input.mediaReference;
     }
 
+    if (input.voiceEvidence) {
+      report.voiceEvidence = input.voiceEvidence;
+    }
+
     this.reports.set(report.id, report);
     return report;
   }
@@ -87,6 +91,7 @@ export class InMemoryReportRepository implements ReportRepository {
         status: report.status,
         createdAt: report.createdAt,
         ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
+        ...(report.voiceEvidence ? { voiceEvidence: report.voiceEvidence } : {}),
         distanceKm: Number(distanceKm.toFixed(2))
       }));
   }
@@ -106,7 +111,8 @@ export class InMemoryReportRepository implements ReportRepository {
       location: report.location,
       status: report.status,
       createdAt: report.createdAt,
-      ...(report.mediaReference ? { mediaReference: report.mediaReference } : {})
+      ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
+      ...(report.voiceEvidence ? { voiceEvidence: report.voiceEvidence } : {})
     };
   }
 
@@ -121,11 +127,18 @@ export class InMemoryReportRepository implements ReportRepository {
       return null;
     }
 
+    const { voiceEvidence, ...update } = input.update;
     const updatedReport: SafeReport = {
       ...report,
-      ...input.update,
+      ...update,
       updatedAt: new Date().toISOString()
     };
+
+    if (voiceEvidence === null) {
+      delete updatedReport.voiceEvidence;
+    } else if (voiceEvidence) {
+      updatedReport.voiceEvidence = voiceEvidence;
+    }
 
     this.reports.set(updatedReport.id, updatedReport);
     return updatedReport;

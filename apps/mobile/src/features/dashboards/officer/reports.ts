@@ -3,6 +3,7 @@
   REPORT_REJECTION_REASON_MIN_LENGTH,
   type HazardType,
   type ReportSeverity,
+  type ReportVoiceEvidence,
   type ReportStatus,
   type SafeReport
 } from '@safealert/contracts';
@@ -63,6 +64,7 @@ export type OfficerReportReviewRecord = OfficerGroupedReportSummary & {
   residentPhotoUrl?: string;
   residentPhotoLabel?: string;
   residentMediaReference?: string;
+  residentVoiceEvidence?: ReportVoiceEvidence;
   locationDetails: string;
   relatedReportsCount: number;
   relatedReportsLabel: string;
@@ -220,6 +222,7 @@ export function mapSafeReportToOfficerReviewRecord(
 ): OfficerReportReviewRecord {
   const summary = mapSafeReportToOfficerGroupedReportSummary(report, now);
   const hasPhotoEvidence = Boolean(report.mediaReference);
+  const hasVoiceEvidence = Boolean(report.voiceEvidence);
   const canDisplayPhoto = report.mediaReference ? isDisplayableMediaUri(report.mediaReference) : false;
   const timeline: OfficerReportTimelineEvent[] = [
     {
@@ -241,6 +244,16 @@ export function mapSafeReportToOfficerReviewRecord(
     });
   }
 
+  if (report.voiceEvidence) {
+    timeline.push({
+      id: `${report.id}-voice`,
+      title: 'Voice note added',
+      detail: 'The resident attached a voice note to the report.',
+      timeLabel: formatOfficerRelativeTime(report.createdAt, now),
+      icon: 'mic-outline'
+    });
+  }
+
   return {
     ...summary,
     reportedTimeLabel: formatOfficerRelativeTime(report.createdAt, now),
@@ -252,6 +265,7 @@ export function mapSafeReportToOfficerReviewRecord(
         }
       : {}),
     ...(report.mediaReference ? { residentMediaReference: report.mediaReference } : {}),
+    ...(report.voiceEvidence ? { residentVoiceEvidence: report.voiceEvidence } : {}),
     locationDetails: `Coordinates: ${summary.locationLabel}`,
     relatedReportsCount: 1,
     relatedReportsLabel: formatCommunityReportsLabel(1),
@@ -261,7 +275,7 @@ export function mapSafeReportToOfficerReviewRecord(
       locationConfirmed: false,
       timeValid: false,
       multipleReports: false,
-      photoEvidence: hasPhotoEvidence,
+      photoEvidence: hasPhotoEvidence || hasVoiceEvidence,
       fieldUpdate: false
     }
   };

@@ -21,7 +21,15 @@
           "cameraPermission": "Allow SafeAlert to take a photo as optional hazard evidence."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow SafeAlert to record an optional voice note as hazard evidence.",
+          "recordAudioAndroid": true,
+          "enableBackgroundRecording": false
+        }
+      ]
     ],
     "extra": {
       "apiUrl": "http://localhost:4000/api/v1"

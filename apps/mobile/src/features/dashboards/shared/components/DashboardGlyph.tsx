@@ -39,6 +39,8 @@ const glyphMap: Record<string, string> = {
   'map-outline': 'MP',
   'camera-outline': 'PH',
   'refresh-outline': 'RF',
+  'play-outline': '▶',
+  'pause-outline': 'Ⅱ',
   'log-out-outline': 'LG',
   'construct-outline': 'UI',
   'chevron-forward': '›',

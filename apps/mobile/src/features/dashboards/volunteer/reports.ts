@@ -2,7 +2,8 @@ import type {
   CommunityReportSummary,
   HazardType,
   ReportSeverity,
-  ReportStatus
+  ReportStatus,
+  ReportVoiceEvidence
 } from '@safealert/contracts';
 import type { Href } from 'expo-router';
 
@@ -22,6 +23,7 @@ export type VolunteerCommunityReport = {
   description: string;
   status: ReportStatus;
   mediaUrl?: string;
+  voiceEvidence?: ReportVoiceEvidence;
   icon: DashboardIconName;
   href: Href;
 };
@@ -61,6 +63,7 @@ export function mapCommunityReportToVolunteerReport(report: CommunityReportSumma
     description: report.description,
     status: report.status,
     mediaUrl: report.mediaReference,
+    voiceEvidence: report.voiceEvidence,
     icon: hazardTypeIcons[report.hazardType],
     href: `/volunteer/reports/${report.id}`
   };

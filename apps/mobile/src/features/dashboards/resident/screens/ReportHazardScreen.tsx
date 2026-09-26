@@ -11,6 +11,8 @@ import {
 } from '../../shared/currentLocation';
 import { LocationPreview } from '../../shared/maps/LocationPreview';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { VoiceNoteRecorder } from '../../shared/voice/VoiceNoteRecorder';
+import type { LocalVoiceEvidence } from '../../shared/voice/voiceEvidence';
 import { residentBottomNavItems } from '../mockData';
 import { SelectableCard } from '../components/SelectableCard';
 import {
@@ -257,6 +259,23 @@ export function ReportHazardScreen() {
     });
   };
 
+  const setVoiceEvidence = (voiceEvidence: LocalVoiceEvidence | null) => {
+    setDraft((current) => ({
+      ...current,
+      voiceEvidence: voiceEvidence
+        ? {
+            status: 'LOCAL_SELECTED',
+            selected: voiceEvidence,
+            message: 'Voice note ready. It will be uploaded during report submission.'
+          }
+        : {
+            status: 'EMPTY',
+            selected: null,
+            message: null
+          }
+    }));
+  };
+
   const reviewReport = () => {
     if (!canReviewReport) {
       return;
@@ -384,7 +403,7 @@ export function ReportHazardScreen() {
               <Text style={styles.detectedText}>Photo ready</Text>
               <Text style={styles.panelText}>{draft.photoEvidence.message}</Text>
               <Text style={styles.mongoHintText}>
-                Local image stays on this device until a media upload service stores it.
+                Photo stays on this device until you submit the report.
               </Text>
             </View>
           ) : (
@@ -436,6 +455,22 @@ export function ReportHazardScreen() {
             </Pressable>
           ) : null}
         </View>
+      </View>
+
+      <View style={styles.photoPanel}>
+        <View style={styles.panelHeaderInline}>
+          <View style={styles.panelIcon}>
+            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="mic-outline" size={20} />
+          </View>
+          <View style={styles.panelBody}>
+            <Text style={styles.panelTitle}>Voice note</Text>
+            <Text style={styles.panelText}>Optional. Record up to 60 seconds to describe what you see.</Text>
+          </View>
+        </View>
+        <VoiceNoteRecorder
+          onChange={setVoiceEvidence}
+          value={draft.voiceEvidence.status === 'LOCAL_SELECTED' ? draft.voiceEvidence.selected : null}
+        />
       </View>
 
       <View style={styles.section}>
@@ -728,6 +763,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10
+  },
+  panelHeaderInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
   },
   addPhotoButton: {
     flexGrow: 1,

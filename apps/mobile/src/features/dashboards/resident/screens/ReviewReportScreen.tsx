@@ -9,6 +9,7 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { LocationPreview } from '../../shared/maps/LocationPreview';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { VoiceNotePlayer } from '../../shared/voice/VoiceNotePlayer';
 import { createResidentReport } from '../api/reportApi';
 import { uploadReportEvidence } from '../api/mediaApi';
 import { residentBottomNavItems } from '../mockData';
@@ -75,7 +76,7 @@ export function ReviewReportScreen() {
     }
 
     setSubmittedReport(null);
-    setSubmitState(photoNeedsUpload(draft) ? { status: 'uploading', message: null } : { status: 'submitting', message: null });
+    setSubmitState(evidenceNeedsUpload(draft) ? { status: 'uploading', message: null } : { status: 'submitting', message: null });
 
     try {
       const result = await submitResidentReportDraft({
@@ -99,6 +100,26 @@ export function ReviewReportScreen() {
                   uploadedMediaReference: mediaReference
                 },
                 message: 'Photo evidence uploaded. It will be attached when this report is submitted.'
+              }
+            };
+          });
+          setSubmitState({ status: 'submitting', message: null });
+        },
+        onVoiceEvidenceUploaded: (mediaReference) => {
+          setDraft((current) => {
+            if (current.voiceEvidence.status !== 'LOCAL_SELECTED') {
+              return current;
+            }
+
+            return {
+              ...current,
+              voiceEvidence: {
+                ...current.voiceEvidence,
+                selected: {
+                  ...current.voiceEvidence.selected,
+                  uploadedMediaReference: mediaReference
+                },
+                message: 'Voice note uploaded. It will be attached when this report is submitted.'
               }
             };
           });
@@ -151,6 +172,34 @@ export function ReviewReportScreen() {
             value={draft.severity ? severityLabels[draft.severity] : 'Not selected'}
           />
         </View>
+      </View>
+
+      <View style={styles.summaryPanel}>
+        <View style={styles.panelHeader}>
+          <View style={styles.panelIconMuted}>
+            <DashboardGlyph color={dashboardTheme.colors.info} name="mic-outline" size={20} />
+          </View>
+          <Text style={styles.panelTitle}>Voice Note</Text>
+        </View>
+        {draft.voiceEvidence.status === 'LOCAL_SELECTED' ? (
+          <View style={styles.photoSummary}>
+            <VoiceNotePlayer
+              durationSeconds={draft.voiceEvidence.selected.durationSeconds}
+              title="Selected voice note"
+              uri={draft.voiceEvidence.selected.localUri}
+            />
+            <Text style={styles.helperText}>
+              {draft.voiceEvidence.selected.uploadedMediaReference
+                ? 'Voice note has been uploaded and will be attached to this report.'
+                : 'Voice note selected locally. It will upload before the report is submitted.'}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.emptyPhotoState}>
+            <DashboardGlyph color={dashboardTheme.colors.muted} name="mic-outline" size={22} />
+            <Text style={styles.helperText}>No voice note was added.</Text>
+          </View>
+        )}
       </View>
 
       <View style={styles.summaryPanel}>
@@ -347,7 +396,7 @@ function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'mess
     if (error.status === 413 || error.status === 415) {
       return {
         reason: 'upload',
-        message: 'That photo could not be uploaded. Choose a supported JPG or PNG and try again.'
+        message: 'That evidence file could not be uploaded. Use a JPG/PNG photo or M4A/AAC voice note.'
       };
     }
 
@@ -378,7 +427,7 @@ function submitErrorStateForStage(error: ReportSubmissionError): Pick<SubmitStat
       if (originalError.status === 0) {
         return {
           reason: 'network',
-          message: "Couldn't upload the photo. Check your connection and try again."
+          message: "Couldn't upload the evidence. Check your connection and try again."
         };
       }
 
@@ -392,7 +441,7 @@ function submitErrorStateForStage(error: ReportSubmissionError): Pick<SubmitStat
       return {
         reason: 'network',
         message: error.mediaReference
-          ? 'Your photo was uploaded, but the report could not be submitted. Check your connection and try again.'
+          ? 'Your evidence was uploaded, but the report could not be submitted. Check your connection and try again.'
           : 'Could not submit the report. Check your connection and try again.'
       };
     }
@@ -400,7 +449,7 @@ function submitErrorStateForStage(error: ReportSubmissionError): Pick<SubmitStat
     return {
       reason: originalError.status === 400 ? 'validation' : 'server',
       message: error.mediaReference
-        ? 'Your photo was uploaded, but the report could not be submitted. Try again.'
+        ? 'Your evidence was uploaded, but the report could not be submitted. Try again.'
         : reportCreateFailureMessageFor(originalError)
     };
   }
@@ -408,32 +457,32 @@ function submitErrorStateForStage(error: ReportSubmissionError): Pick<SubmitStat
   if (error.stage === 'upload') {
     return {
       reason: 'upload',
-      message: "Couldn't upload the photo. Try again."
+      message: "Couldn't upload the evidence. Try again."
     };
   }
 
   return {
     reason: 'server',
     message: error.mediaReference
-      ? 'Your photo was uploaded, but the report could not be submitted. Try again.'
+      ? 'Your evidence was uploaded, but the report could not be submitted. Try again.'
       : 'SafeAlert could not submit the report right now. Your draft is still here, so you can retry.'
   };
 }
 
 function uploadFailureMessageFor(error: ApiClientError) {
   if (error.status === 413) {
-    return 'That photo is too large to upload. Choose a smaller image and try again.';
+    return 'That evidence file is too large to upload. Choose a smaller file and try again.';
   }
 
   if (error.status === 415) {
-    return 'That photo format is not supported. Choose a JPG or PNG and try again.';
+    return 'That evidence format is not supported. Use a JPG/PNG photo or M4A/AAC voice note.';
   }
 
   if (error.status === 400) {
-    return 'That photo could not be uploaded. Choose a supported JPG or PNG and try again.';
+    return 'That evidence file could not be uploaded. Choose a supported file and try again.';
   }
 
-  return "Couldn't upload the photo right now. Try again.";
+  return "Couldn't upload the evidence right now. Try again.";
 }
 
 function reportCreateFailureMessageFor(error: ApiClientError) {
@@ -448,10 +497,12 @@ function formatCoordinate(value: number) {
   return value.toFixed(6);
 }
 
-function photoNeedsUpload(draft: ReportHazardDraft) {
+function evidenceNeedsUpload(draft: ReportHazardDraft) {
   return (
-    draft.photoEvidence.status === 'LOCAL_SELECTED' &&
-    !draft.photoEvidence.selected.uploadedMediaReference
+    (draft.photoEvidence.status === 'LOCAL_SELECTED' &&
+      !draft.photoEvidence.selected.uploadedMediaReference) ||
+    (draft.voiceEvidence.status === 'LOCAL_SELECTED' &&
+      !draft.voiceEvidence.selected.uploadedMediaReference)
   );
 }
 

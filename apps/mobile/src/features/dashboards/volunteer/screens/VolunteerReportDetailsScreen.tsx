@@ -10,7 +10,9 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { badgeToneForReportStatus } from '../../shared/utils';
+import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { VoiceNotePlayer } from '../../shared/voice/VoiceNotePlayer';
 import { getCommunityReportById } from '../api/communityReportsApi';
 import { VolunteerStateCard } from '../components/VolunteerStateCard';
 import { volunteerBottomNavItems } from '../mockData';
@@ -119,6 +121,9 @@ export function VolunteerReportDetailsScreen() {
     );
   }
 
+  const photoUri = resolveMediaReferenceUri(report.mediaUrl);
+  const voiceUri = resolveMediaReferenceUri(report.voiceEvidence?.mediaReference);
+
   return (
     <DashboardScreen bottomNavItems={volunteerBottomNavItems} contentContainerStyle={styles.content}>
       <View style={styles.headerRow}>
@@ -167,17 +172,30 @@ export function VolunteerReportDetailsScreen() {
 
       <View style={styles.panel}>
         <Text style={styles.sectionTitle}>Photo Evidence</Text>
-        {report.mediaUrl ? (
+        {photoUri ? (
           <View style={styles.mediaBlock}>
             <Image
               accessibilityLabel={`${report.hazardType} evidence preview`}
-              source={{ uri: report.mediaUrl }}
+              source={{ uri: photoUri }}
               style={styles.mediaPreview}
             />
             <Text style={styles.caption}>Safe preview media is available for this report.</Text>
           </View>
         ) : (
           <Text style={styles.panelBody}>No safe photo evidence is available for this report preview.</Text>
+        )}
+      </View>
+
+      <View style={styles.panel}>
+        <Text style={styles.sectionTitle}>Voice Evidence</Text>
+        {report.voiceEvidence ? (
+          <VoiceNotePlayer
+            durationSeconds={report.voiceEvidence.durationSeconds}
+            title="Voice Note"
+            uri={voiceUri}
+          />
+        ) : (
+          <Text style={styles.panelBody}>No resident voice note is attached to this report.</Text>
         )}
       </View>
 

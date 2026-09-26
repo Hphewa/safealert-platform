@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { HazardType, ReportSeverity, SafeReport, UpdateResidentReportRequest } from '@safealert/contracts';
+import type {
+  HazardType,
+  ReportSeverity,
+  ReportVoiceEvidence,
+  SafeReport,
+  UpdateResidentReportRequest
+} from '@safealert/contracts';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import {
@@ -15,14 +21,17 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { ApiClientError, apiBaseUrl } from '@/services/api/client';
+import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { formatCoordinate } from '../../shared/currentLocation';
 import { LocationPicker } from '../../shared/maps/LocationPicker';
 import { LocationPreview } from '../../shared/maps/LocationPreview';
+import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { VoiceNoteRecorder } from '../../shared/voice/VoiceNoteRecorder';
+import { toReportVoiceEvidence, type LocalVoiceEvidence } from '../../shared/voice/voiceEvidence';
 import { uploadReportEvidence } from '../api/mediaApi';
 import { getMyReportById, updateMyPendingReport } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
@@ -60,6 +69,9 @@ type ResidentReportEditForm = {
   coordinates: ReportLocationCoordinates;
   mediaReference?: string;
   selectedPhoto: SelectedEditPhoto | null;
+  voiceEvidence?: ReportVoiceEvidence;
+  selectedVoice: LocalVoiceEvidence | null;
+  removeVoiceEvidence: boolean;
 };
 
 export function ResidentReportEditScreen() {
@@ -130,6 +142,8 @@ export function ResidentReportEditScreen() {
 
     try {
       let mediaReference = form.mediaReference;
+      let voiceEvidence: ReportVoiceEvidence | null | undefined =
+        form.removeVoiceEvidence ? null : form.voiceEvidence;
 
       if (form.selectedPhoto) {
         if (!form.selectedPhoto.uploadedMediaReference) {
@@ -158,6 +172,34 @@ export function ResidentReportEditScreen() {
         }
       }
 
+      if (form.selectedVoice) {
+        let voiceMediaReference = form.selectedVoice.uploadedMediaReference;
+
+        if (!voiceMediaReference) {
+          setSubmitStatus('uploading');
+          const upload = await uploadReportEvidence({
+            localUri: form.selectedVoice.localUri,
+            filename: form.selectedVoice.fileName,
+            mimeType: form.selectedVoice.mimeType,
+            accessToken
+          });
+          voiceMediaReference = upload.mediaReference;
+          setForm((current) =>
+            current?.selectedVoice
+              ? {
+                  ...current,
+                  selectedVoice: {
+                    ...current.selectedVoice,
+                    uploadedMediaReference: upload.mediaReference
+                  }
+                }
+              : current
+          );
+        }
+
+        voiceEvidence = toReportVoiceEvidence(form.selectedVoice, voiceMediaReference);
+      }
+
       setSubmitStatus('saving');
       const payload: UpdateResidentReportRequest = {
         hazardType: form.hazardType,
@@ -167,7 +209,8 @@ export function ResidentReportEditScreen() {
           type: 'Point',
           coordinates: [form.coordinates.longitude, form.coordinates.latitude]
         },
-        ...(mediaReference ? { mediaReference } : {})
+        ...(mediaReference ? { mediaReference } : {}),
+        ...(voiceEvidence !== undefined ? { voiceEvidence } : {})
       };
       const response = await updateMyPendingReport(report.id, payload, accessToken);
 
@@ -255,6 +298,7 @@ export function ResidentReportEditScreen() {
 
   const isSubmitting = submitStatus !== 'idle';
   const mediaPreviewUri = form?.selectedPhoto?.localUri ?? resolveResidentMediaUri(form?.mediaReference);
+  const currentVoiceUri = resolveMediaReferenceUri(form?.voiceEvidence?.mediaReference);
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
@@ -398,6 +442,40 @@ export function ResidentReportEditScreen() {
               </View>
 
               <View style={styles.panel}>
+                <Text style={styles.panelTitle}>Voice evidence</Text>
+                <Text style={styles.panelText}>Optional. Record up to 60 seconds to clarify the hazard.</Text>
+                <VoiceNoteRecorder
+                  disabled={isSubmitting}
+                  existingVoice={
+                    form.voiceEvidence && !form.removeVoiceEvidence
+                      ? {
+                          uri: currentVoiceUri,
+                          durationSeconds: form.voiceEvidence.durationSeconds
+                        }
+                      : null
+                  }
+                  onChange={(selectedVoice) =>
+                    setForm({
+                      ...form,
+                      selectedVoice,
+                      removeVoiceEvidence: selectedVoice ? false : form.removeVoiceEvidence
+                    })
+                  }
+                  onRemoveExisting={() =>
+                    setForm({
+                      ...form,
+                      selectedVoice: null,
+                      removeVoiceEvidence: true
+                    })
+                  }
+                  value={form.selectedVoice}
+                />
+                {form.removeVoiceEvidence ? (
+                  <Text style={styles.hintText}>Current voice note will be removed when you save changes.</Text>
+                ) : null}
+              </View>
+
+              <View style={styles.panel}>
                 <Text style={styles.panelTitle}>Description</Text>
                 <TextInput
                   accessibilityLabel="Report description"
@@ -456,7 +534,10 @@ function createFormFromReport(report: SafeReport): ResidentReportEditForm {
     description: report.description,
     coordinates: coordinates ?? { latitude: 0, longitude: 0 },
     ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
-    selectedPhoto: null
+    selectedPhoto: null,
+    ...(report.voiceEvidence ? { voiceEvidence: report.voiceEvidence } : {}),
+    selectedVoice: null,
+    removeVoiceEvidence: false
   };
 }
 
@@ -486,19 +567,7 @@ function validateEditForm(form: ResidentReportEditForm) {
 }
 
 function resolveResidentMediaUri(mediaReference: string | undefined) {
-  if (!mediaReference) {
-    return undefined;
-  }
-
-  if (/^(https?:|data:image\/)/i.test(mediaReference)) {
-    return mediaReference;
-  }
-
-  if (mediaReference.startsWith('/')) {
-    return `${apiBaseUrl.replace(/\/api\/v1\/?$/, '')}${mediaReference}`;
-  }
-
-  return undefined;
+  return resolveMediaReferenceUri(mediaReference);
 }
 
 function StatePanel({

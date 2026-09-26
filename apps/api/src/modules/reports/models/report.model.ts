@@ -1,7 +1,10 @@
 import {
   HAZARD_TYPES,
+  REPORT_VOICE_MAX_DURATION_SECONDS,
+  REPORT_VOICE_MIME_TYPES,
   REPORT_SEVERITIES,
   REPORT_STATUSES,
+  type ReportVoiceEvidence,
   type ReportReviewEvent,
   type SafeReport
 } from '@safealert/contracts';
@@ -132,6 +135,31 @@ const geoJsonPointSchema = new mongoose.Schema(
   }
 );
 
+const voiceEvidenceSchema = new mongoose.Schema(
+  {
+    mediaReference: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 500
+    },
+    contentType: {
+      type: String,
+      required: true,
+      enum: REPORT_VOICE_MIME_TYPES
+    },
+    durationSeconds: {
+      type: Number,
+      required: true,
+      min: 0.01,
+      max: REPORT_VOICE_MAX_DURATION_SECONDS
+    }
+  },
+  {
+    _id: false
+  }
+);
+
 const reportSchema = new mongoose.Schema(
   {
     residentId: {
@@ -165,6 +193,10 @@ const reportSchema = new mongoose.Schema(
       type: String,
       trim: true,
       maxlength: 500
+    },
+    voiceEvidence: {
+      type: voiceEvidenceSchema,
+      required: false
     },
     status: {
       type: String,
@@ -218,6 +250,7 @@ export type ReportDocument = InferSchemaType<typeof reportSchema> & {
   };
   cancelledById?: { toString(): string };
   cancelledAt?: Date;
+  voiceEvidence?: ReportVoiceEvidence;
   verificationHistory?: Array<{
     action: 'VERIFY' | 'REJECT';
     verifiedById?: { toString(): string };
@@ -298,6 +331,14 @@ export function toSafeReport(report: ReportDocument): SafeReport {
 
   if (report.mediaReference) {
     safeReport.mediaReference = report.mediaReference;
+  }
+
+  if (report.voiceEvidence) {
+    safeReport.voiceEvidence = {
+      mediaReference: report.voiceEvidence.mediaReference,
+      contentType: report.voiceEvidence.contentType,
+      durationSeconds: report.voiceEvidence.durationSeconds
+    };
   }
 
   return safeReport;
