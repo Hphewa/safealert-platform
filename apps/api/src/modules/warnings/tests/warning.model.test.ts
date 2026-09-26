@@ -20,7 +20,7 @@ describe('warning persistence', () => {
       createdAt: expect.any(String), updatedAt: expect.any(String) });
     expect(toSafeWarning(warning)).not.toHaveProperty('_id');
   });
-  it.each([{ riskLevel: 'LOW' }, { riskLevel: 'MODERATE' }, { status: 'PUBLISHED' },
+  it.each([{ riskLevel: 'LOW' }, { riskLevel: 'MODERATE' },
     { affectedArea: '   ' }, { requiredAction: '' }, { unsafeRoads: '' }, { message: '' },
     { attachments: ['file:///photo.jpg'] }, { attachments: Array(6).fill('https://example.com/photo.jpg') }
   ])('rejects invalid persisted data %j', async (invalid) => {

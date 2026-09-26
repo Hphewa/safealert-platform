@@ -9,7 +9,7 @@ export const createWarningSchema = z.object({
   unsafeRoads: requiredText(WARNING_FIELD_LIMITS.unsafeRoads),
   safeRoutes: z.string().trim().max(WARNING_FIELD_LIMITS.safeRoutes).optional(),
   message: requiredText(WARNING_FIELD_LIMITS.message),
-  attachments: z.array(z.string().regex(WARNING_ATTACHMENT_REFERENCE_PATTERN, 'Upload images before attaching them.'))
+  attachments: z.array(z.string().refine((value) => WARNING_ATTACHMENT_REFERENCE_PATTERN.test(value) || /^https?:\/\//i.test(value), 'Upload images before attaching them.'))
     .max(WARNING_FIELD_LIMITS.attachments)
     .refine((values) => new Set(values).size === values.length, 'Each image can only be attached once.').optional()
 }).strict();

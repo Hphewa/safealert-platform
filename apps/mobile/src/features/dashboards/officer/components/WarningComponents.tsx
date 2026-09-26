@@ -16,10 +16,12 @@ export function WarningPage({ title, reviewing = false, busy = false, onBack, ch
         <Text accessibilityRole="header" style={assessmentStyles.title}>{title}</Text>
         <Text style={assessmentStyles.helper}>Prepare clear safety information from the saved risk assessment.</Text>
       </View>
-      <View style={warningStyles.steps}>
+      <View style={warningStyles.steps} accessibilityRole="tablist">
         {['Warning details', 'Review warning'].map((label, index) => <View key={label}
+          accessibilityRole="tab" accessibilityState={{ selected: Number(reviewing) === index }}
           style={[warningStyles.step, Number(reviewing) === index && warningStyles.activeStep]}>
-          <Text style={[warningStyles.stepText, Number(reviewing) === index && warningStyles.activeStepText]}>{index + 1}. {label}</Text>
+          <View style={[warningStyles.stepDot, Number(reviewing) === index && warningStyles.activeStepDot]} />
+          <Text style={[warningStyles.stepText, Number(reviewing) === index && warningStyles.activeStepText]}>{label}</Text>
         </View>)}
       </View>
       {children}
@@ -31,11 +33,12 @@ export const warningStyles = StyleSheet.create({
   container: { flex: 1 },
   header: { gap: 8 },
   eyebrow: { color: dashboardTheme.colors.primaryStrong, fontSize: 12, fontWeight: '800', letterSpacing: 1 },
-  steps: { flexDirection: 'row', gap: 10 },
-  step: { flex: 1, padding: 12, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surfaceMuted,
-    borderWidth: 1, borderColor: dashboardTheme.colors.border },
-  activeStep: { backgroundColor: dashboardTheme.colors.primarySoft, borderColor: dashboardTheme.colors.primary },
-  stepText: { fontSize: 13, fontWeight: '600', color: dashboardTheme.colors.muted },
+  steps: { flexDirection: 'row', gap: 12, padding: 5, borderRadius: 18, backgroundColor: '#eef2f7', borderWidth: 1, borderColor: dashboardTheme.colors.border },
+  step: { flex: 1, minHeight: 48, paddingHorizontal: 14, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },
+  activeStep: { backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.primary, shadowColor: dashboardTheme.colors.primary, shadowOpacity: 0.15, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  stepDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#94a3b8' },
+  activeStepDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: dashboardTheme.colors.primary },
+  stepText: { fontSize: 14, fontWeight: '700', color: dashboardTheme.colors.muted },
   activeStepText: { color: dashboardTheme.colors.primaryStrong },
   field: { gap: 8 },
   multiline: { minHeight: 100, textAlignVertical: 'top' },

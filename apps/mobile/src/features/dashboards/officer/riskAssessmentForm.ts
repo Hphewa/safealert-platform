@@ -35,3 +35,13 @@ export function decisionReasonError(finalRisk: RiskLevel, suggestedRisk: RiskLev
 export function assessmentErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : 'Unable to complete this request. Please try again.';
 }
+export function warningPublishErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    if (/WARNING_NOT_FOUND/i.test(error.message)) return 'Warning not found.';
+    if (/WARNING_NOT_DRAFT/i.test(error.message)) return 'This warning has already been published.';
+    if (/AFFECTED_AREA_REQUIRED/i.test(error.message)) return 'Affected area is required.';
+    if (/FORBIDDEN|not authorized/i.test(error.message)) return 'You are not authorized to publish warnings.';
+    return error.message;
+  }
+  return 'Unable to publish this warning. Please try again.';
+}

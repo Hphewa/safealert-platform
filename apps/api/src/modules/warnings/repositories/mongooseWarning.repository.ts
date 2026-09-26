@@ -5,4 +5,16 @@ export class MongooseWarningRepository implements WarningRepository {
   async create(input: CreateWarningInput) {
     return toSafeWarning(await WarningModel.create(input));
   }
+  async findById(id: string) {
+    const warning = await WarningModel.findById(id).exec();
+    return warning ? toSafeWarning(warning) : null;
+  }
+  async publish(id: string, publishedById: string, publishedAt: string) {
+    const warning = await WarningModel.findOneAndUpdate(
+      { _id: id, status: 'DRAFT', affectedArea: { $type: 'string', $ne: '' } },
+      { $set: { status: 'PUBLISHED', publishedAt: new Date(publishedAt), publishedById } },
+      { new: true }
+    ).exec();
+    return warning ? toSafeWarning(warning) : null;
+  }
 }

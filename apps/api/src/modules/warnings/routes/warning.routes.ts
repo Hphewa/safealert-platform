@@ -8,6 +8,9 @@ import type { WarningService } from '../services/warning.service.js';
 export function createWarningRouter(service: WarningService, config: ApiConfig) {
   const router = Router();
   router.use(authenticate(config), authorizeRoles('DISASTER_OFFICER'));
-  router.post('/', createWarningController(service).create);
+  const controller = createWarningController(service);
+  router.post('/', controller.create);
+  router.get('/:warningId', controller.get);
+  router.post('/:warningId/publish', controller.publish);
   return router;
 }
