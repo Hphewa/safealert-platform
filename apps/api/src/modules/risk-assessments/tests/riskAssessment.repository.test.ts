@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { InMemoryRiskAssessmentRepository } from '../repositories/inMemoryRiskAssessment.repository.js';
-import type { CreateRiskAssessmentInput } from '../repositories/riskAssessment.repository.js';
+import {
+  RiskAssessmentReassessmentConflictError,
+  type CreateRiskAssessmentInput,
+  type ReassessRiskAssessmentRecordInput
+} from '../repositories/riskAssessment.repository.js';
 
 const incidentId = '123456789012345678901234';
 const otherIncidentId = '223456789012345678901234';
@@ -21,6 +25,17 @@ function input(overrides: Partial<CreateRiskAssessmentInput> = {}): CreateRiskAs
     assessedById: '323456789012345678901234',
     status: 'ACTIVE',
     assessedAt: '2026-09-26T12:00:00.000Z',
+    ...overrides
+  };
+}
+
+function reassessmentInput(overrides: Partial<ReassessRiskAssessmentRecordInput> = {}): ReassessRiskAssessmentRecordInput {
+  const { status, ...activeInput } = input();
+  if (status !== 'ACTIVE') throw new Error('A reassessment replacement starts ACTIVE.');
+  return {
+    ...activeInput,
+    assessedAt: '2026-09-26T12:30:00.000Z',
+    reassessmentReason: 'Water levels are rising quickly.',
     ...overrides
   };
 }
@@ -50,5 +65,62 @@ describe('in-memory risk-assessment history repository', () => {
     const repository = new InMemoryRiskAssessmentRepository();
 
     await expect(repository.findHistoryByIncidentId(incidentId)).resolves.toEqual([]);
+  });
+});
+
+describe('in-memory risk-assessment reassessment repository', () => {
+  it('closes the active assessment and inserts a linked active assessment atomically', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const previous = await repository.create(input());
+
+    const reassessed = await repository.reassess(previous.id, reassessmentInput());
+
+    expect(await repository.findById(previous.id)).toMatchObject({
+      status: 'CLOSED', closureReason: 'REASSESSED', closedById: '323456789012345678901234',
+      closedAt: expect.any(String), updatedAt: expect.any(String)
+    });
+    expect(reassessed).toMatchObject({
+      incidentId, status: 'ACTIVE', previousAssessmentId: previous.id,
+      reassessmentReason: 'Water levels are rising quickly.'
+    });
+    expect(await repository.findActiveByIncidentId(incidentId)).toMatchObject({ id: reassessed.id });
+    expect((await repository.findHistoryByIncidentId(incidentId)).map(({ id }) => id)).toEqual([reassessed.id, previous.id]);
+  });
+
+  it('rejects stale reassessment attempts without changing the first transition', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const previous = await repository.create(input());
+    const first = await repository.reassess(previous.id, reassessmentInput());
+
+    await expect(repository.reassess(previous.id, reassessmentInput())).rejects.toBeInstanceOf(RiskAssessmentReassessmentConflictError);
+
+    expect(await repository.findById(previous.id)).toMatchObject({ status: 'CLOSED', closureReason: 'REASSESSED' });
+    expect(await repository.findActiveByIncidentId(incidentId)).toMatchObject({ id: first.id });
+    expect((await repository.findHistoryByIncidentId(incidentId))).toHaveLength(2);
+  });
+
+  it('allows only one concurrent reassessment of the same active assessment', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const previous = await repository.create(input());
+
+    const results = await Promise.allSettled([
+      repository.reassess(previous.id, reassessmentInput()),
+      repository.reassess(previous.id, reassessmentInput())
+    ]);
+
+    expect(results.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(1);
+    expect((await repository.findHistoryByIncidentId(incidentId)).filter(({ status }) => status === 'ACTIVE')).toHaveLength(1);
+  });
+
+  it('leaves the active assessment unchanged when reassessment input does not match its incident', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const previous = await repository.create(input());
+
+    await expect(repository.reassess(previous.id, reassessmentInput({ incidentId: otherIncidentId })))
+      .rejects.toBeInstanceOf(RiskAssessmentReassessmentConflictError);
+
+    expect(await repository.findById(previous.id)).toMatchObject({ status: 'ACTIVE' });
+    expect(await repository.findHistoryByIncidentId(incidentId)).toHaveLength(1);
   });
 });

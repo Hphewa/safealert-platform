@@ -29,6 +29,27 @@ describe('risk persistence constraints', () => {
     expect(toSafeRiskAssessment(assessment)).toMatchObject({ status: 'ACTIVE', assessedAt: expect.any(String), incidentId: assessment.incidentId.toString() });
     expect(toSafeRiskAssessment(assessment)).not.toHaveProperty('_id');
   });
+  it('persists and safely serializes reassessment lineage and closure metadata', async () => {
+    const assessment = document();
+    assessment.status = 'CLOSED';
+    const previousAssessmentId = new mongoose.Types.ObjectId();
+    const closedById = new mongoose.Types.ObjectId();
+    assessment.set({
+      previousAssessmentId, reassessmentReason: 'Conditions changed substantially.',
+      closureReason: 'REASSESSED', closedAt: new Date('2026-09-26T12:30:00.000Z'), closedById
+    });
+
+    await expect(assessment.validate()).resolves.toBeUndefined();
+    expect(RiskAssessmentModel.schema.path('previousAssessmentId').options.ref).toBe('RiskAssessment');
+    expect(RiskAssessmentModel.schema.path('closedById').options.ref).toBe('User');
+    expect(toSafeRiskAssessment(assessment)).toMatchObject({
+      previousAssessmentId: previousAssessmentId.toString(),
+      reassessmentReason: 'Conditions changed substantially.',
+      closureReason: 'REASSESSED',
+      closedAt: '2026-09-26T12:30:00.000Z',
+      closedById: closedById.toString()
+    });
+  });
   it('filters Mongo history by incident, sorts all results deterministically, and serializes safe assessments', async () => {
     const assessment = document();
     const query = RiskAssessmentModel.find();

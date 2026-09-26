@@ -1,7 +1,8 @@
 import {
   RISK_DECISION_REASON_MAX_LENGTH, RISK_DECISION_REASON_MIN_LENGTH,
-  type CreateRiskAssessmentRequest, type RiskAssessmentFactors, type RiskLevel
+  type CreateRiskAssessmentRequest, type ReassessRiskAssessmentRequest, type RiskAssessmentFactors, type RiskLevel
 } from '@safealert/contracts';
+import { ApiClientError } from '../../../services/api/client';
 
 export type RiskAssessmentForm = Omit<RiskAssessmentFactors, 'peopleAffected' | 'vulnerablePeople'> & {
   peopleAffected: string;
@@ -33,6 +34,14 @@ export function parseRiskAssessmentForm(form: RiskAssessmentForm): RiskAssessmen
   const vulnerablePeople = Number(form.vulnerablePeople);
   return { ...form, peopleAffected, vulnerablePeople };
 }
+export function riskAssessmentFormFromAssessment(assessment: RiskAssessmentFactors): RiskAssessmentForm {
+  return {
+    hazardSeverity: assessment.hazardSeverity, peopleAffected: String(assessment.peopleAffected),
+    vulnerablePeople: String(assessment.vulnerablePeople), roadAccessibility: assessment.roadAccessibility,
+    infrastructureImpact: assessment.infrastructureImpact, waterLevelTrend: assessment.waterLevelTrend,
+    weatherCondition: assessment.weatherCondition
+  };
+}
 export function decisionReasonError(finalRisk: RiskLevel, suggestedRisk: RiskLevel, reason: string): string | null {
   const length = reason.trim().length;
   if (length === 0 && finalRisk === suggestedRisk) return null;
@@ -54,7 +63,31 @@ export function buildRiskAssessmentRequest(
     ...(trimmedReason ? { decisionReason: trimmedReason } : {})
   };
 }
+export function reassessmentReasonError(reason: string): string | null {
+  const length = reason.trim().length;
+  if (length < RISK_DECISION_REASON_MIN_LENGTH) return 'Enter a reassessment reason of at least 10 characters.';
+  if (length > RISK_DECISION_REASON_MAX_LENGTH) return 'Reassessment reason must be at most 500 characters.';
+  return null;
+}
+export function buildReassessmentRiskAssessmentRequest(
+  factors: RiskAssessmentFactors, finalRisk: RiskLevel, suggestedRisk: RiskLevel,
+  decisionReason: string, reassessmentReason: string
+): ReassessRiskAssessmentRequest {
+  const invalidReassessmentReason = reassessmentReasonError(reassessmentReason);
+  if (invalidReassessmentReason) throw new Error(invalidReassessmentReason);
+  const invalidDecisionReason = decisionReasonError(finalRisk, suggestedRisk, decisionReason);
+  if (invalidDecisionReason) throw new Error(invalidDecisionReason);
+  const trimmedDecisionReason = decisionReason.trim();
+  return {
+    ...factors, finalRiskLevel: finalRisk,
+    ...(trimmedDecisionReason ? { decisionReason: trimmedDecisionReason } : {}),
+    reassessmentReason: reassessmentReason.trim()
+  };
+}
 export function assessmentErrorMessage(error: unknown) {
+  if (error instanceof ApiClientError && error.code === 'ASSESSMENT_NOT_ACTIVE') {
+    return 'This assessment is no longer active. Refresh to view the latest assessment.';
+  }
   return error instanceof Error ? error.message : 'Unable to complete this request. Please try again.';
 }
 export function warningPublishErrorMessage(error: unknown) {

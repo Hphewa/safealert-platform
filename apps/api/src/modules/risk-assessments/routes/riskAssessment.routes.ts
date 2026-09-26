@@ -12,6 +12,7 @@ export function createRiskAssessmentRouter(service: RiskAssessmentService, confi
   router.use(authenticate(config), authorizeRoles('DISASTER_OFFICER'));
   router.post('/calculate', controller.calculate);
   router.post('/', controller.create);
+  router.post('/:assessmentId/reassess', controller.reassess);
   router.get('/incident/:incidentId/history', controller.getHistoryForIncident);
   router.get('/incident/:incidentId', controller.getForIncident);
   router.get('/:assessmentId', controller.getById);

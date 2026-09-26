@@ -1,5 +1,6 @@
 import {
-  HAZARD_ASSESSMENT_SEVERITIES, INFRASTRUCTURE_IMPACT_LEVELS, RISK_ASSESSMENT_STATUSES,
+  HAZARD_ASSESSMENT_SEVERITIES, INFRASTRUCTURE_IMPACT_LEVELS, RISK_ASSESSMENT_CLOSURE_REASONS,
+  RISK_ASSESSMENT_STATUSES,
   RISK_DECISION_REASON_MAX_LENGTH, RISK_DECISION_REASON_MIN_LENGTH, RISK_LEVELS,
   ROAD_ACCESSIBILITY_OPTIONS, WATER_LEVEL_TRENDS, WEATHER_CONDITIONS,
   type SafeRiskAssessment
@@ -26,6 +27,14 @@ const riskAssessmentSchema = new mongoose.Schema({
     type: String, trim: true,
     minlength: RISK_DECISION_REASON_MIN_LENGTH, maxlength: RISK_DECISION_REASON_MAX_LENGTH
   },
+  previousAssessmentId: { type: mongoose.Schema.Types.ObjectId, ref: 'RiskAssessment' },
+  reassessmentReason: {
+    type: String, trim: true,
+    minlength: RISK_DECISION_REASON_MIN_LENGTH, maxlength: RISK_DECISION_REASON_MAX_LENGTH
+  },
+  closureReason: { type: String, enum: RISK_ASSESSMENT_CLOSURE_REASONS },
+  closedAt: { type: Date },
+  closedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   status: { type: String, enum: RISK_ASSESSMENT_STATUSES, required: true, default: 'ACTIVE' },
   assessedAt: { type: Date, required: true, default: Date.now }
 }, { timestamps: true });
@@ -41,8 +50,16 @@ riskAssessmentSchema.pre('validate', function () {
   if (this.finalRiskLevel !== this.systemSuggestedRisk && !this.decisionReason) {
     this.invalidate('decisionReason', 'A decision reason is required when overriding suggested risk.');
   }
+  if (this.previousAssessmentId && !this.reassessmentReason) {
+    this.invalidate('reassessmentReason', 'A reassessment reason is required for reassessed records.');
+  }
+  if (this.closureReason === 'REASSESSED') {
+    if (this.status !== 'CLOSED') this.invalidate('status', 'Reassessed records must be closed.');
+    if (!this.closedAt) this.invalidate('closedAt', 'A closure date is required for reassessed records.');
+    if (!this.closedById) this.invalidate('closedById', 'A closing officer is required for reassessed records.');
+  }
 });
-type RiskAssessmentDocument = InferSchemaType<typeof riskAssessmentSchema> & { _id: mongoose.Types.ObjectId };
+export type RiskAssessmentDocument = InferSchemaType<typeof riskAssessmentSchema> & { _id: mongoose.Types.ObjectId };
 export const RiskAssessmentModel =
   (mongoose.models.RiskAssessment as Model<RiskAssessmentDocument> | undefined) ??
   mongoose.model<RiskAssessmentDocument>('RiskAssessment', riskAssessmentSchema);
@@ -58,6 +75,11 @@ export function toSafeRiskAssessment(assessment: RiskAssessmentDocument): SafeRi
     calculatedScore: assessment.calculatedScore, systemSuggestedRisk: assessment.systemSuggestedRisk,
     finalRiskLevel: assessment.finalRiskLevel,
     ...(assessment.decisionReason ? { decisionReason: assessment.decisionReason } : {}),
+    ...(assessment.previousAssessmentId ? { previousAssessmentId: assessment.previousAssessmentId.toString() } : {}),
+    ...(assessment.reassessmentReason ? { reassessmentReason: assessment.reassessmentReason } : {}),
+    ...(assessment.closureReason ? { closureReason: assessment.closureReason } : {}),
+    ...(assessment.closedAt ? { closedAt: assessment.closedAt.toISOString() } : {}),
+    ...(assessment.closedById ? { closedById: assessment.closedById.toString() } : {}),
     status: assessment.status, assessedAt: assessment.assessedAt.toISOString(),
     createdAt: assessment.createdAt.toISOString(), updatedAt: assessment.updatedAt.toISOString()
   };

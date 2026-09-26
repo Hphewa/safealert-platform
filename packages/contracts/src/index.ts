@@ -25,6 +25,8 @@ export const WEATHER_CONDITIONS = ['CLEAR', 'LIGHT_RAIN', 'MODERATE_RAIN', 'HEAV
 export type WeatherCondition = (typeof WEATHER_CONDITIONS)[number];
 export const RISK_ASSESSMENT_STATUSES = ['ACTIVE', 'CLOSED', 'VOID'] as const;
 export type RiskAssessmentStatus = (typeof RISK_ASSESSMENT_STATUSES)[number];
+export const RISK_ASSESSMENT_CLOSURE_REASONS = ['REASSESSED'] as const;
+export type RiskAssessmentClosureReason = (typeof RISK_ASSESSMENT_CLOSURE_REASONS)[number];
 export const RISK_DECISION_REASON_MIN_LENGTH = 10;
 export const RISK_DECISION_REASON_MAX_LENGTH = 500;
 
@@ -43,11 +45,21 @@ export type CreateRiskAssessmentRequest = CalculateRiskAssessmentRequest & {
   finalRiskLevel: RiskLevel;
   decisionReason?: string;
 };
+export type ReassessRiskAssessmentRequest = RiskAssessmentFactors & {
+  finalRiskLevel: RiskLevel;
+  decisionReason?: string;
+  reassessmentReason: string;
+};
 export type SafeRiskAssessment = CreateRiskAssessmentRequest & CalculateRiskAssessmentResponse & {
   id: string;
   assessedById: string;
   status: RiskAssessmentStatus;
   assessedAt: string;
+  previousAssessmentId?: string;
+  reassessmentReason?: string;
+  closureReason?: RiskAssessmentClosureReason;
+  closedAt?: string;
+  closedById?: string;
   createdAt: string;
   updatedAt: string;
 };

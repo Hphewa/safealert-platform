@@ -7,14 +7,14 @@ import { z } from 'zod';
 
 export const riskAssessmentIdSchema = z.string().regex(/^[a-f\d]{24}$/i, 'A valid ObjectId is required.');
 const peopleCountSchema = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
-const factorsSchema = z.object({
-  incidentId: riskAssessmentIdSchema,
+const assessmentFactorsSchema = z.object({
   hazardSeverity: z.enum(HAZARD_ASSESSMENT_SEVERITIES),
   peopleAffected: peopleCountSchema, vulnerablePeople: peopleCountSchema,
   roadAccessibility: z.enum(ROAD_ACCESSIBILITY_OPTIONS),
   infrastructureImpact: z.enum(INFRASTRUCTURE_IMPACT_LEVELS),
   waterLevelTrend: z.enum(WATER_LEVEL_TRENDS), weatherCondition: z.enum(WEATHER_CONDITIONS)
 });
+const factorsSchema = assessmentFactorsSchema.extend({ incidentId: riskAssessmentIdSchema });
 const validCounts = (input: RiskAssessmentFactors) => input.vulnerablePeople <= input.peopleAffected;
 const countsError = { message: 'Vulnerable people cannot exceed people affected.', path: ['vulnerablePeople'] };
 // Reject forged audit/scoring fields on both preview and persistence requests.
@@ -24,4 +24,13 @@ export const createRiskAssessmentSchema = factorsSchema.extend({
   decisionReason: z.string().trim()
     .min(RISK_DECISION_REASON_MIN_LENGTH, 'Decision reason must be at least 10 characters.')
     .max(RISK_DECISION_REASON_MAX_LENGTH, 'Decision reason must be at most 500 characters.').optional()
+}).strict().refine(validCounts, countsError);
+export const reassessRiskAssessmentSchema = assessmentFactorsSchema.extend({
+  finalRiskLevel: z.enum(RISK_LEVELS),
+  decisionReason: z.string().trim()
+    .min(RISK_DECISION_REASON_MIN_LENGTH, 'Decision reason must be at least 10 characters.')
+    .max(RISK_DECISION_REASON_MAX_LENGTH, 'Decision reason must be at most 500 characters.').optional(),
+  reassessmentReason: z.string().trim()
+    .min(RISK_DECISION_REASON_MIN_LENGTH, 'Reassessment reason must be at least 10 characters.')
+    .max(RISK_DECISION_REASON_MAX_LENGTH, 'Reassessment reason must be at most 500 characters.')
 }).strict().refine(validCounts, countsError);

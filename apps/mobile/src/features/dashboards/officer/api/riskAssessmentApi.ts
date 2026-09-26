@@ -1,6 +1,6 @@
 import type {
   CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CreateRiskAssessmentRequest,
-  GetVerifiedOfficerReportsResponse, RiskAssessmentForIncidentResponse, RiskAssessmentHistoryResponse,
+  GetVerifiedOfficerReportsResponse, ReassessRiskAssessmentRequest, RiskAssessmentForIncidentResponse, RiskAssessmentHistoryResponse,
   RiskAssessmentResponse
 } from '@safealert/contracts';
 import { apiRequest } from '../../../../services/api/client';
@@ -13,6 +13,11 @@ export function calculateRiskAssessment(input: CalculateRiskAssessmentRequest, a
 }
 export function createRiskAssessment(input: CreateRiskAssessmentRequest, accessToken: string) {
   return apiRequest<RiskAssessmentResponse>('/risk-assessments', { method: 'POST', body: input, accessToken });
+}
+export function reassessRiskAssessment(assessmentId: string, input: ReassessRiskAssessmentRequest, accessToken: string) {
+  return apiRequest<RiskAssessmentResponse>(`/risk-assessments/${encodeURIComponent(assessmentId)}/reassess`, {
+    method: 'POST', body: input, accessToken
+  });
 }
 export function getRiskAssessment(assessmentId: string, accessToken: string) {
   return apiRequest<RiskAssessmentResponse>(`/risk-assessments/${encodeURIComponent(assessmentId)}`, { accessToken });

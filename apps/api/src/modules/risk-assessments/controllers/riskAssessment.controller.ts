@@ -2,7 +2,10 @@ import type { RequestHandler } from 'express';
 import { ApiError } from '../../../shared/apiError.js';
 import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { RiskAssessmentService } from '../services/riskAssessment.service.js';
-import { calculateRiskAssessmentSchema, createRiskAssessmentSchema, riskAssessmentIdSchema } from '../validation/riskAssessment.schemas.js';
+import {
+  calculateRiskAssessmentSchema, createRiskAssessmentSchema, reassessRiskAssessmentSchema,
+  riskAssessmentIdSchema
+} from '../validation/riskAssessment.schemas.js';
 
 export function createRiskAssessmentController(service: RiskAssessmentService) {
   const calculate: RequestHandler = asyncHandler(async (request, response) => {
@@ -22,8 +25,16 @@ export function createRiskAssessmentController(service: RiskAssessmentService) {
   const getForIncident: RequestHandler = asyncHandler(async (request, response) => {
     response.json(await service.getForIncident(riskAssessmentIdSchema.parse(request.params.incidentId)));
   });
+  const reassess: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    const { decisionReason, ...input } = reassessRiskAssessmentSchema.parse(request.body);
+    response.status(201).json(await service.reassess(
+      request.auth.id, riskAssessmentIdSchema.parse(request.params.assessmentId),
+      { ...input, ...(decisionReason ? { decisionReason } : {}) }
+    ));
+  });
   const getHistoryForIncident: RequestHandler = asyncHandler(async (request, response) => {
     response.json(await service.getHistoryForIncident(riskAssessmentIdSchema.parse(request.params.incidentId)));
   });
-  return { calculate, create, getById, getForIncident, getHistoryForIncident };
+  return { calculate, create, reassess, getById, getForIncident, getHistoryForIncident };
 }

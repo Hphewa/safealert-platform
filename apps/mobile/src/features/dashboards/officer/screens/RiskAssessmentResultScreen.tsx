@@ -64,6 +64,9 @@ export function RiskAssessmentResultScreen() {
       {canCreateWarning(data.assessment.finalRiskLevel) ? <AssessmentButton label="Create Warning" onPress={() => router.push({
         pathname: '/officer/warnings/create', params: { assessmentId: data.assessment.id }
       })} /> : null}
+      {data.assessment.status === 'ACTIVE' ? <AssessmentButton label="REASSESS RISK" onPress={() => router.push({
+        pathname: '/officer/assessments/create', params: { assessmentId: data.assessment.id }
+      })} /> : null}
       <AssessmentFactorSummary factors={data.assessment} />
       <IncidentAssessmentContext incident={data.incident} reports={data.reports} />
       <View style={assessmentStyles.card}>
@@ -107,6 +110,11 @@ export function AssessmentHistorySection({
       <AssessmentDetail label="Status" value={assessment.status} />
       <AssessmentDetail label="Assessment Date / Time" value={new Date(assessment.assessedAt).toLocaleString()} />
       <AssessmentDetail label="Assessed By" value={officer?.id === assessment.assessedById ? officer.name : assessment.assessedById} />
+      {assessment.previousAssessmentId ? <AssessmentDetail label="Previous Assessment" value={assessment.previousAssessmentId} /> : null}
+      {assessment.reassessmentReason ? <AssessmentDetail label="Reason for Reassessment" value={assessment.reassessmentReason} /> : null}
+      {assessment.closureReason ? <AssessmentDetail label="Closure Reason" value={assessment.closureReason} /> : null}
+      {assessment.closedAt ? <AssessmentDetail label="Closed At" value={new Date(assessment.closedAt).toLocaleString()} /> : null}
+      {assessment.closedById ? <AssessmentDetail label="Closed By" value={officer?.id === assessment.closedById ? officer.name : assessment.closedById} /> : null}
     </View>)}
   </View>;
 }

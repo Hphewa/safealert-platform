@@ -57,7 +57,7 @@ beforeEach(() => {
 
 describe('risk assessment API', () => {
   const protectedRoutes = [
-    ['post', `${base}/calculate`], ['post', base], ['get', `${base}/${reportId}`],
+    ['post', `${base}/calculate`], ['post', base], ['post', `${base}/${reportId}/reassess`], ['get', `${base}/${reportId}`],
     ['get', `${base}/incident/${incidentId}`], ['get', `${base}/incident/${incidentId}/history`],
     ['get', '/api/v1/reports/officer/verified']
   ] as const;
@@ -112,6 +112,142 @@ describe('risk assessment API', () => {
     for (const field of ['residentId', 'location', 'description', 'hazardType']) {
       expect(response.body.assessment).not.toHaveProperty(field);
     }
+  });
+  it('atomically reassesses with server-calculated risk, authenticated identity, linkage, and history', async () => {
+    const { post, get, riskAssessmentRepository } = context();
+    const original = await post();
+    const factorsForReassessment = {
+      hazardSeverity: 'SEVERE', peopleAffected: 90, vulnerablePeople: 20,
+      roadAccessibility: 'FULLY_BLOCKED', infrastructureImpact: 'SEVERE',
+      waterLevelTrend: 'RISING_RAPIDLY', weatherCondition: 'STORM',
+    };
+    const preview = await post({ incidentId, ...factorsForReassessment }, `${base}/calculate`);
+    const reassessment = {
+      ...factorsForReassessment, finalRiskLevel: preview.body.systemSuggestedRisk,
+      reassessmentReason: 'Flood levels are rising rapidly.'
+    };
+
+    const response = await post(reassessment, `${base}/${original.body.assessment.id}/reassess`);
+
+    expect(preview.status).toBe(200);
+    expect(response.status).toBe(201);
+    expect(response.body).toMatchObject({
+      incident: { id: incidentId }, reports: [report],
+      assessment: {
+        ...reassessment, incidentId, status: 'ACTIVE', assessedById: officerId,
+        previousAssessmentId: original.body.assessment.id,
+        calculatedScore: preview.body.calculatedScore,
+        systemSuggestedRisk: preview.body.systemSuggestedRisk
+      }
+    });
+    expect(await riskAssessmentRepository.findById(original.body.assessment.id)).toMatchObject({
+      status: 'CLOSED', closureReason: 'REASSESSED', closedById: officerId, closedAt: expect.any(String)
+    });
+    const history = await get(`${base}/incident/${incidentId}/history`);
+    expect(history.body.assessments.map((assessment: { id: string; status: string }) => [assessment.id, assessment.status]))
+      .toEqual([[response.body.assessment.id, 'ACTIVE'], [original.body.assessment.id, 'CLOSED']]);
+  });
+  it('rejects reassessment when the source is missing or already closed', async () => {
+    const { post } = context();
+    const validRequest = {
+      hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
+      roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
+      waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN', finalRiskLevel: 'HIGH',
+      reassessmentReason: 'Conditions have changed substantially.'
+    };
+    expect((await post(validRequest, `${base}/${missingId}/reassess`)).status).toBe(404);
+    const original = await post();
+    const path = `${base}/${original.body.assessment.id}/reassess`;
+    expect((await post({ ...validRequest, reassessmentReason: '' }, path)).status).toBe(400);
+    expect((await post(validRequest, path)).status).toBe(201);
+    const stale = await post({ ...validRequest, reassessmentReason: 'A stale second reassessment.' }, path);
+    expect(stale.status).toBe(409);
+    expect(stale.body.error.code).toBe('ASSESSMENT_NOT_ACTIVE');
+  });
+  it('rejects reassessment from a VOID assessment', async () => {
+    const { post, riskAssessmentRepository } = context();
+    const voided = await riskAssessmentRepository.create(savedAssessment('VOID', '2026-09-26T12:00:00.000Z'));
+    const response = await post({
+      hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
+      roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
+      waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN', finalRiskLevel: 'HIGH',
+      reassessmentReason: 'Conditions have changed substantially.'
+    }, `${base}/${voided.id}/reassess`);
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('ASSESSMENT_NOT_ACTIVE');
+  });
+  it('requires current incident eligibility and preserves the active assessment when it fails', async () => {
+    const { post, riskAssessmentRepository, incidentRepository } = context();
+    const original = await post();
+    incidentRepository.seedIncident({
+      id: incidentId, hazardType: 'FLOOD', location: report.location, reportIds: [reportId], status: 'CLOSED',
+      createdById: officerId, createdAt: report.createdAt, updatedAt: report.updatedAt
+    });
+    const response = await post({
+      hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
+      roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
+      waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN', finalRiskLevel: 'HIGH',
+      reassessmentReason: 'Conditions have changed substantially.'
+    }, `${base}/${original.body.assessment.id}/reassess`);
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('INCIDENT_NOT_ACTIVE');
+    expect(await riskAssessmentRepository.findById(original.body.assessment.id)).toMatchObject({ status: 'ACTIVE' });
+  });
+  it('preserves the active assessment when its verified reports lose eligibility', async () => {
+    const { post, riskAssessmentRepository, reportRepository } = context();
+    const original = await post();
+    reportRepository.seedReport({ ...report, status: 'PENDING' });
+
+    const response = await post({
+      hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
+      roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
+      waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN', finalRiskLevel: 'HIGH',
+      reassessmentReason: 'Conditions have changed substantially.'
+    }, `${base}/${original.body.assessment.id}/reassess`);
+
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('INVALID_INCIDENT_STATE');
+    expect(await riskAssessmentRepository.findById(original.body.assessment.id)).toMatchObject({ status: 'ACTIVE' });
+    expect(await riskAssessmentRepository.findHistoryByIncidentId(incidentId)).toHaveLength(1);
+  });
+  it('maps concurrent reassessment attempts to one success and one conflict', async () => {
+    const { post, riskAssessmentRepository } = context();
+    const original = await post();
+    const path = `${base}/${original.body.assessment.id}/reassess`;
+    const body = {
+      hazardSeverity: 'SEVERE', peopleAffected: 90, vulnerablePeople: 20,
+      roadAccessibility: 'FULLY_BLOCKED', infrastructureImpact: 'SEVERE',
+      waterLevelTrend: 'RISING_RAPIDLY', weatherCondition: 'STORM', finalRiskLevel: 'CRITICAL',
+      reassessmentReason: 'Conditions have changed substantially.'
+    };
+
+    const responses = await Promise.all([post(body, path), post(body, path)]);
+
+    expect(responses.map(({ status }) => status).sort()).toEqual([201, 409]);
+    expect(responses.find(({ status }) => status === 409)?.body.error.code).toBe('ASSESSMENT_NOT_ACTIVE');
+    expect(await riskAssessmentRepository.findHistoryByIncidentId(incidentId)).toHaveLength(2);
+    expect((await riskAssessmentRepository.findHistoryByIncidentId(incidentId)).filter(({ status }) => status === 'ACTIVE'))
+      .toHaveLength(1);
+  });
+  it('requires a decision reason for a final-risk override and rejects forged server fields', async () => {
+    const { post, riskAssessmentRepository } = context();
+    const original = await post();
+    const path = `${base}/${original.body.assessment.id}/reassess`;
+    const requestBody = {
+      hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
+      roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
+      waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN',
+      reassessmentReason: 'Conditions have changed substantially.'
+    };
+    const override = await post({ ...requestBody, finalRiskLevel: 'LOW' }, path);
+    expect(override.status).toBe(400);
+    expect(override.body.error.code).toBe('DECISION_REASON_REQUIRED');
+    for (const field of ['calculatedScore', 'systemSuggestedRisk', 'assessedById', 'status', 'closedAt', 'closedById']) {
+      expect((await post({ ...requestBody, finalRiskLevel: 'HIGH', [field]: 'forged' }, path)).status).toBe(400);
+    }
+    expect(await riskAssessmentRepository.findById(original.body.assessment.id)).toMatchObject({ status: 'ACTIVE' });
   });
   it('returns all assessment statuses for a closed incident newest first', async () => {
     const { get, riskAssessmentRepository, incidentRepository, reportRepository } = context();
@@ -187,6 +323,12 @@ describe('risk assessment API', () => {
     expect((await get(`${base}/invalid`)).status).toBe(400);
     expect((await get(`${base}/incident/invalid`)).status).toBe(400);
     expect((await get(`${base}/incident/invalid/history`)).status).toBe(400);
+    expect((await post({
+      hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
+      roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
+      waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN', finalRiskLevel: 'HIGH',
+      reassessmentReason: 'Conditions have changed substantially.'
+    }, `${base}/invalid/reassess`)).status).toBe(400);
     expect((await get(`${base}/incident/${incidentId}`)).body).toMatchObject({ incident: expect.objectContaining({ id: incidentId }), assessment: null, reports: [report] });
   });
   it('lists verified reports only', async () => {

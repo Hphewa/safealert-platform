@@ -136,3 +136,43 @@ it('keeps the saved assessment visible while history is independently loading', 
   expect(markup).toContain('Loading assessment history');
   expect(markup).toContain('Create Warning');
 });
+
+it('offers reassessment for the active assessment and routes with its ID', () => {
+  state.data = savedResult();
+
+  const markup = renderToStaticMarkup(<RiskAssessmentResultScreen />);
+
+  expect(markup).toContain('REASSESS RISK');
+  state.actions.get('REASSESS RISK')!();
+  expect(state.push).toHaveBeenCalledWith({
+    pathname: '/officer/assessments/create', params: { assessmentId: 'assessment-active' }
+  });
+});
+
+it.each(['CLOSED', 'VOID'] as const)('does not offer reassessment for %s assessments', (status) => {
+  const result = savedResult();
+  result.assessment = assessment(status, { id: `assessment-${status.toLowerCase()}` });
+  state.data = result;
+
+  const markup = renderToStaticMarkup(<RiskAssessmentResultScreen />);
+
+  expect(markup).not.toContain('REASSESS RISK');
+});
+
+it('shows reassessment lineage and closure details in existing assessment history', () => {
+  const markup = renderToStaticMarkup(<AssessmentHistorySection state={{ kind: 'loaded', assessments: [
+    assessment('ACTIVE', {
+      id: 'assessment-new', previousAssessmentId: 'assessment-old',
+      reassessmentReason: 'Water levels are rising quickly.'
+    }),
+    assessment('CLOSED', {
+      id: 'assessment-old', closureReason: 'REASSESSED',
+      closedAt: '2026-09-26T12:30:00.000Z', closedById: 'officer-1'
+    })
+  ] }} officer={{ id: 'officer-1', name: 'Officer One' }} onRetry={() => {}} />);
+
+  expect(markup).toContain('Previous Assessment: assessment-old');
+  expect(markup).toContain('Reason for Reassessment: Water levels are rising quickly.');
+  expect(markup).toContain('Closure Reason: REASSESSED');
+  expect(markup).toContain('Closed By: Officer One');
+});

@@ -9,7 +9,10 @@ import { InMemoryAuthRepository } from '../../../../../../api/src/modules/auth/r
 import { InMemoryReportRepository } from '../../../../../../api/src/modules/reports/repositories/inMemoryReport.repository.js';
 import { InMemoryRiskAssessmentRepository } from '../../../../../../api/src/modules/risk-assessments/repositories/inMemoryRiskAssessment.repository.js';
 import { InMemoryIncidentRepository } from '../../../../../../api/src/modules/incidents/repositories/inMemoryIncident.repository.js';
-import { calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident, listVerifiedOfficerReports } from './riskAssessmentApi';
+import {
+  calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident,
+  getRiskAssessmentHistory, listVerifiedOfficerReports, reassessRiskAssessment
+} from './riskAssessmentApi';
 import { initialRiskAssessmentForm, parseRiskAssessmentForm } from '../riskAssessmentForm';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -55,4 +58,20 @@ it('runs verified report → mobile calculation → final decision → save → 
   expect(result).toEqual(saved);
   expect(result.assessment).toMatchObject({ assessedById: 'officer', finalRiskLevel: 'CRITICAL', systemSuggestedRisk: 'HIGH', incidentId });
   expect((await getRiskAssessmentForIncident(incidentId, token)).assessment?.id).toBe(saved.assessment.id);
+
+  const reassessed = await reassessRiskAssessment(saved.assessment.id, {
+    hazardSeverity: factors.hazardSeverity, peopleAffected: factors.peopleAffected,
+    vulnerablePeople: factors.vulnerablePeople, roadAccessibility: factors.roadAccessibility,
+    infrastructureImpact: factors.infrastructureImpact, waterLevelTrend: factors.waterLevelTrend,
+    weatherCondition: factors.weatherCondition, finalRiskLevel: 'HIGH',
+    reassessmentReason: 'Water levels are rising quickly.'
+  }, token);
+  expect(reassessed.assessment).toMatchObject({
+    status: 'ACTIVE', assessedById: 'officer', previousAssessmentId: saved.assessment.id,
+    reassessmentReason: 'Water levels are rising quickly.'
+  });
+  expect((await getRiskAssessment(saved.assessment.id, token)).assessment)
+    .toMatchObject({ status: 'CLOSED', closureReason: 'REASSESSED', closedById: 'officer' });
+  expect((await getRiskAssessmentHistory(incidentId, token)).assessments.map(({ id, status }) => [id, status]))
+    .toEqual([[reassessed.assessment.id, 'ACTIVE'], [saved.assessment.id, 'CLOSED']]);
 });

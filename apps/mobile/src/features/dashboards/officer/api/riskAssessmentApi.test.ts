@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CalculateRiskAssessmentRequest } from '@safealert/contracts';
+import type { CalculateRiskAssessmentRequest, ReassessRiskAssessmentRequest } from '@safealert/contracts';
 import { apiBaseUrl } from '../../../../services/api/client';
 import {
   calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident,
-  getRiskAssessmentHistory, listVerifiedOfficerReports
+  getRiskAssessmentHistory, listVerifiedOfficerReports, reassessRiskAssessment
 } from './riskAssessmentApi';
 
 const factors: CalculateRiskAssessmentRequest = {
@@ -39,6 +39,22 @@ describe('risk assessment authenticated API adapter', () => {
     for (const [, options] of fetchMock.mock.calls) {
       expect(options).toMatchObject({ method: 'GET', headers: { Authorization: 'Bearer officer-token' } });
     }
+  });
+  it('submits the shared reassessment request to the encoded source assessment route', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('{}'));
+    vi.stubGlobal('fetch', fetchMock);
+    const input: ReassessRiskAssessmentRequest = {
+      hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
+      roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
+      waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN',
+      finalRiskLevel: 'HIGH', reassessmentReason: 'Water levels are rising quickly.'
+    };
+
+    await reassessRiskAssessment('assessment/one', input, 'officer-token');
+
+    expect(fetchMock).toHaveBeenCalledWith(`${apiBaseUrl}/risk-assessments/assessment%2Fone/reassess`, expect.objectContaining({
+      method: 'POST', headers: expect.objectContaining({ Authorization: 'Bearer officer-token' }), body: JSON.stringify(input)
+    }));
   });
   it('preserves duplicate conflict codes so the UI can offer the existing result', async () => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({

@@ -56,3 +56,16 @@ it('shows the recommendation and editable decision before the long factor summar
   expect(markup.indexOf('System suggested risk')).toBeLessThan(markup.indexOf('Final officer decision'));
   expect(markup.indexOf('SAVE ASSESSMENT')).toBeLessThan(markup.indexOf('Assessment factors'));
 });
+
+it('compares the previous decision with the new suggestion and labels reassessment save', () => {
+  const markup = renderToStaticMarkup(<RiskDecisionScreen factors={factors}
+    calculation={{ calculatedScore: 27, systemSuggestedRisk: 'CRITICAL' }} finalRisk="CRITICAL" reason=""
+    saving={false} onFinalRisk={() => {}} onReason={() => {}} onEdit={() => {}} onSave={() => {}}
+    previousAssessment={{ finalRiskLevel: 'HIGH', calculatedScore: 18 }} saveLabel="SAVE REASSESSMENT" />);
+
+  expect(markup).toContain('Previous Risk');
+  expect(markup).toContain('Calculated Score: 18');
+  expect(markup).toContain('New System Suggestion');
+  expect(markup).toContain('CRITICAL');
+  expect(markup).toContain('SAVE REASSESSMENT');
+});
