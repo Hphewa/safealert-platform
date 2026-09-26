@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "mobile": "npm --workspace @safealert/mobile run start",
+    "mobile:android": "npm --workspace @safealert/mobile run android",
     "api": "npm --workspace @safealert/api run dev",
     "typecheck": "npm --workspaces --if-present run typecheck",
     "lint": "npm --workspaces --if-present run lint",
