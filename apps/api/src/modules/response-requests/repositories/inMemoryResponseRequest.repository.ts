@@ -39,6 +39,14 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return responseRequest;
   }
 
+  async findResponseRequestsByResidentId(residentId: string) {
+    return [...this.responseRequests.values()]
+      .filter((responseRequest) => responseRequest.residentId === residentId)
+      .sort((left, right) =>
+        right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      );
+  }
+
   async findPendingResponseRequests(responderId: string) {
     // Mirror the MongoDB queue rules so service tests exercise the same
     // filtering and ordering behavior used in production.

@@ -14,6 +14,15 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return toSafeResponseRequest(responseRequest);
   }
 
+  async findResponseRequestsByResidentId(residentId: string) {
+    // Ownership is part of the database query; completed requests remain trackable too.
+    const responseRequests = await ResponseRequestModel.find({ residentId })
+      .sort({ createdAt: -1, _id: -1 })
+      .exec();
+
+    return responseRequests.map(toSafeResponseRequest);
+  }
+
   async findPendingResponseRequests(responderId: string) {
     if (!mongoose.isValidObjectId(responderId)) {
       return [];

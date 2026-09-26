@@ -1,6 +1,8 @@
 import type {
   CreateResponseRequestRequest,
   CreateResponseRequestResponse,
+  GetResidentResponseRequestResponse,
+  GetResidentResponseRequestsResponse,
   ResponseStatus,
   UserRole
 } from '@safealert/contracts';
@@ -38,6 +40,46 @@ export class ResponseRequestService {
     });
 
     return { responseRequest };
+  }
+
+  async listResidentResponseRequests(residentId: string): Promise<GetResidentResponseRequestsResponse> {
+    this.requireResidentIdentity(residentId);
+
+    return {
+      responseRequests: await this.repository.findResponseRequestsByResidentId(residentId)
+    };
+  }
+
+  async getResidentResponseRequestById(
+    residentId: string,
+    responseRequestId: string
+  ): Promise<GetResidentResponseRequestResponse> {
+    this.requireResidentIdentity(residentId);
+
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    // Reuse the owner-scoped lookup without a status filter so tracking reads
+    // the same persisted lifecycle and timestamps as responder operations.
+    const responseRequest = await this.repository.findResponseRequestById(
+      responseRequestId.toLowerCase(),
+      residentId
+    );
+
+    if (!responseRequest) {
+      // Do not reveal whether an inaccessible request belongs to another resident.
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+
+    return { responseRequest };
+  }
+
+  private requireResidentIdentity(residentId: string) {
+    // Fail closed if an internal caller omits the authenticated ownership scope.
+    if (typeof residentId !== 'string' || !residentId.trim()) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
   }
 
   async listPendingResponseRequests(responderId: string) {

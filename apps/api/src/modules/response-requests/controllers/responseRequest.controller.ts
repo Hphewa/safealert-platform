@@ -39,6 +39,26 @@ export function createResponseRequestController(responseRequestService: Response
     response.status(201).json(result);
   });
 
+  const listMine: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    // Client-supplied resident IDs must never determine the ownership scope.
+    response.status(200).json(await responseRequestService.listResidentResponseRequests(request.auth.id));
+  });
+
+  const getMineById: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    response.status(200).json(await responseRequestService.getResidentResponseRequestById(
+      request.auth.id,
+      request.params.requestId ?? ''
+    ));
+  });
+
   const listPendingForResponder: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
@@ -112,6 +132,8 @@ export function createResponseRequestController(responseRequestService: Response
 
   return {
     create,
+    listMine,
+    getMineById,
     listPendingForResponder,
     listAssignedForResponder,
     acceptForResponder,

@@ -461,6 +461,14 @@ export type CreateResponseRequestResponse = {
   responseRequest: SafeResponseRequest;
 };
 
+export type GetResidentResponseRequestsResponse = {
+  responseRequests: SafeResponseRequest[];
+};
+
+export type GetResidentResponseRequestResponse = {
+  responseRequest: SafeResponseRequest;
+};
+
 export const SYNC_OPERATION_TYPES = [
   'REPORT_CREATE',
   'FIELD_CONFIRMATION_CREATE',

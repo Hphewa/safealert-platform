@@ -22,6 +22,7 @@ export const responseProgressTimestampFields: Partial<Record<
 
 export interface ResponseRequestRepository {
   createResponseRequest(input: CreateResponseRequestInput): Promise<SafeResponseRequest>;
+  findResponseRequestsByResidentId(residentId: string): Promise<SafeResponseRequest[]>;
   findPendingResponseRequests(responderId: string): Promise<SafeResponseRequest[]>;
   findAssignedResponseRequests(responderId: string): Promise<SafeResponseRequest[]>;
   findResponseRequestForProgress(responseRequestId: string): Promise<SafeResponseRequest | null>;
