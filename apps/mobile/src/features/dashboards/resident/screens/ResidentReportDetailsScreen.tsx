@@ -20,6 +20,8 @@ import { ApiClientError, apiBaseUrl } from '@/services/api/client';
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { StatusBadge } from '../../shared/components/StatusBadge';
+import { LocationPreview } from '../../shared/maps/LocationPreview';
+import { geoJsonPointToMapCoordinates } from '../../shared/maps/types';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { cancelMyPendingReport, getMyReportById, listMyReportFieldConfirmations } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
@@ -281,6 +283,7 @@ function ReportDetailContent({
   const mediaUri = resolveResidentMediaUri(report.mediaReference);
   const timeline = buildResidentReportTimeline(report);
   const canEdit = isResidentReportEditable(report);
+  const reportCoordinates = geoJsonPointToMapCoordinates(report.location);
 
   return (
     <>
@@ -355,12 +358,18 @@ function ReportDetailContent({
         <DetailRow label="Report ID" value={report.id} />
         <DetailRow label="Hazard" value={hazardLabel} />
         <DetailRow label="Severity" value={report.severity} />
-        <DetailRow label="Location" value={formatResidentReportLocation(report)} />
+        <DetailRow label="Coordinates" value={formatResidentReportLocation(report)} />
         <DetailRow label="Submitted" value={formatResidentReportDateTime(report.createdAt)} />
         <DetailRow label="Last updated" value={formatResidentReportDateTime(report.updatedAt)} />
         {report.verifiedAt ? <DetailRow label="Verified" value={formatResidentReportDateTime(report.verifiedAt)} /> : null}
         {report.rejectedAt ? <DetailRow label="Rejected" value={formatResidentReportDateTime(report.rejectedAt)} /> : null}
         {report.cancelledAt ? <DetailRow label="Cancelled" value={formatResidentReportDateTime(report.cancelledAt)} /> : null}
+      </View>
+
+      <View style={styles.panel}>
+        <Text style={styles.panelTitle}>Reported Location</Text>
+        <LocationPreview coordinates={reportCoordinates} title="Hazard location" />
+        <Text style={styles.mapHintText}>This preview is read-only and does not change your report.</Text>
       </View>
 
       <View style={styles.panel}>
@@ -732,6 +741,11 @@ const styles = StyleSheet.create({
     backgroundColor: dashboardTheme.colors.surfaceMuted
   },
   mediaReference: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: dashboardTheme.colors.muted
+  },
+  mapHintText: {
     fontSize: 13,
     lineHeight: 19,
     color: dashboardTheme.colors.muted

@@ -20,13 +20,14 @@ import { ApiClientError, apiBaseUrl } from '@/services/api/client';
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { formatCoordinate } from '../../shared/currentLocation';
+import { LocationPicker } from '../../shared/maps/LocationPicker';
+import { LocationPreview } from '../../shared/maps/LocationPreview';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
-import { ReportLocationMap } from '../components/ReportLocationMap';
 import { uploadReportEvidence } from '../api/mediaApi';
 import { getMyReportById, updateMyPendingReport } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
 import { descriptionMaxLength, descriptionMinLength } from '../reportDraft';
-import type { ReportLocationCoordinates, ReportMapRegion } from '../reportLocation';
+import { reportGeoJsonToLocationCoordinates, type ReportLocationCoordinates } from '../reportLocation';
 import {
   canPreviewResidentReportMedia,
   residentReportStatusHref,
@@ -41,8 +42,6 @@ const hazardOptions: Array<{ label: string; value: HazardType; icon: string }> =
 ];
 
 const severityOptions: ReportSeverity[] = ['LOW', 'MODERATE', 'HIGH'];
-const initialLatitudeDelta = 0.01;
-const initialLongitudeDelta = 0.01;
 
 type EditLoadStatus = 'loading' | 'success' | 'error';
 type EditSubmitStatus = 'idle' | 'uploading' | 'saving';
@@ -70,7 +69,8 @@ export function ResidentReportEditScreen() {
   const { accessToken } = useAuth();
   const [report, setReport] = useState<SafeReport | null>(null);
   const [form, setForm] = useState<ResidentReportEditForm | null>(null);
-  const [region, setRegion] = useState<ReportMapRegion | null>(null);
+  const [isEditingLocation, setIsEditingLocation] = useState(false);
+  const [pendingCoordinates, setPendingCoordinates] = useState<ReportLocationCoordinates | null>(null);
   const [loadStatus, setLoadStatus] = useState<EditLoadStatus>('loading');
   const [submitStatus, setSubmitStatus] = useState<EditSubmitStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -96,7 +96,8 @@ export function ResidentReportEditScreen() {
       const response = await getMyReportById(reportId, accessToken);
       setReport(response.report);
       setForm(createFormFromReport(response.report));
-      setRegion(regionFromReport(response.report));
+      setIsEditingLocation(false);
+      setPendingCoordinates(null);
       setLoadStatus('success');
     } catch (error) {
       setLoadStatus('error');
@@ -228,18 +229,28 @@ export function ResidentReportEditScreen() {
     }
   };
 
-  const updateCoordinates = (coordinates: ReportLocationCoordinates) => {
+  const startEditingLocation = () => {
+    if (!form) {
+      return;
+    }
+
+    setPendingCoordinates(form.coordinates);
+    setIsEditingLocation(true);
+  };
+
+  const cancelEditingLocation = () => {
+    setPendingCoordinates(null);
+    setIsEditingLocation(false);
+  };
+
+  const confirmEditedLocation = (coordinates: ReportLocationCoordinates) => {
     if (!form) {
       return;
     }
 
     setForm({ ...form, coordinates });
-    setRegion((current) => ({
-      latitude: coordinates.latitude,
-      longitude: coordinates.longitude,
-      latitudeDelta: current?.latitudeDelta ?? initialLatitudeDelta,
-      longitudeDelta: current?.longitudeDelta ?? initialLongitudeDelta
-    }));
+    setPendingCoordinates(null);
+    setIsEditingLocation(false);
   };
 
   const isSubmitting = submitStatus !== 'idle';
@@ -264,7 +275,7 @@ export function ResidentReportEditScreen() {
 
           {loadStatus === 'loading' ? (
             <StatePanel loading message="Loading the latest persisted report." title="Loading Report" />
-          ) : loadStatus === 'error' || !report || !form || !region ? (
+          ) : loadStatus === 'error' || !report || !form ? (
             <StatePanel
               actionLabel="Retry"
               message={errorMessage ?? 'Unable to load this report right now.'}
@@ -331,18 +342,30 @@ export function ResidentReportEditScreen() {
 
               <View style={styles.panel}>
                 <Text style={styles.panelTitle}>Location</Text>
-                <Text style={styles.panelText}>
-                  Lat {formatCoordinate(form.coordinates.latitude)}, Long {formatCoordinate(form.coordinates.longitude)}
-                </Text>
-                <View style={styles.mapPanel}>
-                  <ReportLocationMap
-                    location={form.coordinates}
-                    onChange={updateCoordinates}
-                    onRegionChange={setRegion}
-                    region={region}
+                {isEditingLocation ? (
+                  <LocationPicker
+                    onCancel={cancelEditingLocation}
+                    onChange={setPendingCoordinates}
+                    onConfirm={confirmEditedLocation}
+                    value={pendingCoordinates ?? form.coordinates}
                   />
-                </View>
-                <Text style={styles.hintText}>Saved as GeoJSON coordinates [longitude, latitude].</Text>
+                ) : (
+                  <>
+                    <Text style={styles.panelText}>
+                      Lat {formatCoordinate(form.coordinates.latitude)}, Long {formatCoordinate(form.coordinates.longitude)}
+                    </Text>
+                    <LocationPreview coordinates={form.coordinates} height={210} title="Hazard location" />
+                    <Pressable
+                      accessibilityLabel="Adjust report location"
+                      accessibilityRole="button"
+                      onPress={startEditingLocation}
+                      style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.secondaryButtonText}>Adjust Location</Text>
+                    </Pressable>
+                    <Text style={styles.hintText}>Move the pin only if the reported hazard location needs correction.</Text>
+                  </>
+                )}
               </View>
 
               <View style={styles.panel}>
@@ -425,25 +448,15 @@ export function ResidentReportEditScreen() {
 }
 
 function createFormFromReport(report: SafeReport): ResidentReportEditForm {
+  const coordinates = reportGeoJsonToLocationCoordinates(report.location);
+
   return {
     hazardType: report.hazardType,
     severity: report.severity,
     description: report.description,
-    coordinates: {
-      longitude: report.location.coordinates[0],
-      latitude: report.location.coordinates[1]
-    },
+    coordinates: coordinates ?? { latitude: 0, longitude: 0 },
     ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
     selectedPhoto: null
-  };
-}
-
-function regionFromReport(report: SafeReport): ReportMapRegion {
-  return {
-    longitude: report.location.coordinates[0],
-    latitude: report.location.coordinates[1],
-    latitudeDelta: initialLatitudeDelta,
-    longitudeDelta: initialLongitudeDelta
   };
 }
 
@@ -634,14 +647,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: dashboardTheme.colors.text
-  },
-  mapPanel: {
-    minHeight: 300,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.surfaceMuted
   },
   mediaPreview: {
     width: '100%',

@@ -1,25 +1,26 @@
 import type { ReportHazardDraft } from './reportDraft';
+import {
+  geoJsonPointToMapCoordinates,
+  type LocationSelectionMetadata,
+  type MapCoordinates,
+  type MapRegion
+} from '../shared/maps/types';
 
-export type ReportLocationCoordinates = {
-  latitude: number;
-  longitude: number;
-};
-
-export type ReportMapRegion = ReportLocationCoordinates & {
-  latitudeDelta: number;
-  longitudeDelta: number;
-};
+export type ReportLocationCoordinates = MapCoordinates;
+export type ReportMapRegion = MapRegion;
 
 type ApplyAdjustedReportLocationInput = {
   draft: ReportHazardDraft;
   coordinates: ReportLocationCoordinates;
   capturedAt: string;
+  accuracyMeters?: number | null;
 };
 
 export function applyAdjustedReportLocation({
   draft,
   coordinates,
-  capturedAt
+  capturedAt,
+  accuracyMeters
 }: ApplyAdjustedReportLocationInput): ReportHazardDraft {
   return {
     ...draft,
@@ -27,7 +28,12 @@ export function applyAdjustedReportLocation({
       status: 'DETECTED',
       latitude: coordinates.latitude,
       longitude: coordinates.longitude,
-      accuracyMeters: draft.location.status === 'DETECTED' ? draft.location.accuracyMeters : null,
+      accuracyMeters:
+        accuracyMeters !== undefined
+          ? accuracyMeters
+          : draft.location.status === 'DETECTED'
+            ? draft.location.accuracyMeters
+            : null,
       capturedAt,
       errorMessage: null
     }
@@ -36,4 +42,12 @@ export function applyAdjustedReportLocation({
 
 export function reportLocationToGeoJsonCoordinates(coordinates: ReportLocationCoordinates) {
   return [coordinates.longitude, coordinates.latitude] as [longitude: number, latitude: number];
+}
+
+export function reportGeoJsonToLocationCoordinates(location: Parameters<typeof geoJsonPointToMapCoordinates>[0]) {
+  return geoJsonPointToMapCoordinates(location);
+}
+
+export function locationSelectionCapturedAt(metadata: LocationSelectionMetadata | undefined) {
+  return metadata?.capturedAt ?? new Date().toISOString();
 }

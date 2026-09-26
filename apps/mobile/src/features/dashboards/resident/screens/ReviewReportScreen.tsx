@@ -7,6 +7,7 @@ import { ApiClientError } from '@/services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { LocationPreview } from '../../shared/maps/LocationPreview';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { createResidentReport } from '../api/reportApi';
 import { uploadReportEvidence } from '../api/mediaApi';
@@ -161,10 +162,18 @@ export function ReviewReportScreen() {
         </View>
         {draft.location.status === 'DETECTED' ? (
           <View style={styles.locationPreview}>
-            <Text style={styles.locationPreviewTitle}>Detected coordinates</Text>
+            <Text style={styles.locationPreviewTitle}>Hazard location</Text>
             <Text style={styles.coordinateText}>Latitude {formatCoordinate(draft.location.latitude)}</Text>
             <Text style={styles.coordinateText}>Longitude {formatCoordinate(draft.location.longitude)}</Text>
-            <Text style={styles.helperText}>Submitted to the API as [longitude, latitude].</Text>
+            <LocationPreview
+              coordinates={{
+                latitude: draft.location.latitude,
+                longitude: draft.location.longitude
+              }}
+              height={168}
+              title="Hazard location"
+            />
+            <Text style={styles.helperText}>Edit the report if this pin is not where the hazard is.</Text>
           </View>
         ) : (
           <Text style={styles.errorText}>Location is required.</Text>

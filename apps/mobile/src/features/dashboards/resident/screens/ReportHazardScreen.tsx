@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+﻿import { useCallback, useEffect } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -9,6 +9,7 @@ import {
   captureCurrentLocation as captureCurrentDeviceLocation,
   formatCoordinate
 } from '../../shared/currentLocation';
+import { LocationPreview } from '../../shared/maps/LocationPreview';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { residentBottomNavItems } from '../mockData';
 import { SelectableCard } from '../components/SelectableCard';
@@ -315,7 +316,8 @@ export function ReportHazardScreen() {
               <Text style={styles.coordinateText}>
                 Lat {formatCoordinate(draft.location.latitude)}, Long {formatCoordinate(draft.location.longitude)}
               </Text>
-              <Text style={styles.mongoHintText}>Saved for reports as [longitude, latitude].</Text>
+
+              <Text style={styles.locationHintText}>Adjust the pin if the hazard is somewhere else.</Text>
             </View>
           ) : null}
           {draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR' ? (
@@ -345,6 +347,18 @@ export function ReportHazardScreen() {
             <Text style={styles.secondaryButtonText}>Adjust Location</Text>
           </Pressable>
         </View>
+        {draft.location.status === 'DETECTED' ? (
+          <View style={styles.locationPreviewWrap}>
+            <LocationPreview
+              coordinates={{
+                latitude: draft.location.latitude,
+                longitude: draft.location.longitude
+              }}
+              height={180}
+              title="Hazard location"
+            />
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.photoPanel}>
@@ -624,7 +638,7 @@ const styles = StyleSheet.create({
     gap: 8
   },
   detectedLocation: {
-    gap: 3
+    gap: 8
   },
   detectedText: {
     fontSize: 14,
@@ -637,6 +651,11 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.text
   },
   mongoHintText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: dashboardTheme.colors.muted
+  },
+  locationHintText: {
     fontSize: 12,
     lineHeight: 18,
     color: dashboardTheme.colors.muted
@@ -658,6 +677,9 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'flex-end',
     gap: 8
+  },
+  locationPreviewWrap: {
+    width: '100%'
   },
   secondaryButton: {
     minHeight: 40,
@@ -822,3 +844,6 @@ const styles = StyleSheet.create({
     opacity: 0.82
   }
 });
+
+
+

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { applyAdjustedReportLocation, reportLocationToGeoJsonCoordinates } from './reportLocation';
+import {
+  applyAdjustedReportLocation,
+  reportGeoJsonToLocationCoordinates,
+  reportLocationToGeoJsonCoordinates
+} from './reportLocation';
 import type { ReportHazardDraft } from './reportDraft';
 
 const baseDraft: ReportHazardDraft = {
@@ -67,6 +71,26 @@ describe('report location helpers', () => {
     }
   });
 
+  it('uses GPS accuracy metadata when current location is confirmed from the picker', () => {
+    const result = applyAdjustedReportLocation({
+      draft: baseDraft,
+      coordinates: {
+        latitude: 6.931,
+        longitude: 79.866
+      },
+      capturedAt: '2026-09-23T02:00:00.000Z',
+      accuracyMeters: 8
+    });
+
+    expect(result.location).toMatchObject({
+      status: 'DETECTED',
+      latitude: 6.931,
+      longitude: 79.866,
+      accuracyMeters: 8,
+      capturedAt: '2026-09-23T02:00:00.000Z'
+    });
+  });
+
   it('converts selected latitude and longitude to GeoJSON coordinate order', () => {
     expect(
       reportLocationToGeoJsonCoordinates({
@@ -74,5 +98,26 @@ describe('report location helpers', () => {
         longitude: 79.865
       })
     ).toEqual([79.865, 6.9305]);
+  });
+
+  it('converts GeoJSON report coordinates into UI latitude and longitude order', () => {
+    expect(
+      reportGeoJsonToLocationCoordinates({
+        type: 'Point',
+        coordinates: [79.865, 6.9305]
+      })
+    ).toEqual({
+      latitude: 6.9305,
+      longitude: 79.865
+    });
+  });
+
+  it('returns null for invalid report coordinates', () => {
+    expect(
+      reportGeoJsonToLocationCoordinates({
+        type: 'Point',
+        coordinates: [200, 95]
+      })
+    ).toBeNull();
   });
 });
