@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CalculateRiskAssessmentRequest } from '@safealert/contracts';
 import { apiBaseUrl } from '../../../../services/api/client';
-import { calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident, listVerifiedOfficerReports } from './riskAssessmentApi';
+import {
+  calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident,
+  getRiskAssessmentHistory, listVerifiedOfficerReports
+} from './riskAssessmentApi';
 
 const factors: CalculateRiskAssessmentRequest = {
   incidentId: '123456789012345678901234', hazardSeverity: 'HIGH', peopleAffected: 80,
@@ -27,9 +30,11 @@ describe('risk assessment authenticated API adapter', () => {
     vi.stubGlobal('fetch', fetchMock);
     await getRiskAssessment('assessment/one', 'officer-token');
     await getRiskAssessmentForIncident('report/one', 'officer-token');
+    await getRiskAssessmentHistory('incident/history', 'officer-token');
     await listVerifiedOfficerReports('officer-token');
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      `${apiBaseUrl}/risk-assessments/assessment%2Fone`, `${apiBaseUrl}/risk-assessments/incident/report%2Fone`, `${apiBaseUrl}/reports/officer/verified`
+      `${apiBaseUrl}/risk-assessments/assessment%2Fone`, `${apiBaseUrl}/risk-assessments/incident/report%2Fone`,
+      `${apiBaseUrl}/risk-assessments/incident/incident%2Fhistory/history`, `${apiBaseUrl}/reports/officer/verified`
     ]);
     for (const [, options] of fetchMock.mock.calls) {
       expect(options).toMatchObject({ method: 'GET', headers: { Authorization: 'Bearer officer-token' } });

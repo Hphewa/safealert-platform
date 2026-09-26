@@ -36,4 +36,9 @@ export class MongooseRiskAssessmentRepository implements RiskAssessmentRepositor
     const assessment = await RiskAssessmentModel.findOne({ incidentId, status: 'ACTIVE' }).exec();
     return assessment ? toSafeRiskAssessment(assessment) : null;
   }
+  async findHistoryByIncidentId(incidentId: string) {
+    const assessments = await RiskAssessmentModel.find({ incidentId })
+      .sort({ assessedAt: -1, _id: -1 }).exec();
+    return assessments.map(toSafeRiskAssessment);
+  }
 }

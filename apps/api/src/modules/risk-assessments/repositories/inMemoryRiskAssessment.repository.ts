@@ -26,4 +26,10 @@ export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepositor
       (assessment) => assessment.incidentId === incidentId && assessment.status === 'ACTIVE'
     ) ?? null);
   }
+  async findHistoryByIncidentId(incidentId: string) {
+    return [...this.assessments.values()]
+      .filter((assessment) => assessment.incidentId === incidentId)
+      .sort((left, right) => right.assessedAt.localeCompare(left.assessedAt) || right.id.localeCompare(left.id))
+      .map((assessment) => structuredClone(assessment));
+  }
 }

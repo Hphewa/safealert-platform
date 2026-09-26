@@ -29,6 +29,20 @@ describe('risk persistence constraints', () => {
     expect(toSafeRiskAssessment(assessment)).toMatchObject({ status: 'ACTIVE', assessedAt: expect.any(String), incidentId: assessment.incidentId.toString() });
     expect(toSafeRiskAssessment(assessment)).not.toHaveProperty('_id');
   });
+  it('filters Mongo history by incident, sorts all results deterministically, and serializes safe assessments', async () => {
+    const assessment = document();
+    const query = RiskAssessmentModel.find();
+    const sort = vi.spyOn(query, 'sort').mockReturnValue(query);
+    const execute = vi.spyOn(query, 'exec').mockResolvedValue([assessment]);
+    const find = vi.spyOn(RiskAssessmentModel, 'find').mockReturnValue(query);
+
+    const result = await new MongooseRiskAssessmentRepository().findHistoryByIncidentId(assessment.incidentId.toString());
+
+    expect(find).toHaveBeenCalledWith({ incidentId: assessment.incidentId.toString() });
+    expect(sort).toHaveBeenCalledWith({ assessedAt: -1, _id: -1 });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(result).toEqual([toSafeRiskAssessment(assessment)]);
+  });
   it.each([{ vulnerablePeople: 2 }, { peopleAffected: -1 }, { vulnerablePeople: 0.5 }, { finalRiskLevel: 'HIGH' }])('enforces model invariants %j', async (invalid) => {
     const assessment = document();
     assessment.set(invalid);

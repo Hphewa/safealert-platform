@@ -54,6 +54,7 @@ export type SafeRiskAssessment = CreateRiskAssessmentRequest & CalculateRiskAsse
 // Report context is joined at read time, never copied into the stored assessment.
 export type RiskAssessmentResponse = { assessment: SafeRiskAssessment; incident: SafeIncident; reports: SafeReport[] };
 export type RiskAssessmentForIncidentResponse = { assessment: SafeRiskAssessment | null; incident: SafeIncident; reports: SafeReport[] };
+export type RiskAssessmentHistoryResponse = { incidentId: string; assessments: SafeRiskAssessment[] };
 export type GetVerifiedOfficerReportsResponse = { reports: SafeReport[] };
 
 export const WARNING_RISK_LEVELS = ['HIGH', 'CRITICAL'] as const;

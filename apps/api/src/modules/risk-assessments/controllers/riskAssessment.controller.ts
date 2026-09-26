@@ -22,5 +22,8 @@ export function createRiskAssessmentController(service: RiskAssessmentService) {
   const getForIncident: RequestHandler = asyncHandler(async (request, response) => {
     response.json(await service.getForIncident(riskAssessmentIdSchema.parse(request.params.incidentId)));
   });
-  return { calculate, create, getById, getForIncident };
+  const getHistoryForIncident: RequestHandler = asyncHandler(async (request, response) => {
+    response.json(await service.getHistoryForIncident(riskAssessmentIdSchema.parse(request.params.incidentId)));
+  });
+  return { calculate, create, getById, getForIncident, getHistoryForIncident };
 }

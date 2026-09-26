@@ -1,6 +1,7 @@
 import type {
   CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CreateRiskAssessmentRequest,
-  GetVerifiedOfficerReportsResponse, RiskAssessmentForIncidentResponse, RiskAssessmentResponse
+  GetVerifiedOfficerReportsResponse, RiskAssessmentForIncidentResponse, RiskAssessmentHistoryResponse,
+  RiskAssessmentResponse
 } from '@safealert/contracts';
 import { apiRequest } from '../../../../services/api/client';
 
@@ -18,6 +19,11 @@ export function getRiskAssessment(assessmentId: string, accessToken: string) {
 }
 export function getRiskAssessmentForIncident(incidentId: string, accessToken: string) {
   return apiRequest<RiskAssessmentForIncidentResponse>(`/risk-assessments/incident/${encodeURIComponent(incidentId)}`, { accessToken });
+}
+export function getRiskAssessmentHistory(incidentId: string, accessToken: string) {
+  return apiRequest<RiskAssessmentHistoryResponse>(
+    `/risk-assessments/incident/${encodeURIComponent(incidentId)}/history`, { accessToken }
+  );
 }
 export function listVerifiedOfficerReports(accessToken: string) {
   return apiRequest<GetVerifiedOfficerReportsResponse>('/reports/officer/verified', { accessToken });

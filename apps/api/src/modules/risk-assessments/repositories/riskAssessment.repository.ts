@@ -6,6 +6,7 @@ export interface RiskAssessmentRepository {
   create(input: CreateRiskAssessmentInput): Promise<SafeRiskAssessment>;
   findById(assessmentId: string): Promise<SafeRiskAssessment | null>;
   findActiveByIncidentId(incidentId: string): Promise<SafeRiskAssessment | null>;
+  findHistoryByIncidentId(incidentId: string): Promise<SafeRiskAssessment[]>;
 }
 export class ActiveRiskAssessmentExistsError extends Error {
   constructor() {

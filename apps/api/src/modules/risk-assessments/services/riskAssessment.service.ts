@@ -1,6 +1,7 @@
 import type {
   CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CreateRiskAssessmentRequest,
-  RiskAssessmentForIncidentResponse, RiskAssessmentResponse, SafeIncident, SafeReport
+  RiskAssessmentForIncidentResponse, RiskAssessmentHistoryResponse, RiskAssessmentResponse,
+  SafeIncident, SafeReport
 } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 import type { IncidentRepository } from '../../incidents/repositories/incident.repository.js';
@@ -58,5 +59,14 @@ export class RiskAssessmentService {
   async getForIncident(incidentId: string): Promise<RiskAssessmentForIncidentResponse> {
     const context = await this.getIncidentWithReports(incidentId);
     return { ...context, assessment: await this.repository.findActiveByIncidentId(incidentId) };
+  }
+
+  async getHistoryForIncident(incidentId: string): Promise<RiskAssessmentHistoryResponse> {
+    const incident = await this.incidents.findById(incidentId);
+    if (!incident) throw new ApiError(404, 'INCIDENT_NOT_FOUND', 'Incident not found.');
+    return {
+      incidentId: incident.id,
+      assessments: await this.repository.findHistoryByIncidentId(incident.id)
+    };
   }
 }
