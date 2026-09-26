@@ -29,7 +29,7 @@ import { MongooseRiskAssessmentRepository } from './modules/risk-assessments/rep
 import type { RiskAssessmentRepository } from './modules/risk-assessments/repositories/riskAssessment.repository.js';
 import { RiskAssessmentService } from './modules/risk-assessments/services/riskAssessment.service.js';
 import { createWarningRouter } from './modules/warnings/routes/warning.routes.js';
-import { WarningService } from './modules/warnings/services/warning.service.js';
+import { WarningService, type WarningPublishedHandler } from './modules/warnings/services/warning.service.js';
 import { MongooseWarningRepository } from './modules/warnings/repositories/mongooseWarning.repository.js';
 import type { WarningRepository } from './modules/warnings/repositories/warning.repository.js';
 import type { WarningAttachmentRepository } from './modules/warnings/repositories/warningAttachment.repository.js';
@@ -51,6 +51,7 @@ type CreateAppOptions = {
   warningRepository?: WarningRepository;
   warningAttachmentRepository?: WarningAttachmentRepository;
   incidentRepository?: IncidentRepository;
+  warningPublishedHandler?: WarningPublishedHandler;
   enableRbacTestRoutes?: boolean;
 };
 
@@ -64,6 +65,7 @@ export function createApp({
   warningRepository,
   warningAttachmentRepository,
   incidentRepository,
+  warningPublishedHandler,
   enableRbacTestRoutes = false
 }: CreateAppOptions) {
   const app = express();
@@ -76,7 +78,7 @@ export function createApp({
   const resolvedAssessmentRepository = riskAssessmentRepository ?? new MongooseRiskAssessmentRepository();
   const riskAssessmentService = new RiskAssessmentService(resolvedAssessmentRepository, resolvedIncidentRepository, resolvedReportRepository);
   const resolvedImages = warningAttachmentRepository ?? new GridFsWarningAttachmentRepository();
-  const warningService = new WarningService(warningRepository ?? new MongooseWarningRepository(), resolvedAssessmentRepository, resolvedImages, resolvedIncidentRepository);
+  const warningService = new WarningService(warningRepository ?? new MongooseWarningRepository(), resolvedAssessmentRepository, resolvedImages, resolvedIncidentRepository, warningPublishedHandler);
   const warningAttachmentService = new WarningAttachmentService(resolvedImages, resolvedAssessmentRepository);
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()

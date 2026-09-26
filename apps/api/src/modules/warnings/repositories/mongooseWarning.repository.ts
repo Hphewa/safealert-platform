@@ -9,10 +9,10 @@ export class MongooseWarningRepository implements WarningRepository {
     const warning = await WarningModel.findById(id).exec();
     return warning ? toSafeWarning(warning) : null;
   }
-  async publish(id: string, publishedById: string, publishedAt: string) {
+  async publish(id: string, publishedById: string, publishedAt: string, notificationTarget: Parameters<WarningRepository['publish']>[3]) {
     const warning = await WarningModel.findOneAndUpdate(
       { _id: id, status: 'DRAFT', affectedArea: { $type: 'string', $ne: '' } },
-      { $set: { status: 'PUBLISHED', publishedAt: new Date(publishedAt), publishedById } },
+      { $set: { status: 'PUBLISHED', publishedAt: new Date(publishedAt), publishedById, notificationTarget } },
       { new: true }
     ).exec();
     return warning ? toSafeWarning(warning) : null;

@@ -1,13 +1,20 @@
-import { canCreateWarning, type CreateWarningRequest, type CreateWarningResponse, type PublishWarningResponse } from '@safealert/contracts';
+import {
+  canCreateWarning, WARNING_DISTRICTS,
+  type CreateWarningRequest, type CreateWarningResponse, type PublishWarningRequest,
+  type PublishWarningResponse, type SafeWarning
+} from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 import type { RiskAssessmentRepository } from '../../risk-assessments/repositories/riskAssessment.repository.js';
 import type { IncidentRepository } from '../../incidents/repositories/incident.repository.js';
 import type { WarningRepository } from '../repositories/warning.repository.js';
 import type { WarningAttachmentRepository } from '../repositories/warningAttachment.repository.js';
 
+export type WarningPublishedHandler = (warning: SafeWarning) => Promise<void> | void;
+
 export class WarningService {
   constructor(private readonly warnings: WarningRepository, private readonly assessments: RiskAssessmentRepository,
-    private readonly images: WarningAttachmentRepository, private readonly incidents?: IncidentRepository) {}
+    private readonly images: WarningAttachmentRepository, private readonly incidents?: IncidentRepository,
+    private readonly onPublished?: WarningPublishedHandler) {}
 
   async create(officerId: string, input: CreateWarningRequest): Promise<CreateWarningResponse> {
     const assessment = await this.assessments.findById(input.assessmentId);
@@ -35,13 +42,21 @@ export class WarningService {
     });
     return { warning };
   }
-  async publish(officerId: string, warningId: string): Promise<PublishWarningResponse> {
+  async publish(officerId: string, warningId: string, input: PublishWarningRequest): Promise<PublishWarningResponse> {
     const existing = await this.warnings.findById(warningId);
     if (!existing) throw new ApiError(404, 'WARNING_NOT_FOUND', 'Warning not found.');
     if (existing.status !== 'DRAFT') throw new ApiError(409, 'WARNING_NOT_DRAFT', 'This warning has already been published.');
     if (!existing.affectedArea.trim()) throw new ApiError(400, 'AFFECTED_AREA_REQUIRED', 'Affected area is required.');
-    const published = await this.warnings.publish(warningId, officerId, new Date().toISOString());
+    if (input.notificationTarget.scope === 'DISTRICT' && !WARNING_DISTRICTS.includes(input.notificationTarget.district)) {
+      throw new ApiError(400, 'INVALID_NOTIFICATION_TARGET', 'Select a valid district.');
+    }
+    const published = await this.warnings.publish(
+      warningId, officerId, new Date().toISOString(), input.notificationTarget
+    );
     if (!published) throw new ApiError(409, 'WARNING_NOT_DRAFT', 'This warning has already been published.');
+    // Publication is authoritative. Notification processing may fail later and must not
+    // make a successfully published warning look like a draft again.
+    void Promise.resolve().then(() => this.onPublished?.(published)).catch(() => undefined);
     return { warning: published };
   }
   async get(warningId: string) { return this.warnings.findById(warningId); }

@@ -7,7 +7,11 @@ import type { RiskLevel } from '@safealert/contracts';
 const { renderToStaticMarkup } = createRequire(import.meta.url)('react-dom/server') as {
   renderToStaticMarkup: (node: ReactNode) => string;
 };
-const state = vi.hoisted(() => ({ risk: 'HIGH' as RiskLevel, unavailable: false }));
+const state = vi.hoisted(() => ({ risk: 'HIGH' as RiskLevel, unavailable: false, missingSource: false }));
+vi.mock('expo-image-picker', () => ({
+  requestMediaLibraryPermissionsAsync: vi.fn(), launchImageLibraryAsync: vi.fn(),
+  PermissionStatus: { GRANTED: 'granted' }, MediaTypeOptions: { Images: 'Images' }
+}));
 vi.mock('react-native', () => {
   const container = ({ children }: { children?: ReactNode }) => <div>{children}</div>;
   return {
@@ -39,8 +43,10 @@ vi.mock('../hooks/useAssessmentResource', () => ({
         roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
         waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN'
       },
-      report: { id: 'report', hazardType: 'FLOOD', severity: 'LOW', description: 'Water rising',
-        status: 'VERIFIED', location: { coordinates: [79.86, 6.92] } }
+      incident: { id: 'incident', hazardType: 'FLOOD', reportIds: ['report'],
+        location: { type: 'Point', coordinates: [79.86, 6.92] } },
+      reports: state.missingSource ? [] : [{ id: 'report', hazardType: 'FLOOD', severity: 'LOW', description: 'Water rising',
+        status: 'VERIFIED', location: { type: 'Point', coordinates: [79.86, 6.92] } }]
     }
   })
 }));
@@ -49,7 +55,7 @@ import { RiskAssessmentResultScreen } from './RiskAssessmentResultScreen';
 import { CreateWarningScreen } from './CreateWarningScreen';
 import { ReviewWarningScreen } from './ReviewWarningScreen';
 
-beforeEach(() => { state.risk = 'HIGH'; state.unavailable = false; });
+beforeEach(() => { state.risk = 'HIGH'; state.unavailable = false; state.missingSource = false; });
 it.each(['HIGH', 'CRITICAL', 'LOW', 'MODERATE'] as const)('%s: renders correct Create Warning availability on result and reopen', (risk) => {
   state.risk = risk;
   for (let open = 0; open < 2; open += 1) {
@@ -66,12 +72,24 @@ it.each(['LOW', 'MODERATE'] as const)('blocks the create form on direct navigati
 it.each(['HIGH', 'CRITICAL'] as const)('renders %s form fields and read-only assessment risk', (risk) => {
   state.risk = risk;
   const markup = renderToStaticMarkup(<CreateWarningScreen />);
-  for (const label of ['Affected Area', 'Required Action', 'Unsafe Roads', 'Safe Routes', 'Reason / Message', 'Attachment links']) {
+  for (const label of ['Required Action', 'Unsafe Roads', 'Safe Routes', 'Reason / Message']) {
     expect(markup).toContain(`aria-label="${label}`);
   }
   expect(markup).toContain(risk);
   expect(markup).toContain('Review Warning');
   expect(markup).not.toContain('aria-label="Risk Level');
+  expect(markup).toContain('Affected Area');
+  expect(markup).toContain('6.92000, 79.86000');
+  expect(markup).toContain('FROM REPORT');
+  expect(markup).not.toContain('aria-label="Affected Area');
+  expect(markup).not.toContain('Riverside village, lower valley');
+});
+it('blocks review when the saved source report location is missing', () => {
+  state.missingSource = true;
+  const markup = renderToStaticMarkup(<CreateWarningScreen />);
+  expect(markup).toContain('The source report location is unavailable');
+  expect(markup).toContain('<button disabled=""><div>Review Warning');
+  expect(markup).not.toContain('6.92000, 79.86000');
 });
 it('does not offer creation before saved assessment loading completes', () => {
   state.unavailable = true;

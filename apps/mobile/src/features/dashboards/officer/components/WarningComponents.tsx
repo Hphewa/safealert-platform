@@ -1,15 +1,17 @@
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
 import { AssessmentButton, assessmentStyles } from './RiskAssessmentComponents';
 
-export function WarningPage({ title, reviewing = false, busy = false, onBack, children }: {
+export function WarningPage({ title, reviewing = false, busy = false, onBack, children, contentContainerStyle }: {
   title: string; reviewing?: boolean; busy?: boolean; onBack: () => void; children: ReactNode;
+  contentContainerStyle?: StyleProp<ViewStyle>;
 }) {
   return <KeyboardAvoidingView style={warningStyles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    <DashboardScreen bottomNavItems={officerBottomNavItems}>
+    <DashboardScreen bottomNavItems={officerBottomNavItems} contentContainerStyle={contentContainerStyle}>
       <AssessmentButton label="Back to Assessment" secondary disabled={busy} onPress={onBack} />
       <View style={warningStyles.header}>
         <Text style={warningStyles.eyebrow}>EARLY WARNING · DRAFT</Text>

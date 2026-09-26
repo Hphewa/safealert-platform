@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import type { SafeWarning } from '@safealert/contracts';
+import type { SafeWarning, WarningNotificationTarget } from '@safealert/contracts';
 import type { CreateWarningInput, WarningRepository } from './warning.repository.js';
 
 export class InMemoryWarningRepository implements WarningRepository {
@@ -11,10 +11,10 @@ export class InMemoryWarningRepository implements WarningRepository {
     return warning;
   }
   async findById(id: string) { return structuredClone(this.warnings.get(id) ?? null); }
-  async publish(id: string, publishedById: string, publishedAt: string) {
+  async publish(id: string, publishedById: string, publishedAt: string, notificationTarget: WarningNotificationTarget) {
     const warning = this.warnings.get(id);
     if (!warning) return null;
-    const updated = { ...warning, status: 'PUBLISHED' as const, publishedAt, publishedById, updatedAt: publishedAt };
+    const updated = { ...warning, status: 'PUBLISHED' as const, publishedAt, publishedById, notificationTarget, updatedAt: publishedAt };
     this.warnings.set(id, updated);
     return structuredClone(updated);
   }

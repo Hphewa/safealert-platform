@@ -1,8 +1,21 @@
 import {
   WARNING_ATTACHMENT_REFERENCE_PATTERN,
   WARNING_FIELD_LIMITS,
-  type CreateWarningRequest
+  type CreateWarningRequest,
+  type RiskAssessmentResponse
 } from '@safealert/contracts';
+import { formatIncidentLocation } from './incidentGrouping';
+
+// Match the source report selected by WarningService.create, regardless of response order.
+export function getWarningAffectedArea(context: RiskAssessmentResponse | null): string | null {
+  const sourceId = context?.incident.reportIds[0];
+  const sourceReport = context?.reports.find((report) => report.id === sourceId);
+  if (!sourceReport) return null;
+  const [longitude, latitude] = sourceReport.location.coordinates;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+    Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  return formatIncidentLocation(sourceReport.location);
+}
 
 export const warningFields = [
   { key: 'affectedArea', label: 'Affected Area', required: true, placeholder: 'e.g. Riverside village, lower valley' },

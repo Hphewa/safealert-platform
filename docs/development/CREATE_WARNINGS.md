@@ -15,6 +15,14 @@ against repeated taps while a request is pending, and late responses are ignored
 navigation or session changes.
 
 Required fields are Affected Area, Required Action, Unsafe Roads, and Reason / Message.
+The Create Warning screen now displays Affected Area as read-only GPS coordinates from
+the saved source report (the first report ID in the assessment's incident, matching
+the warning service's `hazardReportId`). Reports currently store coordinates, not town
+names or area boundaries. The form reuses the existing coordinate formatter and includes
+that value in the existing `affectedArea` request field. Review, saved warning, and Publish
+retain this value. Missing source locations block review; there is no manual-area fallback.
+The information card uses responsive risk/location panels and styled safety instruction
+fields, with the warning form width constrained on desktop.
 Unsafe Roads follows the required asterisk in the brief; the officer can explicitly enter
 "None known". Safe Routes and attachments are optional. Risk Level is read-only and comes
 from the saved assessment. No risk calculation or assessment mutation is performed.
@@ -45,9 +53,17 @@ authenticated officer, `assessmentId` and `hazardReportId` from the assessment, 
 `DRAFT`. Mongoose manages `createdAt`/`updatedAt`. Relationships reference RiskAssessment,
 Report, and User. The response is HTTP 201 `{ warning }`.
 
-Only creation is implemented. There are no warning publishing, notification, resident,
-update, cancellation, archive, or delivery endpoints. Assessment internals remain unchanged;
-the only assessment screen addition is the conditional button.
+LDFEW-113 adds `POST /api/v1/warnings/:warningId/publish`. Publication accepts only a
+strict notification target: `AFFECTED_AREA`, `DISTRICT` with one of the supported
+districts, or `WHOLE_COUNTRY`. It reads `affectedArea` and `riskLevel` from the saved
+warning; neither can be supplied or changed during publication. The selected notification
+target is stored separately on the warning, and the server atomically enforces
+`DRAFT -> PUBLISHED`, `publishedAt`, and `publishedById`. A post-publication handler hook
+is available for LDFEW-127 notification processing; notification delivery is not part of
+this warning module and must not change a published warning back to DRAFT.
+
+There are no resident warning, update, cancellation, or archive endpoints. Assessment
+internals remain unchanged; the assessment screen only provides the existing warning flow.
 
 ## Verification performed
 

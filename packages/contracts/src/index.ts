@@ -62,6 +62,19 @@ export function canCreateWarning(riskLevel: RiskLevel): riskLevel is WarningRisk
   return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
 }
 export const WARNING_STATUSES = ['DRAFT', 'PUBLISHED'] as const;
+export const WARNING_NOTIFICATION_SCOPES = ['AFFECTED_AREA', 'DISTRICT', 'WHOLE_COUNTRY'] as const;
+export type WarningNotificationScope = (typeof WARNING_NOTIFICATION_SCOPES)[number];
+export const WARNING_DISTRICTS = [
+  'Ampara', 'Anuradhapura', 'Badulla', 'Batticaloa', 'Colombo', 'Galle', 'Gampaha',
+  'Hambantota', 'Jaffna', 'Kalutara', 'Kandy', 'Kegalle', 'Kilinochchi', 'Kurunegala',
+  'Mannar', 'Matale', 'Matara', 'Monaragala', 'Mullaitivu', 'Nuwara Eliya', 'Polonnaruwa',
+  'Puttalam', 'Ratnapura', 'Trincomalee', 'Vavuniya'
+] as const;
+export type WarningDistrict = (typeof WARNING_DISTRICTS)[number];
+export type WarningNotificationTarget =
+  | { scope: 'AFFECTED_AREA' }
+  | { scope: 'DISTRICT'; district: WarningDistrict }
+  | { scope: 'WHOLE_COUNTRY' };
 export const WARNING_FIELD_LIMITS = {
   affectedArea: 300, requiredAction: 2000, unsafeRoads: 2000,
   safeRoutes: 2000, message: 4000, attachmentUrl: 500, attachments: 5
@@ -81,12 +94,14 @@ export type SafeWarning = CreateWarningRequest & {
   createdById: string;
   riskLevel: WarningRiskLevel;
   status: (typeof WARNING_STATUSES)[number];
+  notificationTarget?: WarningNotificationTarget;
   publishedAt?: string;
   publishedById?: string;
   createdAt: string;
   updatedAt: string;
 };
 export type CreateWarningResponse = { warning: SafeWarning };
+export type PublishWarningRequest = { notificationTarget: WarningNotificationTarget };
 export type PublishWarningResponse = { warning: SafeWarning };
 export const WARNING_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const WARNING_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
