@@ -124,3 +124,57 @@ describe('in-memory risk-assessment reassessment repository', () => {
     expect(await repository.findHistoryByIncidentId(incidentId)).toHaveLength(1);
   });
 });
+
+describe('in-memory risk-assessment manual close repository', () => {
+  it('closes an ACTIVE assessment with its audit fields and keeps it in history', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const active = await repository.create(input());
+    const other = await repository.create(input({ incidentId: otherIncidentId }));
+    const closed = await repository.closeActiveAssessment(active.id, {
+      closureReason: 'OTHER', closureNote: 'The incident has been resolved.',
+      closedAt: '2026-09-26T13:00:00.000Z', closedById: '423456789012345678901234'
+    });
+
+    expect(closed).toMatchObject({
+      id: active.id, status: 'CLOSED', closureReason: 'OTHER',
+      closureNote: 'The incident has been resolved.', closedAt: '2026-09-26T13:00:00.000Z',
+      closedById: '423456789012345678901234', updatedAt: expect.any(String)
+    });
+    expect(await repository.findById(active.id)).toEqual(closed);
+    expect(await repository.findActiveByIncidentId(incidentId)).toBeNull();
+    expect(await repository.findById(other.id)).toEqual(other);
+    expect((await repository.findHistoryByIncidentId(incidentId)).map(({ id }) => id)).toEqual([active.id]);
+  });
+
+  it('accepts a predefined reason without a note and leaves CLOSED or VOID records unchanged', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const active = await repository.create(input());
+    const voided = await repository.create(input({ status: 'VOID' }));
+    const closure = { closureReason: 'INCIDENT_RESOLVED' as const,
+      closedAt: '2026-09-26T13:00:00.000Z', closedById: '423456789012345678901234' };
+    const closed = await repository.closeActiveAssessment(active.id, closure);
+
+    expect(closed).toMatchObject({ status: 'CLOSED', closureReason: 'INCIDENT_RESOLVED' });
+    expect(closed).not.toHaveProperty('closureNote');
+    await expect(repository.closeActiveAssessment(active.id, closure)).resolves.toBeNull();
+    await expect(repository.closeActiveAssessment(voided.id, closure)).resolves.toBeNull();
+    await expect(repository.closeActiveAssessment('999999999999999999999999', closure)).resolves.toBeNull();
+    expect(await repository.findById(active.id)).toEqual(closed);
+    expect(await repository.findById(voided.id)).toEqual(voided);
+  });
+
+  it('allows only one concurrent close of the same ACTIVE assessment', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const active = await repository.create(input());
+    const closure = { closureReason: 'MONITORING_COMPLETED' as const,
+      closedAt: '2026-09-26T13:00:00.000Z', closedById: '423456789012345678901234' };
+    const results = await Promise.all([
+      repository.closeActiveAssessment(active.id, closure),
+      repository.closeActiveAssessment(active.id, closure)
+    ]);
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect((await repository.findHistoryByIncidentId(incidentId)).filter(({ status }) => status === 'ACTIVE')).toHaveLength(0);
+    expect(await repository.findHistoryByIncidentId(incidentId)).toHaveLength(1);
+  });
+});

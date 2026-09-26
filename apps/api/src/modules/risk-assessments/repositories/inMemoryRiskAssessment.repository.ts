@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 import type { SafeRiskAssessment } from '@safealert/contracts';
 import {
   ActiveRiskAssessmentExistsError, RiskAssessmentReassessmentConflictError,
-  type CreateRiskAssessmentInput, type ReassessRiskAssessmentRecordInput, type RiskAssessmentRepository
+  type CloseActiveRiskAssessmentInput, type CreateRiskAssessmentInput,
+  type ReassessRiskAssessmentRecordInput, type RiskAssessmentRepository
 } from './riskAssessment.repository.js';
 
 export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepository {
@@ -46,6 +47,19 @@ export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepositor
     this.assessments.set(activeAssessmentId, closedRecord);
     this.assessments.set(reassessed.id, reassessedRecord);
     return result;
+  }
+  async closeActiveAssessment(assessmentId: string, input: CloseActiveRiskAssessmentInput): Promise<SafeRiskAssessment | null> {
+    const active = this.assessments.get(assessmentId);
+    if (!active || active.status !== 'ACTIVE') return null;
+    // No await between checking ACTIVE and replacing the record.
+    const closed: SafeRiskAssessment = {
+      ...active, status: 'CLOSED', closureReason: input.closureReason,
+      ...(input.closureNote === undefined ? {} : { closureNote: input.closureNote }),
+      closedAt: input.closedAt, closedById: input.closedById,
+      updatedAt: new Date().toISOString()
+    };
+    this.assessments.set(assessmentId, structuredClone(closed));
+    return structuredClone(closed);
   }
   async findById(assessmentId: string) {
     return structuredClone(this.assessments.get(assessmentId) ?? null);

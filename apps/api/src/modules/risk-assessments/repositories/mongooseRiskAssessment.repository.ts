@@ -2,7 +2,8 @@ import { RiskAssessmentModel, toSafeRiskAssessment } from '../models/riskAssessm
 import { ApiError } from '../../../shared/apiError.js';
 import {
   ActiveRiskAssessmentExistsError, RiskAssessmentReassessmentConflictError,
-  type CreateRiskAssessmentInput, type ReassessRiskAssessmentRecordInput, type RiskAssessmentRepository
+  type CloseActiveRiskAssessmentInput, type CreateRiskAssessmentInput,
+  type ReassessRiskAssessmentRecordInput, type RiskAssessmentRepository
 } from './riskAssessment.repository.js';
 
 export class MongooseRiskAssessmentRepository implements RiskAssessmentRepository {
@@ -78,6 +79,23 @@ export class MongooseRiskAssessmentRepository implements RiskAssessmentRepositor
     }
     if (!reassessed) throw new Error('Reassessment transaction completed without a replacement record.');
     return reassessed;
+  }
+  async closeActiveAssessment(assessmentId: string, input: CloseActiveRiskAssessmentInput) {
+    try {
+      const assessment = await this.model.findOneAndUpdate(
+        { _id: assessmentId, status: 'ACTIVE' },
+        { $set: {
+          status: 'CLOSED', closureReason: input.closureReason,
+          ...(input.closureNote === undefined ? {} : { closureNote: input.closureNote }),
+          closedAt: new Date(input.closedAt), closedById: input.closedById
+        } },
+        { new: true, runValidators: true }
+      ).exec();
+      return assessment ? toSafeRiskAssessment(assessment) : null;
+    } catch (error) {
+      if (typeof error === 'object' && error !== null && 'code' in error && error.code === 112) return null;
+      throw error;
+    }
   }
   async findById(assessmentId: string) {
     const assessment = await this.model.findById(assessmentId).exec();

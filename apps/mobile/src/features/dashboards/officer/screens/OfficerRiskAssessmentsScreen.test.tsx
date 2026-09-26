@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   loader: null as (() => Promise<unknown[]>) | null,
   listIncidents: vi.fn(),
   getAssessment: vi.fn(),
+  getHistory: vi.fn(),
   actions: new Map<string, () => void>(),
   push: vi.fn()
 }));
@@ -46,7 +47,7 @@ vi.mock('../hooks/useAssessmentResource', () => ({
   }
 }));
 vi.mock('../api/incidentApi', () => ({ listActiveIncidents: state.listIncidents }));
-vi.mock('../api/riskAssessmentApi', () => ({ getRiskAssessmentForIncident: state.getAssessment }));
+vi.mock('../api/riskAssessmentApi', () => ({ getRiskAssessmentForIncident: state.getAssessment, getRiskAssessmentHistory: state.getHistory }));
 
 import { OfficerRiskAssessmentsScreen } from './OfficerRiskAssessmentsScreen';
 
@@ -80,17 +81,20 @@ beforeEach(() => {
   state.actions.clear();
   state.listIncidents.mockReset();
   state.getAssessment.mockReset();
+  state.getHistory.mockReset();
   state.push.mockReset();
 });
 
 it('loads active incidents and displays one assessment card per incident', async () => {
   state.listIncidents.mockResolvedValue({ incidents: [activeIncident] });
   state.getAssessment.mockResolvedValue({ incident: activeIncident.incident, reports: activeIncident.reports, assessment: null });
+  state.getHistory.mockResolvedValue({ incidentId: 'incident-1', assessments: [] });
   renderToStaticMarkup(<OfficerRiskAssessmentsScreen />);
 
   await expect(state.loader!()).resolves.toHaveLength(1);
   expect(state.listIncidents).toHaveBeenCalledWith('officer-token');
   expect(state.getAssessment).toHaveBeenCalledTimes(1);
+  expect(state.getHistory).toHaveBeenCalledWith('incident-1', 'officer-token');
 
   state.data = [{ incident: activeIncident, assessment: null, assessmentReportId: null }];
   const markup = renderToStaticMarkup(<OfficerRiskAssessmentsScreen />);
@@ -99,6 +103,38 @@ it('loads active incidents and displays one assessment card per incident', async
   expect(markup).toContain('ASSESS INCIDENT');
   expect(markup).not.toContain('First report evidence');
   expect(markup).not.toContain('Second report evidence');
+});
+
+it('shows the latest historical assessment when the incident has no active assessment', async () => {
+  const older = { ...savedAssessment(), id: 'older', status: 'CLOSED' as const, finalRiskLevel: 'MODERATE' as const };
+  const latest = { ...savedAssessment(), id: 'latest', status: 'CLOSED' as const, finalRiskLevel: 'CRITICAL' as const };
+  state.listIncidents.mockResolvedValue({ incidents: [activeIncident] });
+  state.getAssessment.mockResolvedValue({ assessment: null });
+  state.getHistory.mockResolvedValue({ incidentId: 'incident-1', assessments: [latest, older] });
+  renderToStaticMarkup(<OfficerRiskAssessmentsScreen />);
+  state.data = await state.loader!();
+
+  const markup = renderToStaticMarkup(<OfficerRiskAssessmentsScreen />);
+  expect(markup).toContain('CLOSED');
+  expect(markup).toContain('CRITICAL');
+  expect(markup).toContain('VIEW HISTORY');
+  expect(markup).not.toContain('ASSESS INCIDENT');
+  expect(markup).not.toContain('Not assessed');
+  state.actions.get('VIEW HISTORY')!();
+  expect(state.push).toHaveBeenCalledWith({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: 'latest' } });
+});
+
+it('keeps unknown assessment history retryable and suppresses creation', async () => {
+  state.listIncidents.mockResolvedValue({ incidents: [activeIncident] });
+  state.getAssessment.mockResolvedValue({ assessment: null });
+  state.getHistory.mockRejectedValue(new Error('History unavailable'));
+  renderToStaticMarkup(<OfficerRiskAssessmentsScreen />);
+  state.data = await state.loader!();
+
+  const markup = renderToStaticMarkup(<OfficerRiskAssessmentsScreen />);
+  expect(markup).toContain('History unavailable');
+  expect(markup).toContain('Refresh incidents to retry');
+  expect(markup).not.toContain('ASSESS INCIDENT');
 });
 
 it('routes assessment preparation through the incident', () => {
@@ -134,6 +170,7 @@ it('uses the persisted incident assessment returned by the API', async () => {
   const markup = renderToStaticMarkup(<OfficerRiskAssessmentsScreen />);
   expect(markup).toContain('VIEW ASSESSMENT');
   expect(markup).not.toContain('Not assessed');
+  expect(state.getHistory).not.toHaveBeenCalled();
 });
 
 it('shows grouping guidance when no active incidents exist', () => {

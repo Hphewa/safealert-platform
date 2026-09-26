@@ -1,5 +1,5 @@
 import type {
-  CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CreateRiskAssessmentRequest,
+  CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CloseRiskAssessmentRequest, CloseRiskAssessmentResponse, CreateRiskAssessmentRequest,
   ReassessRiskAssessmentRequest, RiskAssessmentForIncidentResponse, RiskAssessmentHistoryResponse, RiskAssessmentResponse,
   SafeIncident, SafeReport
 } from '@safealert/contracts';
@@ -95,6 +95,20 @@ export class RiskAssessmentService {
       }
       throw error;
     }
+  }
+
+  async close(officerId: string, assessmentId: string, input: CloseRiskAssessmentRequest): Promise<CloseRiskAssessmentResponse> {
+    const current = await this.repository.findById(assessmentId);
+    if (!current) throw new ApiError(404, 'ASSESSMENT_NOT_FOUND', 'Risk assessment not found.');
+    const inactiveConflict = () => new ApiError(409, 'ASSESSMENT_NOT_ACTIVE', 'This assessment is no longer active. Refresh to view the latest assessment.');
+    if (current.status !== 'ACTIVE') throw inactiveConflict();
+    const assessment = await this.repository.closeActiveAssessment(assessmentId, {
+      closureReason: input.closureReason,
+      ...(input.closureNote === undefined ? {} : { closureNote: input.closureNote }),
+      closedAt: new Date().toISOString(), closedById: officerId
+    });
+    if (!assessment) throw inactiveConflict();
+    return { assessment };
   }
 
   async getHistoryForIncident(incidentId: string): Promise<RiskAssessmentHistoryResponse> {

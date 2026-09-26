@@ -91,4 +91,64 @@ describe.skipIf(!mongodbUri)('risk-assessment MongoDB reassessment transactions'
     expect(results.filter(({ status }) => status === 'rejected')).toHaveLength(1);
     expect(await model.countDocuments({ incidentId: old.incidentId, status: 'ACTIVE' })).toBe(1);
   });
+
+  it('closes an ACTIVE assessment and preserves its audit fields in history', async () => {
+    const active = await activeRecord();
+    const closure = {
+      closureReason: 'OTHER' as const, closureNote: 'The hazard has been contained.',
+      closedAt: '2026-09-26T13:00:00.000Z', closedById: new mongoose.Types.ObjectId().toString()
+    };
+
+    const closed = await repository.closeActiveAssessment(active._id.toString(), closure);
+
+    expect(closed).toMatchObject({
+      id: active._id.toString(), status: 'CLOSED', closureReason: 'OTHER',
+      closureNote: closure.closureNote, closedAt: closure.closedAt, closedById: closure.closedById
+    });
+    expect(await repository.findById(active._id.toString())).toEqual(closed);
+    expect(await repository.closeActiveAssessment(active._id.toString(), closure)).toBeNull();
+    expect((await repository.findHistoryByIncidentId(active.incidentId.toString())).map(({ id }) => id))
+      .toEqual([active._id.toString()]);
+    expect(await model.countDocuments({ incidentId: active.incidentId, status: 'ACTIVE' })).toBe(0);
+  });
+
+  it('allows only one concurrent close of the same assessment', async () => {
+    const active = await activeRecord();
+    const closure = {
+      closureReason: 'INCIDENT_RESOLVED' as const,
+      closedAt: '2026-09-26T13:00:00.000Z', closedById: new mongoose.Types.ObjectId().toString()
+    };
+    const results = await Promise.all([
+      repository.closeActiveAssessment(active._id.toString(), closure),
+      repository.closeActiveAssessment(active._id.toString(), closure)
+    ]);
+
+    expect(results.filter(Boolean)).toHaveLength(1);
+    expect(await model.countDocuments({ incidentId: active.incidentId, status: 'ACTIVE' })).toBe(0);
+    expect(await model.countDocuments({ incidentId: active.incidentId })).toBe(1);
+  });
+
+  it('arbitrates close and reassess attempts without producing two ACTIVE assessments', async () => {
+    const active = await activeRecord();
+    const closure = {
+      closureReason: 'MONITORING_COMPLETED' as const,
+      closedAt: '2026-09-26T13:00:00.000Z', closedById: new mongoose.Types.ObjectId().toString()
+    };
+    const results = await Promise.allSettled([
+      repository.closeActiveAssessment(active._id.toString(), closure),
+      repository.reassess(active._id.toString(), recordInput({ incidentId: active.incidentId.toString() }))
+    ]);
+    const close = results[0];
+    const reassess = results[1];
+
+    if (close.status === 'fulfilled' && close.value) {
+      expect(reassess.status).toBe('rejected');
+      expect(await model.countDocuments({ incidentId: active.incidentId, status: 'ACTIVE' })).toBe(0);
+    } else {
+      expect(close).toEqual({ status: 'fulfilled', value: null });
+      expect(reassess.status).toBe('fulfilled');
+      expect(await model.countDocuments({ incidentId: active.incidentId, status: 'ACTIVE' })).toBe(1);
+    }
+    expect(await repository.findById(active._id.toString())).toMatchObject({ status: 'CLOSED' });
+  });
 });

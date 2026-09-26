@@ -22,6 +22,16 @@ describe('LDFEW-112 create warning API', () => {
     expect(response.body.error.code).toBe('WARNING_RISK_NOT_ELIGIBLE');
     expect(warnings.warnings.size).toBe(0);
   });
+  it.each(['HIGH', 'CRITICAL'] as const)('rejects a CLOSED %s assessment before creating a warning', async (riskLevel) => {
+    const { app, assessment, assessments, warnings, payload } = await warningContext(riskLevel);
+    await assessments.closeActiveAssessment(assessment.id, {
+      closureReason: 'INCIDENT_RESOLVED', closedAt: new Date().toISOString(), closedById: officerId
+    });
+    const response = await request(app).post(path).auth(warningToken(), { type: 'bearer' }).send(payload);
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('ASSESSMENT_NOT_ACTIVE');
+    expect(warnings.warnings.size).toBe(0);
+  });
   it('requires authentication', async () => {
     const { app, payload, warnings } = await warningContext();
     expect((await request(app).post(path).send(payload)).status).toBe(401);

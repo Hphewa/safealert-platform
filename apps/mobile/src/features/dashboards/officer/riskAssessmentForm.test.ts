@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildReassessmentRiskAssessmentRequest, buildRiskAssessmentRequest, decisionReasonError,
-  assessmentErrorMessage, initialRiskAssessmentForm, parseRiskAssessmentForm,
+  assessmentErrorMessage, buildCloseRiskAssessmentRequest, closureNoteError,
+  initialRiskAssessmentForm, parseRiskAssessmentForm,
   riskAssessmentFormFromAssessment, validateRiskAssessmentForm
 } from './riskAssessmentForm';
 import { ApiClientError } from '../../../services/api/client';
@@ -65,5 +66,35 @@ describe('assessment form validation', () => {
       roadAccessibility: 'FULLY_BLOCKED', infrastructureImpact: 'HIGH',
       waterLevelTrend: 'RISING_RAPIDLY', weatherCondition: 'STORM'
     });
+  });
+  it.each(['INCIDENT_RESOLVED', 'HAZARD_NO_LONGER_ACTIVE', 'MONITORING_COMPLETED'] as const)(
+    'allows %s without a note and omits blank notes', (reason) => {
+      expect(closureNoteError(reason, '   ')).toBeNull();
+      expect(buildCloseRiskAssessmentRequest(reason, '   ')).toEqual({ closureReason: reason });
+    }
+  );
+  it('trims optional notes and includes only closure request fields', () => {
+    expect(buildCloseRiskAssessmentRequest('INCIDENT_RESOLVED', '  Checked with local team.  ')).toEqual({
+      closureReason: 'INCIDENT_RESOLVED', closureNote: 'Checked with local team.'
+    });
+  });
+  it('requires a note for OTHER and applies the shared trimmed 10–500 character limits', () => {
+    for (const note of ['', '   ', '123456789']) {
+      expect(closureNoteError('OTHER', note)).not.toBeNull();
+      expect(() => buildCloseRiskAssessmentRequest('OTHER', note)).toThrow();
+    }
+    expect(closureNoteError('OTHER', '  1234567890  ')).toBeNull();
+    expect(buildCloseRiskAssessmentRequest('OTHER', '  1234567890  ')).toEqual({
+      closureReason: 'OTHER', closureNote: '1234567890'
+    });
+    expect(closureNoteError('OTHER', 'x'.repeat(500))).toBeNull();
+    expect(closureNoteError('OTHER', 'x'.repeat(501))).not.toBeNull();
+    expect(() => buildCloseRiskAssessmentRequest('OTHER', 'x'.repeat(501))).toThrow();
+  });
+  it('validates optional predefined-reason notes when supplied', () => {
+    expect(closureNoteError('MONITORING_COMPLETED', 'short')).not.toBeNull();
+    expect(() => buildCloseRiskAssessmentRequest('MONITORING_COMPLETED', 'short')).toThrow();
+    expect(closureNoteError('MONITORING_COMPLETED', 'x'.repeat(501))).not.toBeNull();
+    expect(closureNoteError('MONITORING_COMPLETED', 'x'.repeat(500))).toBeNull();
   });
 });

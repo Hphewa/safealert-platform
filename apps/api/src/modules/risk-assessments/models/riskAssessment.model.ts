@@ -33,6 +33,10 @@ const riskAssessmentSchema = new mongoose.Schema({
     minlength: RISK_DECISION_REASON_MIN_LENGTH, maxlength: RISK_DECISION_REASON_MAX_LENGTH
   },
   closureReason: { type: String, enum: RISK_ASSESSMENT_CLOSURE_REASONS },
+  closureNote: {
+    type: String, trim: true,
+    minlength: RISK_DECISION_REASON_MIN_LENGTH, maxlength: RISK_DECISION_REASON_MAX_LENGTH
+  },
   closedAt: { type: Date },
   closedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   status: { type: String, enum: RISK_ASSESSMENT_STATUSES, required: true, default: 'ACTIVE' },
@@ -53,10 +57,13 @@ riskAssessmentSchema.pre('validate', function () {
   if (this.previousAssessmentId && !this.reassessmentReason) {
     this.invalidate('reassessmentReason', 'A reassessment reason is required for reassessed records.');
   }
-  if (this.closureReason === 'REASSESSED') {
-    if (this.status !== 'CLOSED') this.invalidate('status', 'Reassessed records must be closed.');
-    if (!this.closedAt) this.invalidate('closedAt', 'A closure date is required for reassessed records.');
-    if (!this.closedById) this.invalidate('closedById', 'A closing officer is required for reassessed records.');
+  if (RISK_ASSESSMENT_CLOSURE_REASONS.some((reason) => reason === this.closureReason)) {
+    if (this.status !== 'CLOSED') this.invalidate('status', 'Records with a closure reason must be closed.');
+    if (!this.closedAt) this.invalidate('closedAt', 'A closure date is required for closed records.');
+    if (!this.closedById) this.invalidate('closedById', 'A closing officer is required for closed records.');
+    if (this.closureReason === 'OTHER' && !this.closureNote) {
+      this.invalidate('closureNote', 'A closure note is required for OTHER.');
+    }
   }
 });
 export type RiskAssessmentDocument = InferSchemaType<typeof riskAssessmentSchema> & { _id: mongoose.Types.ObjectId };
@@ -78,6 +85,7 @@ export function toSafeRiskAssessment(assessment: RiskAssessmentDocument): SafeRi
     ...(assessment.previousAssessmentId ? { previousAssessmentId: assessment.previousAssessmentId.toString() } : {}),
     ...(assessment.reassessmentReason ? { reassessmentReason: assessment.reassessmentReason } : {}),
     ...(assessment.closureReason ? { closureReason: assessment.closureReason } : {}),
+    ...(assessment.closureNote ? { closureNote: assessment.closureNote } : {}),
     ...(assessment.closedAt ? { closedAt: assessment.closedAt.toISOString() } : {}),
     ...(assessment.closedById ? { closedById: assessment.closedById.toString() } : {}),
     status: assessment.status, assessedAt: assessment.assessedAt.toISOString(),

@@ -1,5 +1,6 @@
 import type {
-  CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CreateRiskAssessmentRequest,
+  CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CloseRiskAssessmentRequest,
+  CloseRiskAssessmentResponse, CreateRiskAssessmentRequest,
   GetVerifiedOfficerReportsResponse, ReassessRiskAssessmentRequest, RiskAssessmentForIncidentResponse, RiskAssessmentHistoryResponse,
   RiskAssessmentResponse
 } from '@safealert/contracts';
@@ -17,6 +18,13 @@ export function createRiskAssessment(input: CreateRiskAssessmentRequest, accessT
 export function reassessRiskAssessment(assessmentId: string, input: ReassessRiskAssessmentRequest, accessToken: string) {
   return apiRequest<RiskAssessmentResponse>(`/risk-assessments/${encodeURIComponent(assessmentId)}/reassess`, {
     method: 'POST', body: input, accessToken
+  });
+}
+export function closeRiskAssessment(
+  assessmentId: string, input: CloseRiskAssessmentRequest, accessToken: string
+): Promise<CloseRiskAssessmentResponse> {
+  return apiRequest<CloseRiskAssessmentResponse>(`/risk-assessments/${encodeURIComponent(assessmentId)}/close`, {
+    method: 'PATCH', body: input, accessToken
   });
 }
 export function getRiskAssessment(assessmentId: string, accessToken: string) {

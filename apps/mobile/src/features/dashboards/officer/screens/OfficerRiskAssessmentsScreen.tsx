@@ -3,7 +3,7 @@ import { Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { getRiskAssessmentForIncident } from '../api/riskAssessmentApi';
+import { getRiskAssessmentForIncident, getRiskAssessmentHistory } from '../api/riskAssessmentApi';
 import { listActiveIncidents } from '../api/incidentApi';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import {
@@ -28,7 +28,10 @@ export function OfficerRiskAssessmentsScreen() {
     const { incidents } = await listActiveIncidents(accessToken);
     return Promise.all(incidents.map(async (incident): Promise<IncidentAssessmentRow> => {
       try {
-        return { incident, assessment: (await getRiskAssessmentForIncident(incident.incident.id, accessToken)).assessment };
+        const { assessment } = await getRiskAssessmentForIncident(incident.incident.id, accessToken);
+        if (assessment) return { incident, assessment };
+        const { assessments } = await getRiskAssessmentHistory(incident.incident.id, accessToken);
+        return { incident, assessment: assessments[0] ?? null };
       } catch (failure) {
         // A failed lookup is unknown state, not permission to create another assessment.
         return { incident, assessment: null, error: assessmentErrorMessage(failure) };
@@ -83,7 +86,7 @@ function IncidentAssessmentCard({
     {row.error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{row.error} Use Refresh incidents to retry.</Text> : row.assessment ? <>
       <Text style={assessmentStyles.body}>{row.assessment.status}</Text>
       <PriorityBadge priority={row.assessment.finalRiskLevel} />
-      <AssessmentButton label="VIEW ASSESSMENT" onPress={onView} />
+      <AssessmentButton label={row.assessment.status === 'ACTIVE' ? 'VIEW ASSESSMENT' : 'VIEW HISTORY'} onPress={onView} />
     </> : <>
       <Text style={assessmentStyles.body}>Not assessed</Text>
       <AssessmentButton label="ASSESS INCIDENT" onPress={onAssess} />

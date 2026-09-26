@@ -10,14 +10,14 @@ import { InMemoryReportRepository } from '../../../../../../api/src/modules/repo
 import { InMemoryRiskAssessmentRepository } from '../../../../../../api/src/modules/risk-assessments/repositories/inMemoryRiskAssessment.repository.js';
 import { InMemoryIncidentRepository } from '../../../../../../api/src/modules/incidents/repositories/inMemoryIncident.repository.js';
 import {
-  calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident,
+  calculateRiskAssessment, closeRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident,
   getRiskAssessmentHistory, listVerifiedOfficerReports, reassessRiskAssessment
 } from './riskAssessmentApi';
-import { initialRiskAssessmentForm, parseRiskAssessmentForm } from '../riskAssessmentForm';
+import { buildCloseRiskAssessmentRequest, initialRiskAssessmentForm, parseRiskAssessmentForm } from '../riskAssessmentForm';
 
 afterEach(() => vi.unstubAllGlobals());
 
-it('runs verified report → mobile calculation → final decision → save → persisted result', async () => {
+it('runs verified report → assessment → reassessment → manual close through the mobile API', async () => {
   process.env.JWT_ACCESS_SECRET = 'test-access-secret';
   process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
   const reports = new InMemoryReportRepository();
@@ -34,7 +34,7 @@ it('runs verified report → mobile calculation → final decision → save → 
   // Transport adapter drives the real Express routes while exercising the real mobile API client.
   vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
     const path = new URL(String(url)).pathname;
-    const method = options?.method === 'POST' ? 'post' : 'get';
+    const method = options?.method === 'POST' ? 'post' : options?.method === 'PATCH' ? 'patch' : 'get';
     const response = await request(app)[method](path)
       .set(Object.fromEntries(new Headers(options?.headers).entries()))
       .send(options?.body ? JSON.parse(String(options.body)) : undefined);
@@ -74,4 +74,15 @@ it('runs verified report → mobile calculation → final decision → save → 
     .toMatchObject({ status: 'CLOSED', closureReason: 'REASSESSED', closedById: 'officer' });
   expect((await getRiskAssessmentHistory(incidentId, token)).assessments.map(({ id, status }) => [id, status]))
     .toEqual([[reassessed.assessment.id, 'ACTIVE'], [saved.assessment.id, 'CLOSED']]);
+
+  const closed = await closeRiskAssessment(reassessed.assessment.id, buildCloseRiskAssessmentRequest(
+    'OTHER', '  Hazard cleared after inspection.  '
+  ), token);
+  expect(closed.assessment).toMatchObject({
+    id: reassessed.assessment.id, status: 'CLOSED', closureReason: 'OTHER',
+    closureNote: 'Hazard cleared after inspection.', closedById: 'officer'
+  });
+  expect((await getRiskAssessmentForIncident(incidentId, token)).assessment).toBeNull();
+  expect((await getRiskAssessmentHistory(incidentId, token)).assessments.map(({ id, status }) => [id, status]))
+    .toEqual([[reassessed.assessment.id, 'CLOSED'], [saved.assessment.id, 'CLOSED']]);
 });

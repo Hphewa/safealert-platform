@@ -1,7 +1,8 @@
 import {
   HAZARD_ASSESSMENT_SEVERITIES, INFRASTRUCTURE_IMPACT_LEVELS, RISK_LEVELS,
   RISK_DECISION_REASON_MAX_LENGTH, RISK_DECISION_REASON_MIN_LENGTH,
-  ROAD_ACCESSIBILITY_OPTIONS, WATER_LEVEL_TRENDS, WEATHER_CONDITIONS, type RiskAssessmentFactors
+  RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS, ROAD_ACCESSIBILITY_OPTIONS, WATER_LEVEL_TRENDS,
+  WEATHER_CONDITIONS, type RiskAssessmentFactors
 } from '@safealert/contracts';
 import { z } from 'zod';
 
@@ -34,3 +35,12 @@ export const reassessRiskAssessmentSchema = assessmentFactorsSchema.extend({
     .min(RISK_DECISION_REASON_MIN_LENGTH, 'Reassessment reason must be at least 10 characters.')
     .max(RISK_DECISION_REASON_MAX_LENGTH, 'Reassessment reason must be at most 500 characters.')
 }).strict().refine(validCounts, countsError);
+export const closeRiskAssessmentSchema = z.object({
+  closureReason: z.enum(RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS),
+  closureNote: z.string().trim()
+    .min(RISK_DECISION_REASON_MIN_LENGTH, 'Closure note must be at least 10 characters.')
+    .max(RISK_DECISION_REASON_MAX_LENGTH, 'Closure note must be at most 500 characters.').optional()
+}).strict().refine(
+  (input) => input.closureReason !== 'OTHER' || Boolean(input.closureNote),
+  { message: 'A closure note is required for OTHER.', path: ['closureNote'] }
+);

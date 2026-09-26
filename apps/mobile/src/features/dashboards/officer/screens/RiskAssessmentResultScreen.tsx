@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Text, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { canCreateWarning, type SafeRiskAssessment, type SafeUser } from '@safealert/contracts';
+import { RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS, canCreateWarning, type ManualRiskAssessmentClosureReason, type SafeRiskAssessment, type SafeUser } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { getRiskAssessment, getRiskAssessmentHistory } from '../api/riskAssessmentApi';
+import { ApiClientError } from '../../../../services/api/client';
+import { closeRiskAssessment, getRiskAssessment, getRiskAssessmentHistory } from '../api/riskAssessmentApi';
+import { assessmentErrorMessage, buildCloseRiskAssessmentRequest } from '../riskAssessmentForm';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { dashboardTheme } from '../../shared/theme';
 import {
-  AssessmentButton, AssessmentDetail, AssessmentFactorSummary, AssessmentLoadState, AssessmentPage,
+  AssessmentButton, AssessmentDetail, AssessmentFactorSummary, AssessmentLoadState, AssessmentOptions, AssessmentPage,
   IncidentAssessmentContext, assessmentStyles
 } from '../components/RiskAssessmentComponents';
 
@@ -22,8 +24,32 @@ export function RiskAssessmentResultScreen() {
   const { accessToken, user } = useAuth();
   const [historyState, setHistoryState] = useState<AssessmentHistoryState>({ kind: 'loading' });
   const [historyRetry, setHistoryRetry] = useState(0);
+  const [closedAssessment, setClosedAssessment] = useState<{
+    routeId: string; accessToken: string; generation: number; assessment: SafeRiskAssessment;
+  } | null>(null);
+  const [closeFormScope, setCloseFormScope] = useState<{
+    routeId: string | undefined; accessToken: string | null; generation: number;
+  } | null>(null);
+  const [showCloseForm, setShowCloseForm] = useState(false);
+  const [closureReason, setClosureReason] = useState<ManualRiskAssessmentClosureReason>('INCIDENT_RESOLVED');
+  const [closureNote, setClosureNote] = useState('');
+  const [closeError, setCloseError] = useState<string | null>(null);
+  const [staleClose, setStaleClose] = useState(false);
+  const [, refreshPending] = useState(0);
   const params = useLocalSearchParams<{ assessmentId?: string | string[] }>();
   const assessmentId = Array.isArray(params.assessmentId) ? params.assessmentId[0] : params.assessmentId;
+  const closeContext = useRef({ assessmentId, accessToken, generation: 0 });
+  if (closeContext.current.assessmentId !== assessmentId || closeContext.current.accessToken !== accessToken) {
+    closeContext.current = { assessmentId, accessToken, generation: closeContext.current.generation + 1 };
+  }
+  const closeGeneration = closeContext.current.generation;
+  const pendingCloses = useRef<Array<{ assessmentId: string; accessToken: string }>>([]);
+  const pendingForCurrent = pendingCloses.current.some((pending) =>
+    pending.assessmentId === assessmentId && pending.accessToken === accessToken);
+  const currentForm = closeFormScope !== null && closeFormScope.routeId === assessmentId
+    && closeFormScope.accessToken === accessToken && closeFormScope.generation === closeGeneration;
+  const closeFormVisible = showCloseForm && currentForm;
+  const currentBusy = pendingForCurrent;
   const load = useCallback(async () => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
     if (!assessmentId) throw new Error('An assessment reference is required.');
@@ -31,6 +57,11 @@ export function RiskAssessmentResultScreen() {
     return getRiskAssessment(assessmentId, accessToken);
   }, [accessToken, assessmentId]);
   const { data, loading, error, reload } = useAssessmentResource(load);
+  const currentClose = closedAssessment && closedAssessment.routeId === assessmentId
+    && closedAssessment.accessToken === accessToken
+    && closedAssessment.generation === closeGeneration
+    && closedAssessment.assessment.id === data?.assessment.id ? closedAssessment.assessment : null;
+  const displayedAssessment = currentClose ?? data?.assessment;
   useEffect(() => {
     if (!data) return;
     let isActive = true;
@@ -50,24 +81,80 @@ export function RiskAssessmentResultScreen() {
     return () => { isActive = false; };
   }, [data, accessToken, historyRetry]);
   const retryHistory = useCallback(() => setHistoryRetry((retry) => retry + 1), []);
+  const submitClose = useCallback(async () => {
+    if (!closeFormVisible || !displayedAssessment || displayedAssessment.status !== 'ACTIVE'
+      || !accessToken || pendingCloses.current.some((pending) =>
+        pending.assessmentId === displayedAssessment.id && pending.accessToken === accessToken)) return;
+    let input;
+    try {
+      input = buildCloseRiskAssessmentRequest(closureReason, closureNote);
+    } catch (failure) {
+      setCloseError(assessmentErrorMessage(failure));
+      return;
+    }
+    const pending = { assessmentId: displayedAssessment.id, accessToken };
+    pendingCloses.current.push(pending);
+    refreshPending((version) => version + 1);
+    setCloseError(null);
+    setStaleClose(false);
+    try {
+      const response = await closeRiskAssessment(displayedAssessment.id, input, accessToken);
+      if (closeContext.current.generation !== closeGeneration) return;
+      setClosedAssessment({ routeId: assessmentId!, accessToken, generation: closeGeneration, assessment: response.assessment });
+      setShowCloseForm(false);
+      setHistoryRetry((retry) => retry + 1);
+    } catch (failure) {
+      if (closeContext.current.generation !== closeGeneration) return;
+      setCloseError(assessmentErrorMessage(failure));
+      setStaleClose(failure instanceof ApiClientError && failure.code === 'ASSESSMENT_NOT_ACTIVE');
+    } finally {
+      pendingCloses.current = pendingCloses.current.filter((request) => request !== pending);
+      refreshPending((version) => version + 1);
+    }
+  }, [accessToken, assessmentId, closeFormVisible, closeGeneration, closureNote, closureReason, displayedAssessment]);
   return <AssessmentPage title="Risk Assessment Result">
     {!data ? <AssessmentLoadState loading={loading} error={error} retry={() => void reload()} /> : <>
       <View style={assessmentStyles.card}>
-        <Text style={assessmentStyles.heading}>Saved assessment · {data.assessment.status}</Text>
+        <Text style={assessmentStyles.heading}>Saved assessment · {displayedAssessment!.status}</Text>
         <Text style={assessmentStyles.label}>Final Risk Level</Text>
-        <PriorityBadge priority={data.assessment.finalRiskLevel} />
-        <AssessmentDetail label="Decision Reason" value={data.assessment.decisionReason ?? 'Suggested risk accepted without an additional reason.'} />
-        <AssessmentDetail label="Assessment Date / Time" value={new Date(data.assessment.assessedAt).toLocaleString()} />
-        <AssessmentDetail label="Assessed By" value={user?.id === data.assessment.assessedById ? user.name : data.assessment.assessedById} />
-        <AssessmentDetail label="Assessment Reference" value={data.assessment.id} />
+        <PriorityBadge priority={displayedAssessment!.finalRiskLevel} />
+        <AssessmentDetail label="Decision Reason" value={displayedAssessment!.decisionReason ?? 'Suggested risk accepted without an additional reason.'} />
+        <AssessmentDetail label="Assessment Date / Time" value={new Date(displayedAssessment!.assessedAt).toLocaleString()} />
+        <AssessmentDetail label="Assessed By" value={user?.id === displayedAssessment!.assessedById ? user.name : displayedAssessment!.assessedById} />
+        <AssessmentDetail label="Assessment Reference" value={displayedAssessment!.id} />
+        {displayedAssessment!.closureReason ? <AssessmentDetail label="Closure Reason" value={displayedAssessment!.closureReason} /> : null}
+        {displayedAssessment!.closureNote ? <AssessmentDetail label="Closure Note" value={displayedAssessment!.closureNote} /> : null}
       </View>
-      {canCreateWarning(data.assessment.finalRiskLevel) ? <AssessmentButton label="Create Warning" onPress={() => router.push({
-        pathname: '/officer/warnings/create', params: { assessmentId: data.assessment.id }
+      {displayedAssessment!.status === 'ACTIVE' && canCreateWarning(displayedAssessment!.finalRiskLevel) ? <AssessmentButton label="Create Warning" disabled={currentBusy} onPress={() => router.push({
+        pathname: '/officer/warnings/create', params: { assessmentId: displayedAssessment!.id }
       })} /> : null}
-      {data.assessment.status === 'ACTIVE' ? <AssessmentButton label="REASSESS RISK" onPress={() => router.push({
-        pathname: '/officer/assessments/create', params: { assessmentId: data.assessment.id }
+      {displayedAssessment!.status === 'ACTIVE' ? <AssessmentButton label="REASSESS RISK" disabled={currentBusy} onPress={() => router.push({
+        pathname: '/officer/assessments/create', params: { assessmentId: displayedAssessment!.id }
       })} /> : null}
-      <AssessmentFactorSummary factors={data.assessment} />
+      {displayedAssessment!.status === 'ACTIVE' && !closeFormVisible ? <AssessmentButton label="CLOSE ASSESSMENT" disabled={currentBusy}
+        onPress={() => {
+          setCloseFormScope({ routeId: assessmentId, accessToken, generation: closeGeneration });
+          setClosureReason('INCIDENT_RESOLVED'); setClosureNote('');
+          setCloseError(null); setStaleClose(false); setShowCloseForm(true);
+        }} /> : null}
+      {displayedAssessment!.status === 'ACTIVE' && closeFormVisible ? <View style={assessmentStyles.card}>
+        <Text style={assessmentStyles.heading}>Close assessment</Text>
+        <Text style={assessmentStyles.helper}>Confirm the reason for closing this assessment. This action cannot be undone.</Text>
+        <AssessmentOptions label="Closure Reason" options={RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS}
+          value={closureReason} onChange={setClosureReason} disabled={currentBusy} />
+        <View style={assessmentStyles.detail}>
+          <Text style={assessmentStyles.label}>Closure Note</Text>
+          <TextInput accessibilityLabel="Closure Note" value={closureNote} onChangeText={setClosureNote}
+            placeholder={closureReason === 'OTHER' ? 'Explain why this assessment is closing' : 'Optional details'}
+            multiline editable={!currentBusy} style={assessmentStyles.input} />
+        </View>
+        {closeError ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{closeError}</Text> : null}
+        {staleClose ? <AssessmentButton label="Refresh Assessment" onPress={() => void reload()} /> : null}
+        <AssessmentButton label="Confirm Close" disabled={currentBusy} onPress={() => void submitClose()} />
+        <AssessmentButton label="Cancel" secondary disabled={currentBusy} onPress={() => setShowCloseForm(false)} />
+      </View> : null}
+      {currentClose ? <Text accessibilityRole="alert" style={assessmentStyles.helper}>Assessment closed.</Text> : null}
+      <AssessmentFactorSummary factors={displayedAssessment!} />
       <IncidentAssessmentContext incident={data.incident} reports={data.reports} />
       <View style={assessmentStyles.card}>
         <Text style={assessmentStyles.heading}>System suggested risk</Text>
@@ -113,6 +200,7 @@ export function AssessmentHistorySection({
       {assessment.previousAssessmentId ? <AssessmentDetail label="Previous Assessment" value={assessment.previousAssessmentId} /> : null}
       {assessment.reassessmentReason ? <AssessmentDetail label="Reason for Reassessment" value={assessment.reassessmentReason} /> : null}
       {assessment.closureReason ? <AssessmentDetail label="Closure Reason" value={assessment.closureReason} /> : null}
+      {assessment.closureNote ? <AssessmentDetail label="Closure Note" value={assessment.closureNote} /> : null}
       {assessment.closedAt ? <AssessmentDetail label="Closed At" value={new Date(assessment.closedAt).toLocaleString()} /> : null}
       {assessment.closedById ? <AssessmentDetail label="Closed By" value={officer?.id === assessment.closedById ? officer.name : assessment.closedById} /> : null}
     </View>)}

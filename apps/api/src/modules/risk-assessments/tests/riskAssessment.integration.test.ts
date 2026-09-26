@@ -46,8 +46,10 @@ function context() {
   const riskAssessmentRepository = new InMemoryRiskAssessmentRepository();
   const app = createApp({ config: loadConfig(), authRepository: new InMemoryAuthRepository(), reportRepository, incidentRepository, riskAssessmentRepository });
   const post = (body: object = payload, path = base) => request(app).post(path).auth(token(), { type: 'bearer' }).send(body);
+  const close = (assessmentId: string, body: object = { closureReason: 'INCIDENT_RESOLVED' }) =>
+    request(app).patch(`${base}/${assessmentId}/close`).auth(token(), { type: 'bearer' }).send(body);
   const get = (path: string) => request(app).get(path).auth(token(), { type: 'bearer' });
-  return { app, post, get, reportRepository, riskAssessmentRepository, incidentRepository };
+  return { app, post, close, get, reportRepository, riskAssessmentRepository, incidentRepository };
 }
 beforeEach(() => {
   process.env.NODE_ENV = 'test';
@@ -57,7 +59,8 @@ beforeEach(() => {
 
 describe('risk assessment API', () => {
   const protectedRoutes = [
-    ['post', `${base}/calculate`], ['post', base], ['post', `${base}/${reportId}/reassess`], ['get', `${base}/${reportId}`],
+    ['post', `${base}/calculate`], ['post', base], ['post', `${base}/${reportId}/reassess`],
+    ['patch', `${base}/${reportId}/close`], ['get', `${base}/${reportId}`],
     ['get', `${base}/incident/${incidentId}`], ['get', `${base}/incident/${incidentId}/history`],
     ['get', '/api/v1/reports/officer/verified']
   ] as const;
@@ -230,6 +233,93 @@ describe('risk assessment API', () => {
     expect(await riskAssessmentRepository.findHistoryByIncidentId(incidentId)).toHaveLength(2);
     expect((await riskAssessmentRepository.findHistoryByIncidentId(incidentId)).filter(({ status }) => status === 'ACTIVE'))
       .toHaveLength(1);
+  });
+  it('closes an active assessment with server audit fields and keeps it in history', async () => {
+    const { post, close, get, riskAssessmentRepository, incidentRepository, reportRepository } = context();
+    const original = await post();
+    const assessmentId = original.body.assessment.id;
+    incidentRepository.seedIncident({
+      id: incidentId, hazardType: 'FLOOD', location: report.location, reportIds: [reportId], status: 'CLOSED',
+      createdById: officerId, createdAt: report.createdAt, updatedAt: report.updatedAt
+    });
+    reportRepository.seedReport({ ...report, status: 'RESOLVED' });
+    const before = Date.now();
+    const response = await close(assessmentId, {
+      closureReason: 'OTHER', closureNote: '  Water has receded after local inspection.  '
+    });
+    const after = Date.now();
+
+    expect(response.status).toBe(200);
+    expect(Object.keys(response.body)).toEqual(['assessment']);
+    expect(response.body.assessment).toMatchObject({
+      id: assessmentId, status: 'CLOSED', closureReason: 'OTHER',
+      closureNote: 'Water has receded after local inspection.', closedById: officerId,
+      closedAt: expect.any(String)
+    });
+    expect(Date.parse(response.body.assessment.closedAt)).toBeGreaterThanOrEqual(before);
+    expect(Date.parse(response.body.assessment.closedAt)).toBeLessThanOrEqual(after);
+    expect(await riskAssessmentRepository.findById(assessmentId)).toEqual(response.body.assessment);
+    expect((await get(`${base}/incident/${incidentId}/history`)).body.assessments)
+      .toEqual([response.body.assessment]);
+  });
+  it('returns not found for a missing assessment and conflict for a closed or void assessment', async () => {
+    const { post, close, riskAssessmentRepository } = context();
+    const missing = await close(missingId);
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe('ASSESSMENT_NOT_FOUND');
+    const original = await post();
+    expect((await close(original.body.assessment.id)).status).toBe(200);
+    const repeated = await close(original.body.assessment.id);
+    expect(repeated.status).toBe(409);
+    expect(repeated.body.error.code).toBe('ASSESSMENT_NOT_ACTIVE');
+    const voided = await riskAssessmentRepository.create(savedAssessment('VOID', '2026-09-26T12:00:00.000Z'));
+    const voidResponse = await close(voided.id);
+    expect(voidResponse.status).toBe(409);
+    expect(voidResponse.body.error.code).toBe('ASSESSMENT_NOT_ACTIVE');
+  });
+  it('rejects forged close fields, REASSESSED, malformed IDs, and invalid OTHER notes', async () => {
+    const { post, close, riskAssessmentRepository } = context();
+    const original = await post();
+    const id = original.body.assessment.id;
+    for (const body of [
+      { closureReason: 'REASSESSED' }, { closureReason: 'OTHER' },
+      { closureReason: 'OTHER', closureNote: '   ' },
+      { closureReason: 'INCIDENT_RESOLVED', status: 'CLOSED' },
+      { closureReason: 'INCIDENT_RESOLVED', closedById: missingId },
+      { closureReason: 'INCIDENT_RESOLVED', closedAt: '2020-01-01T00:00:00.000Z' },
+      { closureReason: 'INCIDENT_RESOLVED', incidentId },
+      { closureReason: 'INCIDENT_RESOLVED', previousAssessmentId: missingId }
+    ]) {
+      const response = await close(id, body);
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    }
+    expect((await close('invalid')).status).toBe(400);
+    expect(await riskAssessmentRepository.findById(id)).toMatchObject({ status: 'ACTIVE' });
+  });
+  it('maps concurrent close attempts to one success and one conflict', async () => {
+    const { post, close, riskAssessmentRepository } = context();
+    const original = await post();
+    const id = original.body.assessment.id;
+    const responses = await Promise.all([close(id), close(id)]);
+    expect(responses.map(({ status }) => status).sort()).toEqual([200, 409]);
+    expect(responses.find(({ status }) => status === 409)?.body.error.code).toBe('ASSESSMENT_NOT_ACTIVE');
+    expect(await riskAssessmentRepository.findHistoryByIncidentId(incidentId)).toHaveLength(1);
+  });
+  it('preserves REASSESSED closure metadata when a successor is closed manually', async () => {
+    const { post, close, riskAssessmentRepository } = context();
+    const original = await post();
+    const reassessed = await post({
+      hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
+      roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
+      waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN', finalRiskLevel: 'HIGH',
+      reassessmentReason: 'Conditions have changed substantially.'
+    }, `${base}/${original.body.assessment.id}/reassess`);
+    expect(reassessed.status).toBe(201);
+    expect((await close(reassessed.body.assessment.id)).status).toBe(200);
+    expect(await riskAssessmentRepository.findById(original.body.assessment.id)).toMatchObject({
+      status: 'CLOSED', closureReason: 'REASSESSED', closedById: officerId
+    });
   });
   it('requires a decision reason for a final-risk override and rejects forged server fields', async () => {
     const { post, riskAssessmentRepository } = context();

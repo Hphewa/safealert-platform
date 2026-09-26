@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CalculateRiskAssessmentRequest, ReassessRiskAssessmentRequest } from '@safealert/contracts';
+import type { CalculateRiskAssessmentRequest, CloseRiskAssessmentRequest, ReassessRiskAssessmentRequest } from '@safealert/contracts';
 import { apiBaseUrl } from '../../../../services/api/client';
 import {
-  calculateRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident,
+  calculateRiskAssessment, closeRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident,
   getRiskAssessmentHistory, listVerifiedOfficerReports, reassessRiskAssessment
 } from './riskAssessmentApi';
 
@@ -54,6 +54,20 @@ describe('risk assessment authenticated API adapter', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(`${apiBaseUrl}/risk-assessments/assessment%2Fone/reassess`, expect.objectContaining({
       method: 'POST', headers: expect.objectContaining({ Authorization: 'Bearer officer-token' }), body: JSON.stringify(input)
+    }));
+  });
+  it('submits only manual closure fields with PATCH and returns the focused response', async () => {
+    const response = { assessment: { id: 'closed', status: 'CLOSED', closureReason: 'OTHER' } };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(response)));
+    vi.stubGlobal('fetch', fetchMock);
+    const input: CloseRiskAssessmentRequest = {
+      closureReason: 'OTHER', closureNote: 'Hazard fully cleared after inspection.'
+    };
+
+    await expect(closeRiskAssessment('assessment/one', input, 'officer-token')).resolves.toEqual(response);
+    expect(fetchMock).toHaveBeenCalledWith(`${apiBaseUrl}/risk-assessments/assessment%2Fone/close`, expect.objectContaining({
+      method: 'PATCH', headers: expect.objectContaining({ Authorization: 'Bearer officer-token' }),
+      body: JSON.stringify(input)
     }));
   });
   it('preserves duplicate conflict codes so the UI can offer the existing result', async () => {

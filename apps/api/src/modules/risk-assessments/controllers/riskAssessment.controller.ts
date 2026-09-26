@@ -3,7 +3,7 @@ import { ApiError } from '../../../shared/apiError.js';
 import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { RiskAssessmentService } from '../services/riskAssessment.service.js';
 import {
-  calculateRiskAssessmentSchema, createRiskAssessmentSchema, reassessRiskAssessmentSchema,
+  calculateRiskAssessmentSchema, closeRiskAssessmentSchema, createRiskAssessmentSchema, reassessRiskAssessmentSchema,
   riskAssessmentIdSchema
 } from '../validation/riskAssessment.schemas.js';
 
@@ -33,8 +33,16 @@ export function createRiskAssessmentController(service: RiskAssessmentService) {
       { ...input, ...(decisionReason ? { decisionReason } : {}) }
     ));
   });
+  const close: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    const assessmentId = riskAssessmentIdSchema.parse(request.params.assessmentId);
+    const { closureNote, ...input } = closeRiskAssessmentSchema.parse(request.body);
+    response.json(await service.close(request.auth.id, assessmentId, {
+      ...input, ...(closureNote === undefined ? {} : { closureNote })
+    }));
+  });
   const getHistoryForIncident: RequestHandler = asyncHandler(async (request, response) => {
     response.json(await service.getHistoryForIncident(riskAssessmentIdSchema.parse(request.params.incidentId)));
   });
-  return { calculate, create, reassess, getById, getForIncident, getHistoryForIncident };
+  return { calculate, create, reassess, close, getById, getForIncident, getHistoryForIncident };
 }

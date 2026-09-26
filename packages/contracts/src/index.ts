@@ -25,7 +25,11 @@ export const WEATHER_CONDITIONS = ['CLEAR', 'LIGHT_RAIN', 'MODERATE_RAIN', 'HEAV
 export type WeatherCondition = (typeof WEATHER_CONDITIONS)[number];
 export const RISK_ASSESSMENT_STATUSES = ['ACTIVE', 'CLOSED', 'VOID'] as const;
 export type RiskAssessmentStatus = (typeof RISK_ASSESSMENT_STATUSES)[number];
-export const RISK_ASSESSMENT_CLOSURE_REASONS = ['REASSESSED'] as const;
+export const RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS = [
+  'INCIDENT_RESOLVED', 'HAZARD_NO_LONGER_ACTIVE', 'MONITORING_COMPLETED', 'OTHER'
+] as const;
+export type ManualRiskAssessmentClosureReason = (typeof RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS)[number];
+export const RISK_ASSESSMENT_CLOSURE_REASONS = ['REASSESSED', ...RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS] as const;
 export type RiskAssessmentClosureReason = (typeof RISK_ASSESSMENT_CLOSURE_REASONS)[number];
 export const RISK_DECISION_REASON_MIN_LENGTH = 10;
 export const RISK_DECISION_REASON_MAX_LENGTH = 500;
@@ -50,6 +54,10 @@ export type ReassessRiskAssessmentRequest = RiskAssessmentFactors & {
   decisionReason?: string;
   reassessmentReason: string;
 };
+export type CloseRiskAssessmentRequest = {
+  closureReason: ManualRiskAssessmentClosureReason;
+  closureNote?: string;
+};
 export type SafeRiskAssessment = CreateRiskAssessmentRequest & CalculateRiskAssessmentResponse & {
   id: string;
   assessedById: string;
@@ -58,11 +66,13 @@ export type SafeRiskAssessment = CreateRiskAssessmentRequest & CalculateRiskAsse
   previousAssessmentId?: string;
   reassessmentReason?: string;
   closureReason?: RiskAssessmentClosureReason;
+  closureNote?: string;
   closedAt?: string;
   closedById?: string;
   createdAt: string;
   updatedAt: string;
 };
+export type CloseRiskAssessmentResponse = { assessment: SafeRiskAssessment };
 // Report context is joined at read time, never copied into the stored assessment.
 export type RiskAssessmentResponse = { assessment: SafeRiskAssessment; incident: SafeIncident; reports: SafeReport[] };
 export type RiskAssessmentForIncidentResponse = { assessment: SafeRiskAssessment | null; incident: SafeIncident; reports: SafeReport[] };

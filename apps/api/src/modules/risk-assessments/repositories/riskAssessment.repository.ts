@@ -1,4 +1,4 @@
-import type { SafeRiskAssessment } from '@safealert/contracts';
+import type { ManualRiskAssessmentClosureReason, SafeRiskAssessment } from '@safealert/contracts';
 
 // Only the service constructs this input, including server-owned audit fields.
 export type CreateRiskAssessmentInput = Omit<SafeRiskAssessment, 'id' | 'createdAt' | 'updatedAt'>;
@@ -6,9 +6,16 @@ export type ReassessRiskAssessmentRecordInput = Omit<
   CreateRiskAssessmentInput,
   'status' | 'previousAssessmentId' | 'reassessmentReason' | 'closureReason' | 'closedAt' | 'closedById'
 > & { reassessmentReason: string };
+export type CloseActiveRiskAssessmentInput = {
+  closureReason: ManualRiskAssessmentClosureReason;
+  closureNote?: string;
+  closedAt: string;
+  closedById: string;
+};
 export interface RiskAssessmentRepository {
   create(input: CreateRiskAssessmentInput): Promise<SafeRiskAssessment>;
   reassess(activeAssessmentId: string, input: ReassessRiskAssessmentRecordInput): Promise<SafeRiskAssessment>;
+  closeActiveAssessment(assessmentId: string, input: CloseActiveRiskAssessmentInput): Promise<SafeRiskAssessment | null>;
   findById(assessmentId: string): Promise<SafeRiskAssessment | null>;
   findActiveByIncidentId(incidentId: string): Promise<SafeRiskAssessment | null>;
   findHistoryByIncidentId(incidentId: string): Promise<SafeRiskAssessment[]>;

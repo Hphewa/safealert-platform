@@ -50,6 +50,54 @@ describe('risk persistence constraints', () => {
       closedById: closedById.toString()
     });
   });
+  it.each(['INCIDENT_RESOLVED', 'HAZARD_NO_LONGER_ACTIVE', 'MONITORING_COMPLETED'])(
+    'validates manual closure %s without a note', async (closureReason) => {
+      const assessment = document();
+      assessment.set({ status: 'CLOSED', closureReason, closedAt: new Date(), closedById: new mongoose.Types.ObjectId() });
+      await expect(assessment.validate()).resolves.toBeUndefined();
+      expect(toSafeRiskAssessment(assessment).closureReason).toBe(closureReason);
+    });
+  it('trims and serializes an OTHER closure note', async () => {
+    const assessment = document();
+    assessment.set({
+      status: 'CLOSED', closureReason: 'OTHER', closureNote: '  Conditions reviewed and resolved.  ',
+      closedAt: new Date(), closedById: new mongoose.Types.ObjectId()
+    });
+    await expect(assessment.validate()).resolves.toBeUndefined();
+    expect(toSafeRiskAssessment(assessment).closureNote).toBe('Conditions reviewed and resolved.');
+  });
+  it.each([
+    { status: 'ACTIVE' }, { closedAt: undefined }, { closedById: undefined }
+  ])('requires complete lifecycle metadata for a manual reason: %j', async (missing) => {
+    const assessment = document();
+    assessment.set({
+      status: 'CLOSED', closureReason: 'INCIDENT_RESOLVED', closedAt: new Date(),
+      closedById: new mongoose.Types.ObjectId(), ...missing
+    });
+    await expect(assessment.validate()).rejects.toThrow();
+  });
+  it.each([undefined, '', '     ', 'too short', 'x'.repeat(501)])(
+    'requires a valid note for OTHER: %j', async (closureNote) => {
+      const assessment = document();
+      assessment.set({
+        status: 'CLOSED', closureReason: 'OTHER', closureNote,
+        closedAt: new Date(), closedById: new mongoose.Types.ObjectId()
+      });
+      await expect(assessment.validate()).rejects.toThrow();
+    });
+  it('accepts legacy CLOSED records without closure metadata', async () => {
+    const assessment = document();
+    assessment.status = 'CLOSED';
+    await expect(assessment.validate()).resolves.toBeUndefined();
+  });
+  it('does not require a manual note for REASSESSED', async () => {
+    const assessment = document();
+    assessment.set({
+      status: 'CLOSED', closureReason: 'REASSESSED', closedAt: new Date(),
+      closedById: new mongoose.Types.ObjectId()
+    });
+    await expect(assessment.validate()).resolves.toBeUndefined();
+  });
   it('filters Mongo history by incident, sorts all results deterministically, and serializes safe assessments', async () => {
     const assessment = document();
     const query = RiskAssessmentModel.find();

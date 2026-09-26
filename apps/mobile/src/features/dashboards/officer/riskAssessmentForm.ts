@@ -1,6 +1,7 @@
 import {
   RISK_DECISION_REASON_MAX_LENGTH, RISK_DECISION_REASON_MIN_LENGTH,
-  type CreateRiskAssessmentRequest, type ReassessRiskAssessmentRequest, type RiskAssessmentFactors, type RiskLevel
+  type CloseRiskAssessmentRequest, type CreateRiskAssessmentRequest, type ManualRiskAssessmentClosureReason,
+  type ReassessRiskAssessmentRequest, type RiskAssessmentFactors, type RiskLevel
 } from '@safealert/contracts';
 import { ApiClientError } from '../../../services/api/client';
 
@@ -83,6 +84,21 @@ export function buildReassessmentRiskAssessmentRequest(
     ...(trimmedDecisionReason ? { decisionReason: trimmedDecisionReason } : {}),
     reassessmentReason: reassessmentReason.trim()
   };
+}
+export function closureNoteError(reason: ManualRiskAssessmentClosureReason, note: string): string | null {
+  const length = note.trim().length;
+  if (length === 0 && reason !== 'OTHER') return null;
+  if (length < RISK_DECISION_REASON_MIN_LENGTH) return 'Enter a closure note of at least 10 characters.';
+  if (length > RISK_DECISION_REASON_MAX_LENGTH) return 'Closure note must be at most 500 characters.';
+  return null;
+}
+export function buildCloseRiskAssessmentRequest(
+  reason: ManualRiskAssessmentClosureReason, note: string
+): CloseRiskAssessmentRequest {
+  const error = closureNoteError(reason, note);
+  if (error) throw new Error(error);
+  const closureNote = note.trim();
+  return { closureReason: reason, ...(closureNote ? { closureNote } : {}) };
 }
 export function assessmentErrorMessage(error: unknown) {
   if (error instanceof ApiClientError && error.code === 'ASSESSMENT_NOT_ACTIVE') {
