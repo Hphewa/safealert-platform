@@ -475,9 +475,21 @@ export const UNABLE_TO_CONFIRM_REASONS = [
   'Other'
 ] as const;
 export const FIELD_CONFIRMATION_REASON_MAX_LENGTH = 500;
+export const FIELD_CONFIRMATION_OBSERVATION_MAX_LENGTH = 1000;
 export type UnableToConfirmReason = (typeof UNABLE_TO_CONFIRM_REASONS)[number];
+export type FieldVerificationChecklist = {
+  locationMatches: boolean;
+  photoMatches: boolean;
+  situationStillExists: boolean;
+  severityAppearsCorrect: boolean;
+};
 export type CreateFieldConfirmationRequest =
-  | { outcome: 'CONFIRMED' }
+  | {
+      outcome: 'CONFIRMED';
+      verificationChecklist: FieldVerificationChecklist;
+      observation?: string;
+      mediaReference?: string;
+    }
   | { outcome: 'UNABLE_TO_CONFIRM'; reason: UnableToConfirmReason; reasonDetails?: string };
 export type FieldConfirmation = CreateFieldConfirmationRequest & {
   id: string;
@@ -485,6 +497,13 @@ export type FieldConfirmation = CreateFieldConfirmationRequest & {
   volunteerId: string;
   status: 'PENDING';
   createdAt: string;
+  updatedAt: string;
 };
 export type CreateFieldConfirmationResponse = { confirmation: FieldConfirmation };
 export type GetFieldConfirmationsResponse = { confirmations: FieldConfirmation[] };
+export type ResidentFieldConfirmation = FieldConfirmation extends infer T
+  ? T extends FieldConfirmation
+    ? Omit<T, 'volunteerId'>
+    : never
+  : never;
+export type GetResidentFieldConfirmationsResponse = { confirmations: ResidentFieldConfirmation[] };

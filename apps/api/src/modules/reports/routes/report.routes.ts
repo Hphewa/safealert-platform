@@ -19,6 +19,12 @@ export function createReportRouter(reportService: ReportService, config: ApiConf
     authorizeRoles('RESIDENT'),
     controller.cancelMineById
   );
+  router.get(
+    '/mine/:reportId/field-confirmations',
+    authenticate(config),
+    authorizeRoles('RESIDENT'),
+    controller.listMineFieldConfirmations
+  );
   router.get('/mine/:reportId', authenticate(config), authorizeRoles('RESIDENT'), controller.getMineById);
   router.get(
     '/community',

@@ -5,7 +5,8 @@ import type { CreateFieldConfirmationInput, FieldConfirmationRepository } from '
 export class InMemoryFieldConfirmationRepository implements FieldConfirmationRepository {
   private readonly confirmations: FieldConfirmation[] = [];
   async create(input: CreateFieldConfirmationInput): Promise<FieldConfirmation> {
-    const confirmation: FieldConfirmation = { ...input, id: randomUUID(), status: 'PENDING', createdAt: new Date().toISOString() };
+    const now = new Date().toISOString();
+    const confirmation: FieldConfirmation = { ...input, id: randomUUID(), status: 'PENDING', createdAt: now, updatedAt: now };
     this.confirmations.unshift(confirmation);
     return confirmation;
   }
@@ -14,5 +15,8 @@ export class InMemoryFieldConfirmationRepository implements FieldConfirmationRep
   }
   async findByVolunteerId(volunteerId: string) {
     return this.confirmations.filter((item) => item.volunteerId === volunteerId);
+  }
+  async findByReportIdAndVolunteerId(reportId: string, volunteerId: string) {
+    return this.confirmations.find((item) => item.reportId === reportId && item.volunteerId === volunteerId) ?? null;
   }
 }

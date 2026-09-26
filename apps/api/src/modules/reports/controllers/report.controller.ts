@@ -60,6 +60,20 @@ export function createReportController(reportService: ReportService) {
     response.status(200).json(result);
   });
 
+  const listMineFieldConfirmations: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const reportId = request.params.reportId;
+
+    if (!reportId) {
+      throw new ApiError(400, 'INVALID_REPORT_ID', 'Report id is required.');
+    }
+
+    response.status(200).json(await reportService.listResidentFieldConfirmations(request.auth.id, reportId));
+  });
+
   const updateMineById: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
@@ -185,6 +199,7 @@ export function createReportController(reportService: ReportService) {
     create,
     listMine,
     getMineById,
+    listMineFieldConfirmations,
     updateMineById,
     cancelMineById,
     listCommunity,

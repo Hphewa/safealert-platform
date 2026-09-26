@@ -33,6 +33,13 @@ function residentToken() {
   });
 }
 
+function volunteerToken() {
+  return jwt.sign({ role: 'COMMUNITY_VOLUNTEER' }, config.jwtAccessSecret, {
+    subject: 'volunteer-media-user',
+    expiresIn: '15m'
+  });
+}
+
 function app() {
   return createApp({ config });
 }
@@ -63,6 +70,21 @@ describe('report evidence media upload API', () => {
     const storedFile = await fs.readFile(path.join(uploadRoot, 'report-evidence', storedFileName));
 
     expect(storedFile.toString()).toBe('fake jpeg content');
+  });
+
+  it('allows an authenticated community volunteer to upload supported field evidence', async () => {
+    const response = await request(app())
+      .post('/api/v1/media/report-evidence')
+      .auth(volunteerToken(), { type: 'bearer' })
+      .attach('file', Buffer.from('fake field jpeg content'), {
+        filename: 'field-evidence.jpg',
+        contentType: 'image/jpeg'
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.mediaReference).toMatch(
+      /^\/api\/v1\/media\/report-evidence\/\d{4}-\d{2}-\d{2}-[0-9a-f-]+\.jpg$/
+    );
   });
 
   it('rejects unauthenticated uploads', async () => {

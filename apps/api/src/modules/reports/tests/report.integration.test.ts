@@ -795,7 +795,16 @@ describe('report API', () => {
     const confirmation = await request(app)
       .post(`/api/v1/field-confirmations/${reportId}/confirm`)
       .set('Authorization', `Bearer ${volunteer.token}`)
-      .send({});
+      .send({
+        verificationChecklist: {
+          locationMatches: true,
+          photoMatches: true,
+          situationStillExists: true,
+          severityAppearsCorrect: true
+        },
+        observation: 'The flood is still present near the bridge.',
+        mediaReference: '/api/v1/media/report-evidence/volunteer-field.jpg'
+      });
     const residentAfterVolunteer = await request(app)
       .get(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${residentA.token}`);
@@ -806,7 +815,9 @@ describe('report API', () => {
         reportId,
         volunteerId: volunteer.user.id,
         outcome: 'CONFIRMED',
-        status: 'PENDING'
+        status: 'PENDING',
+        observation: 'The flood is still present near the bridge.',
+        mediaReference: '/api/v1/media/report-evidence/volunteer-field.jpg'
       })
     );
     expect(residentAfterVolunteer.status).toBe(200);
@@ -918,6 +929,59 @@ describe('report API', () => {
     expect(residentListAfterReject.body.reports).toEqual(
       expect.arrayContaining([expect.objectContaining({ id: reportId, status: 'REJECTED', rejectionReason })])
     );
+  });
+
+  it('returns resident-safe field confirmations only to the owning resident', async () => {
+    const { app, authRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-confirmation-owner@example.com');
+    const otherResident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-confirmation-other@example.com');
+    const volunteer = await createAuthenticatedUser(authRepository, 'COMMUNITY_VOLUNTEER', 'volunteer-confirmation-safe@example.com');
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send(validReportPayload);
+    const reportId = created.body.report.id as string;
+
+    const empty = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}/field-confirmations`)
+      .set('Authorization', `Bearer ${resident.token}`);
+
+    expect(empty.status).toBe(200);
+    expect(empty.body).toEqual({ confirmations: [] });
+
+    await request(app)
+      .post(`/api/v1/field-confirmations/${reportId}/confirm`)
+      .set('Authorization', `Bearer ${volunteer.token}`)
+      .send({
+        verificationChecklist: {
+          locationMatches: true,
+          photoMatches: false,
+          situationStillExists: true,
+          severityAppearsCorrect: true
+        },
+        observation: 'Confirmed from the field.',
+        mediaReference: '/api/v1/media/report-evidence/safe-field.jpg'
+      });
+
+    const owner = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}/field-confirmations`)
+      .set('Authorization', `Bearer ${resident.token}`);
+    const other = await request(app)
+      .get(`/api/v1/reports/mine/${reportId}/field-confirmations`)
+      .set('Authorization', `Bearer ${otherResident.token}`);
+
+    expect(owner.status).toBe(200);
+    expect(owner.body.confirmations).toEqual([
+      expect.objectContaining({
+        reportId,
+        outcome: 'CONFIRMED',
+        observation: 'Confirmed from the field.',
+        mediaReference: '/api/v1/media/report-evidence/safe-field.jpg'
+      })
+    ]);
+    expect(owner.body.confirmations[0].volunteerId).toBeUndefined();
+    expect(other.status).toBe(404);
   });
   it('allows a resident to edit only editable fields on their own pending report', async () => {
     const { app, authRepository, reportRepository } = createTestContext();

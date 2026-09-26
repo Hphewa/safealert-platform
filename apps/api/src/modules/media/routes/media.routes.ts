@@ -14,7 +14,7 @@ export function createMediaRouter(storage: LocalMediaStorage, config: ApiConfig)
   router.post(
     '/report-evidence',
     authenticate(config),
-    authorizeRoles('RESIDENT'),
+    authorizeRoles('RESIDENT', 'COMMUNITY_VOLUNTEER'),
     controller.uploadReportEvidence
   );
 

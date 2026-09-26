@@ -3,6 +3,7 @@ import type {
   CreateReportResponse,
   CancelResidentReportResponse,
   GetResidentReportResponse,
+  GetResidentFieldConfirmationsResponse,
   GetResidentReportsResponse,
   UpdateResidentReportRequest,
   UpdateResidentReportResponse
@@ -26,6 +27,12 @@ export function listMyReports(accessToken: string) {
 
 export function getMyReportById(reportId: string, accessToken: string) {
   return apiRequest<GetResidentReportResponse>(`/reports/mine/${encodeURIComponent(reportId)}`, {
+    accessToken
+  });
+}
+
+export function listMyReportFieldConfirmations(reportId: string, accessToken: string) {
+  return apiRequest<GetResidentFieldConfirmationsResponse>(`/reports/mine/${encodeURIComponent(reportId)}/field-confirmations`, {
     accessToken
   });
 }

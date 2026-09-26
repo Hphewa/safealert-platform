@@ -1,4 +1,5 @@
 import type {
+  FieldConfirmation,
   CommunityReportSummary,
   CancelResidentReportResponse,
   CreateReportRequest,
@@ -7,6 +8,7 @@ import type {
   GetCommunityReportsResponse,
   GetPendingOfficerReportResponse,
   GetPendingOfficerReportsResponse,
+  GetResidentFieldConfirmationsResponse,
   GetResidentReportResponse,
   GetResidentReportsResponse,
   GetVerifiedOfficerReportsResponse,
@@ -74,6 +76,21 @@ export class ReportService {
     }
 
     return { report };
+  }
+
+  async listResidentFieldConfirmations(
+    residentId: string,
+    reportId: string
+  ): Promise<GetResidentFieldConfirmationsResponse> {
+    const report = await this.repository.findReportByIdAndResidentId(reportId, residentId);
+
+    if (!report) {
+      throw new ApiError(404, 'REPORT_NOT_FOUND', 'Report not found.');
+    }
+
+    return {
+      confirmations: (await this.confirmations.findByReportId(reportId)).map(toResidentFieldConfirmation)
+    };
   }
 
   async updatePendingResidentReport(
@@ -224,4 +241,31 @@ export class ReportService {
 
     return { report: updatedReport };
   }
+}
+
+function toResidentFieldConfirmation(confirmation: FieldConfirmation): GetResidentFieldConfirmationsResponse['confirmations'][number] {
+  if (confirmation.outcome === 'CONFIRMED') {
+    return {
+      id: confirmation.id,
+      reportId: confirmation.reportId,
+      outcome: 'CONFIRMED',
+      status: confirmation.status,
+      verificationChecklist: confirmation.verificationChecklist,
+      ...(confirmation.observation ? { observation: confirmation.observation } : {}),
+      ...(confirmation.mediaReference ? { mediaReference: confirmation.mediaReference } : {}),
+      createdAt: confirmation.createdAt,
+      updatedAt: confirmation.updatedAt
+    };
+  }
+
+  return {
+    id: confirmation.id,
+    reportId: confirmation.reportId,
+    outcome: 'UNABLE_TO_CONFIRM',
+    status: confirmation.status,
+    reason: confirmation.reason,
+    ...(confirmation.reasonDetails ? { reasonDetails: confirmation.reasonDetails } : {}),
+    createdAt: confirmation.createdAt,
+    updatedAt: confirmation.updatedAt
+  };
 }

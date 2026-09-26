@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { SafeReport } from '@safealert/contracts';
+import type { ResidentFieldConfirmation, SafeReport } from '@safealert/contracts';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
@@ -21,7 +21,7 @@ import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
-import { cancelMyPendingReport, getMyReportById } from '../api/reportApi';
+import { cancelMyPendingReport, getMyReportById, listMyReportFieldConfirmations } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
 import {
   buildResidentReportTimeline,
@@ -47,6 +47,7 @@ export function ResidentReportDetailsScreen() {
   const reportId = Array.isArray(params.reportId) ? params.reportId[0] : params.reportId;
   const { accessToken } = useAuth();
   const [report, setReport] = useState<SafeReport | null>(null);
+  const [fieldConfirmations, setFieldConfirmations] = useState<ResidentFieldConfirmation[]>([]);
   const [loadStatus, setLoadStatus] = useState<ResidentReportDetailLoadStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<'idle' | 'cancelling'>('idle');
@@ -85,13 +86,17 @@ export function ResidentReportDetailsScreen() {
       setErrorMessage(null);
 
       try {
-        const response = await getMyReportById(reportId, accessToken);
+        const [response, confirmationsResponse] = await Promise.all([
+          getMyReportById(reportId, accessToken),
+          listMyReportFieldConfirmations(reportId, accessToken)
+        ]);
 
         if (latestRequestIdRef.current !== requestId) {
           return;
         }
 
         setReport(response.report);
+        setFieldConfirmations(confirmationsResponse.confirmations);
         setLoadStatus('success');
       } catch (error) {
         if (latestRequestIdRef.current !== requestId) {
@@ -99,6 +104,7 @@ export function ResidentReportDetailsScreen() {
         }
 
         setLoadStatus('error');
+        setFieldConfirmations([]);
         setErrorMessage(
           error instanceof ApiClientError || error instanceof Error
             ? error.message
@@ -230,6 +236,7 @@ export function ResidentReportDetailsScreen() {
           ) : report ? (
             <ReportDetailContent
               actionMessage={actionMessage}
+              fieldConfirmations={fieldConfirmations}
               isCancelling={actionStatus === 'cancelling'}
               onCancelReport={confirmCancelReport}
               onEditReport={() => router.push(residentReportEditHref(report.id))}
@@ -255,6 +262,7 @@ export function ResidentReportDetailsScreen() {
 
 function ReportDetailContent({
   actionMessage,
+  fieldConfirmations,
   isCancelling,
   onCancelReport,
   onEditReport,
@@ -262,6 +270,7 @@ function ReportDetailContent({
   refreshErrorMessage
 }: {
   actionMessage: string | null;
+  fieldConfirmations: ResidentFieldConfirmation[];
   isCancelling: boolean;
   onCancelReport: () => void;
   onEditReport: () => void;
@@ -377,7 +386,49 @@ function ReportDetailContent({
           ))}
         </View>
       </View>
+
+      <View style={styles.panel}>
+        <Text style={styles.panelTitle}>Community Field Check</Text>
+        {fieldConfirmations.length ? (
+          <View style={styles.timelineList}>
+            {fieldConfirmations.map((confirmation) => (
+              <CommunityFieldCheckCard confirmation={confirmation} key={confirmation.id} />
+            ))}
+          </View>
+        ) : (
+          <Text style={styles.descriptionText}>Not reviewed by a community volunteer yet.</Text>
+        )}
+      </View>
     </>
+  );
+}
+
+function CommunityFieldCheckCard({ confirmation }: { confirmation: ResidentFieldConfirmation }) {
+  const mediaUri = confirmation.outcome === 'CONFIRMED' ? resolveResidentMediaUri(confirmation.mediaReference) : undefined;
+  return (
+    <View style={styles.communityCard}>
+      <Text style={styles.timelineTitle}>
+        {confirmation.outcome === 'CONFIRMED' ? 'Confirmed by a community volunteer.' : 'Unable to confirm.'}
+      </Text>
+      <Text style={styles.timelineTime}>{formatResidentReportDateTime(confirmation.createdAt)}</Text>
+      {confirmation.outcome === 'CONFIRMED' ? (
+        <>
+          <Text style={styles.timelineDetail}>Location matches: {confirmation.verificationChecklist.locationMatches ? 'Yes' : 'No'}</Text>
+          <Text style={styles.timelineDetail}>Photo matches: {confirmation.verificationChecklist.photoMatches ? 'Yes' : 'No'}</Text>
+          <Text style={styles.timelineDetail}>Situation still exists: {confirmation.verificationChecklist.situationStillExists ? 'Yes' : 'No'}</Text>
+          <Text style={styles.timelineDetail}>Severity appears correct: {confirmation.verificationChecklist.severityAppearsCorrect ? 'Yes' : 'No'}</Text>
+          {confirmation.observation ? <Text style={styles.descriptionText}>{confirmation.observation}</Text> : null}
+          {mediaUri && canPreviewResidentReportMedia(mediaUri) ? (
+            <Image accessibilityLabel="Community volunteer field evidence" source={{ uri: mediaUri }} style={styles.mediaPreview} />
+          ) : null}
+        </>
+      ) : (
+        <>
+          <Text style={styles.timelineDetail}>Reason: {confirmation.reason}</Text>
+          {confirmation.reasonDetails ? <Text style={styles.descriptionText}>{confirmation.reasonDetails}</Text> : null}
+        </>
+      )}
+    </View>
   );
 }
 
@@ -743,6 +794,14 @@ const styles = StyleSheet.create({
   timelineBody: {
     flex: 1,
     gap: 3
+  },
+  communityCard: {
+    gap: 8,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
   },
   timelineTitle: {
     fontSize: 15,

@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import type { FieldConfirmation } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -8,6 +8,7 @@ import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { VolunteerStateCard } from '../components/VolunteerStateCard';
 import { volunteerBottomNavItems } from '../mockData';
 import { listMyFieldConfirmations } from '../api/fieldConfirmationsApi';
+import { apiBaseUrl } from '@/services/api/client';
 
 export function VolunteerConfirmationsScreen() {
   const { accessToken } = useAuth();
@@ -84,7 +85,15 @@ export function VolunteerConfirmationsScreen() {
                 <Text style={styles.reasonLabel}>REASON FOR FLAG</Text>
                 <Text style={styles.reasonText}>{item.reason}</Text>
                 {item.reasonDetails ? <Text style={styles.reasonDetails}>{item.reasonDetails}</Text> : null}
-              </View> : null}
+              </View> : <View style={styles.reasonBox}>
+                <Text style={styles.reasonLabel}>CHECKLIST</Text>
+                <Text style={styles.reasonText}>Location matches: {item.verificationChecklist.locationMatches ? 'Yes' : 'No'}</Text>
+                <Text style={styles.reasonText}>Photo matches: {item.verificationChecklist.photoMatches ? 'Yes' : 'No'}</Text>
+                <Text style={styles.reasonText}>Situation still exists: {item.verificationChecklist.situationStillExists ? 'Yes' : 'No'}</Text>
+                <Text style={styles.reasonText}>Severity appears correct: {item.verificationChecklist.severityAppearsCorrect ? 'Yes' : 'No'}</Text>
+                {item.observation ? <Text style={styles.reasonDetails}>{item.observation}</Text> : null}
+                {item.mediaReference && resolveMediaUri(item.mediaReference) ? <Image accessibilityLabel="Field evidence" source={{ uri: resolveMediaUri(item.mediaReference)! }} style={styles.mediaPreview} /> : null}
+              </View>}
               <View style={styles.cardFooter}>
                 <View style={styles.metadata}>
                   <Text style={styles.metaLabel}>REPORT REFERENCE</Text>
@@ -131,9 +140,16 @@ const styles = StyleSheet.create({
   reasonLabel: { color: '#9a3412', fontSize: 10, letterSpacing: 1, fontWeight: '800' },
   reasonText: { color: dashboardTheme.colors.text, fontSize: 14, lineHeight: 21, fontWeight: '600' },
   reasonDetails: { color: '#475569', fontSize: 14, lineHeight: 21 },
+  mediaPreview: { width: '100%', height: 160, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surfaceMuted, marginTop: 8 },
   cardFooter: { flexDirection: 'row', flexWrap: 'wrap', gap: 16, borderTopWidth: 1, borderTopColor: dashboardTheme.colors.border, paddingTop: 14 },
   metadata: { flexGrow: 1, flexShrink: 1, gap: 5 },
   metaLabel: { color: dashboardTheme.colors.muted, fontSize: 10, fontWeight: '700', letterSpacing: 0.8 },
   reportReference: { color: '#475569', fontSize: 12, lineHeight: 18 },
   dateText: { color: '#475569', fontSize: 12, lineHeight: 18 }
 });
+
+function resolveMediaUri(mediaReference: string) {
+  if (/^(https?:|data:image\/)/i.test(mediaReference)) return mediaReference;
+  if (mediaReference.startsWith('/')) return `${apiBaseUrl.replace(/\/api\/v1\/?$/, '')}${mediaReference}`;
+  return undefined;
+}

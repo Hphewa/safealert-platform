@@ -14,8 +14,13 @@ export function createFieldConfirmationRouter(service: FieldConfirmationService,
   }));
   router.post('/:reportId/confirm', authorizeRoles('COMMUNITY_VOLUNTEER'), asyncHandler(async (request, response) => {
     const reportId = reportIdSchema.parse(request.params.reportId);
-    confirmSchema.parse(request.body);
-    response.status(201).json(await service.submit(reportId, request.auth!.id, { outcome: 'CONFIRMED' }));
+    const input = confirmSchema.parse(request.body);
+    response.status(201).json(await service.submit(reportId, request.auth!.id, {
+      outcome: 'CONFIRMED',
+      verificationChecklist: input.verificationChecklist,
+      ...(input.observation ? { observation: input.observation } : {}),
+      ...(input.mediaReference ? { mediaReference: input.mediaReference } : {})
+    }));
   }));
   router.post('/:reportId/unable-to-confirm', authorizeRoles('COMMUNITY_VOLUNTEER'), asyncHandler(async (request, response) => {
     const reportId = reportIdSchema.parse(request.params.reportId);

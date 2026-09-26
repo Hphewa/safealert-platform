@@ -2,7 +2,7 @@ import type { SafeReport } from '@safealert/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { apiBaseUrl } from '../../../../services/api/client';
-import { cancelMyPendingReport, getMyReportById, listMyReports, updateMyPendingReport } from './reportApi';
+import { cancelMyPendingReport, getMyReportById, listMyReportFieldConfirmations, listMyReports, updateMyPendingReport } from './reportApi';
 
 const report: SafeReport = {
   id: 'report/one',
@@ -49,6 +49,23 @@ describe('resident report API', () => {
     expect(response).toEqual({ report });
     expect(fetchMock).toHaveBeenCalledWith(
       apiBaseUrl + '/reports/mine/report%2Fone',
+      expect.objectContaining({
+        method: 'GET',
+        headers: expect.objectContaining({ Authorization: 'Bearer resident-access-token' })
+      })
+    );
+  });
+
+  it('loads field confirmations for an encoded resident-owned report id', async () => {
+    const confirmations = [{ id: 'confirmation-1', reportId: 'report/one', outcome: 'UNABLE_TO_CONFIRM', reason: 'Other', reasonDetails: 'Water receded.', status: 'PENDING', createdAt: report.createdAt, updatedAt: report.updatedAt }];
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ confirmations }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const response = await listMyReportFieldConfirmations('report/one', 'resident-access-token');
+
+    expect(response).toEqual({ confirmations });
+    expect(fetchMock).toHaveBeenCalledWith(
+      apiBaseUrl + '/reports/mine/report%2Fone/field-confirmations',
       expect.objectContaining({
         method: 'GET',
         headers: expect.objectContaining({ Authorization: 'Bearer resident-access-token' })

@@ -1,9 +1,9 @@
 import * as React from 'react';
 import type { SafeReport } from '@safealert/contracts';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ResidentReportDetailsScreen } from './ResidentReportDetailsScreen';
-import { cancelMyPendingReport, getMyReportById } from '../api/reportApi';
+import { cancelMyPendingReport, getMyReportById, listMyReportFieldConfirmations } from '../api/reportApi';
 
 const lifecycle = vi.hoisted(() => ({
   slots: [] as unknown[],
@@ -78,7 +78,7 @@ vi.mock('../../shared/components/DashboardGlyph', () => ({ DashboardGlyph: () =>
 vi.mock('../../shared/components/StatusBadge', () => ({
   StatusBadge: ({ label }: { label: string }) => <span>{label}</span>
 }));
-vi.mock('../api/reportApi', () => ({ cancelMyPendingReport: vi.fn(), getMyReportById: vi.fn() }));
+vi.mock('../api/reportApi', () => ({ cancelMyPendingReport: vi.fn(), getMyReportById: vi.fn(), listMyReportFieldConfirmations: vi.fn() }));
 
 const pendingReport: SafeReport = {
   id: 'report-1',
@@ -91,6 +91,10 @@ const pendingReport: SafeReport = {
   createdAt: '2026-08-24T09:00:00.000Z',
   updatedAt: '2026-08-24T09:00:00.000Z'
 };
+
+beforeEach(() => {
+  vi.mocked(listMyReportFieldConfirmations).mockResolvedValue({ confirmations: [] });
+});
 
 afterEach(() => {
   lifecycle.slots = [];
@@ -146,6 +150,7 @@ describe('ResidentReportDetailsScreen', () => {
 
     render();
     await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Cancel Report'));
     const cancel = screenButtons(render()).find((button) => screenText(button.children).trim() === 'Cancel Report');
     cancel?.onPress();
 

@@ -25,9 +25,23 @@ beforeEach(() => {
   process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
 });
 const paths = [
-  { action: 'confirm', body: {}, outcome: 'CONFIRMED' },
+  {
+    action: 'confirm',
+    body: {
+      verificationChecklist: {
+        locationMatches: true,
+        photoMatches: false,
+        situationStillExists: true,
+        severityAppearsCorrect: true
+      },
+      observation: 'Water is still crossing the access road.',
+      mediaReference: '/api/v1/media/report-evidence/field-photo.jpg'
+    },
+    outcome: 'CONFIRMED'
+  },
   { action: 'unable-to-confirm', body: { reason: 'Location does not match' }, outcome: 'UNABLE_TO_CONFIRM' }
 ];
+const confirmedBody = paths[0]!.body;
 describe('LDFEW-125 field confirmations', () => {
   it.each(paths)('$action excludes only the submitting volunteer from both actionable lists and preserves history', async ({ action, body }) => {
     const { app, reports, confirmations } = context();
@@ -111,6 +125,21 @@ describe('LDFEW-125 field confirmations', () => {
     expect(response.status).toBe(201);
     expect(response.body.confirmation.reasonDetails).toBe('Visibility too low');
   });
+  it('allows only one confirmation per volunteer per report while allowing different volunteers', async () => {
+    const { app, confirmations } = context();
+    const first = await request(app).post(`/api/v1/field-confirmations/${reportId}/confirm`).auth(token('COMMUNITY_VOLUNTEER'), { type: 'bearer' }).send(confirmedBody);
+    const duplicate = await request(app).post(`/api/v1/field-confirmations/${reportId}/unable-to-confirm`).auth(token('COMMUNITY_VOLUNTEER'), { type: 'bearer' }).send({ reason: 'Location does not match' });
+    const otherVolunteer = await request(app).post(`/api/v1/field-confirmations/${reportId}/unable-to-confirm`).auth(token('COMMUNITY_VOLUNTEER', '507f1f77bcf86cd799439013'), { type: 'bearer' }).send({ reason: 'Location does not match' });
+
+    expect(first.status).toBe(201);
+    expect(duplicate.status).toBe(409);
+    expect(duplicate.body.error).toEqual({
+      code: 'FIELD_CONFIRMATION_ALREADY_EXISTS',
+      message: 'You have already submitted a field confirmation for this report.'
+    });
+    expect(otherVolunteer.status).toBe(201);
+    expect(await confirmations.findByReportId(reportId)).toHaveLength(2);
+  });
   for (const { action, body } of paths) {
     it.each(USER_ROLES.filter((role) => role !== 'COMMUNITY_VOLUNTEER'))(`${action} forbids %s`, async (role) => {
       const { app } = context();
@@ -140,7 +169,17 @@ describe('LDFEW-125 field confirmations', () => {
   it('model enforces flag reasons and pending status', async () => {
     await expect(new FieldConfirmationModel({ reportId, volunteerId, outcome: 'UNABLE_TO_CONFIRM' }).validate()).rejects.toThrow();
     await expect(new FieldConfirmationModel({ reportId, volunteerId, outcome: 'UNABLE_TO_CONFIRM', reason: 'Other' }).validate()).rejects.toThrow();
-    const confirmation = new FieldConfirmationModel({ reportId, volunteerId, outcome: 'CONFIRMED' });
+    const confirmation = new FieldConfirmationModel({
+      reportId,
+      volunteerId,
+      outcome: 'CONFIRMED',
+      verificationChecklist: {
+        locationMatches: true,
+        photoMatches: true,
+        situationStillExists: true,
+        severityAppearsCorrect: false
+      }
+    });
     await expect(confirmation.validate()).resolves.toBeUndefined();
     expect(confirmation.status).toBe('PENDING');
   });

@@ -381,39 +381,6 @@ export function OfficerReportReviewScreen() {
       </SectionCard>
 
       <OfficerFieldConfirmations reportId={report.id} />
-      <SectionCard title="Volunteer Field Information">
-        {report.volunteerEvidence.length ? (
-          <View style={styles.stack}>
-            {report.volunteerEvidence.map((evidence) => (
-              <View key={evidence.id} style={styles.evidenceCard}>
-                <View style={styles.evidenceHeader}>
-                  <Text style={styles.evidenceTitle}>Field Update</Text>
-                  <Text style={styles.evidenceTime}>{evidence.confirmedAtLabel}</Text>
-                </View>
-                <Text style={styles.panelBody}>{evidence.observation}</Text>
-                {evidence.roadCondition ? (
-                  <Text style={styles.metaText}>Road condition: {evidence.roadCondition}</Text>
-                ) : null}
-                {evidence.waterLevel ? (
-                  <Text style={styles.metaText}>Water level: {evidence.waterLevel}</Text>
-                ) : null}
-                {evidence.photoUrl ? (
-                  <View style={styles.mediaBlock}>
-                    <Image
-                      accessibilityLabel={evidence.photoLabel ?? 'Volunteer photo evidence'}
-                      source={{ uri: evidence.photoUrl }}
-                      style={styles.mediaPreview}
-                    />
-                    {evidence.photoLabel ? <Text style={styles.caption}>{evidence.photoLabel}</Text> : null}
-                  </View>
-                ) : null}
-              </View>
-            ))}
-          </View>
-        ) : (
-          <Text style={styles.emptyCopy}>No volunteer field evidence has been recorded for this report yet.</Text>
-        )}
-      </SectionCard>
 
       <SectionCard title="Evidence Timeline">
         {report.timeline.length ? (
