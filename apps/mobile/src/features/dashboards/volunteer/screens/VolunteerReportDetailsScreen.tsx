@@ -161,6 +161,12 @@ export function VolunteerReportDetailsScreen() {
           {report.distanceLabel ? (
             <VolunteerReportDetailItem label="Distance" value={report.distanceLabel} />
           ) : null}
+          {report.relatedCommunityReportCount ? (
+            <VolunteerReportDetailItem
+              label="Related activity"
+              value={`${report.relatedCommunityReportCount} other related community report${report.relatedCommunityReportCount === 1 ? '' : 's'}`}
+            />
+          ) : null}
           <VolunteerReportDetailItem label="Report Age" value={report.reportedTimeLabel} />
         </View>
       </View>

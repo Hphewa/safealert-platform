@@ -24,6 +24,7 @@ export type VolunteerCommunityReport = {
   status: ReportStatus;
   mediaUrl?: string;
   voiceEvidence?: ReportVoiceEvidence;
+  relatedCommunityReportCount?: number;
   icon: DashboardIconName;
   href: Href;
 };
@@ -64,6 +65,7 @@ export function mapCommunityReportToVolunteerReport(report: CommunityReportSumma
     status: report.status,
     mediaUrl: report.mediaReference,
     voiceEvidence: report.voiceEvidence,
+    relatedCommunityReportCount: report.relatedCommunityReportCount,
     icon: hazardTypeIcons[report.hazardType],
     href: `/volunteer/reports/${report.id}`
   };

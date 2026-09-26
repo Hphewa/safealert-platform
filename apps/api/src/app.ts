@@ -40,6 +40,10 @@ import type { IncidentRepository } from './modules/incidents/repositories/incide
 import { MongooseIncidentRepository } from './modules/incidents/repositories/mongooseIncident.repository.js';
 import { IncidentService } from './modules/incidents/services/incident.service.js';
 import { createIncidentRouter } from './modules/incidents/routes/incident.routes.js';
+import type { CommunityReportClusterRepository } from './modules/report-clusters/repositories/communityReportCluster.repository.js';
+import { MongooseCommunityReportClusterRepository } from './modules/report-clusters/repositories/mongooseCommunityReportCluster.repository.js';
+import { CommunityReportGroupingService } from './modules/report-clusters/services/communityReportGrouping.service.js';
+import { createCommunityReportClusterRouter } from './modules/report-clusters/routes/communityReportCluster.routes.js';
 
 type CreateAppOptions = {
   config: ApiConfig;
@@ -51,6 +55,7 @@ type CreateAppOptions = {
   warningRepository?: WarningRepository;
   warningAttachmentRepository?: WarningAttachmentRepository;
   incidentRepository?: IncidentRepository;
+  communityReportClusterRepository?: CommunityReportClusterRepository;
   enableRbacTestRoutes?: boolean;
 };
 
@@ -64,6 +69,7 @@ export function createApp({
   warningRepository,
   warningAttachmentRepository,
   incidentRepository,
+  communityReportClusterRepository,
   enableRbacTestRoutes = false
 }: CreateAppOptions) {
   const app = express();
@@ -72,7 +78,17 @@ export function createApp({
   const resolvedReportRepository = reportRepository ?? new MongooseReportRepository();
   const resolvedIncidentRepository = incidentRepository ?? new MongooseIncidentRepository();
   const incidentService = new IncidentService(resolvedIncidentRepository, resolvedReportRepository);
-  const reportService = new ReportService(resolvedReportRepository, confirmations, incidentService);
+  const communityReportGroupingService = new CommunityReportGroupingService(
+    communityReportClusterRepository ?? new MongooseCommunityReportClusterRepository(),
+    resolvedReportRepository,
+    confirmations
+  );
+  const reportService = new ReportService(
+    resolvedReportRepository,
+    confirmations,
+    incidentService,
+    communityReportGroupingService
+  );
   const resolvedAssessmentRepository = riskAssessmentRepository ?? new MongooseRiskAssessmentRepository();
   const riskAssessmentService = new RiskAssessmentService(resolvedAssessmentRepository, resolvedIncidentRepository, resolvedReportRepository);
   const resolvedImages = warningAttachmentRepository ?? new GridFsWarningAttachmentRepository();
@@ -97,6 +113,7 @@ export function createApp({
 
   app.use('/api/v1/auth', createAuthRouter(authService, config));
   app.use('/api/v1/reports', createReportRouter(reportService, config));
+  app.use('/api/v1/report-clusters', createCommunityReportClusterRouter(communityReportGroupingService, config));
   app.use('/api/v1/incidents', createIncidentRouter(incidentService, config));
   app.use('/api/v1/media', createMediaRouter(mediaStorage, config));
   app.use('/api/v1/field-confirmations', createFieldConfirmationRouter(

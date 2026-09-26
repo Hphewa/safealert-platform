@@ -40,6 +40,11 @@ export class MongooseReportRepository implements ReportRepository {
     return reports.map(toSafeReport);
   }
 
+  async findReportsByCommunityReportClusterId(communityReportClusterId: string) {
+    const reports = await ReportModel.find({ communityReportClusterId }).sort({ createdAt: 1 }).exec();
+    return reports.map(toSafeReport);
+  }
+
   async findReportsByStatuses(statuses: CreateReportInput['status'][]) {
     const reports = await ReportModel.find({
       status: {
@@ -88,6 +93,7 @@ export class MongooseReportRepository implements ReportRepository {
           },
           mediaReference: 1,
           voiceEvidence: 1,
+          communityReportClusterId: { $toString: '$communityReportClusterId' },
           distanceKm: {
             $round: [{ $divide: ['$distanceMeters', 1000] }, 2]
           }
@@ -121,8 +127,21 @@ export class MongooseReportRepository implements ReportRepository {
       status: safeReport.status,
       createdAt: safeReport.createdAt,
       ...(safeReport.mediaReference ? { mediaReference: safeReport.mediaReference } : {}),
-      ...(safeReport.voiceEvidence ? { voiceEvidence: safeReport.voiceEvidence } : {})
+      ...(safeReport.voiceEvidence ? { voiceEvidence: safeReport.voiceEvidence } : {}),
+      ...(safeReport.communityReportClusterId ? { communityReportClusterId: safeReport.communityReportClusterId } : {})
     };
+  }
+
+  async setCommunityReportCluster(input: { reportId: string; communityReportClusterId: string | null }) {
+    const report = await ReportModel.findByIdAndUpdate(
+      input.reportId,
+      input.communityReportClusterId
+        ? { $set: { communityReportClusterId: input.communityReportClusterId } }
+        : { $unset: { communityReportClusterId: '' } },
+      { new: true, runValidators: true, timestamps: false }
+    ).exec();
+
+    return report ? toSafeReport(report) : null;
   }
 
   async updatePendingResidentReport(input: UpdatePendingResidentReportInput) {

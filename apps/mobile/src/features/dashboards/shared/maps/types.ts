@@ -52,3 +52,7 @@ export function geoJsonPointToMapCoordinates(location: GeoJsonPointLocation): Ma
 
   return isValidMapCoordinates(coordinates) ? coordinates : null;
 }
+
+export function formatMapCoordinate(value: number) {
+  return value.toFixed(5);
+}

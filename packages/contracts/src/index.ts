@@ -176,6 +176,51 @@ export type AutomaticIncidentGrouping = {
   candidate?: IncidentCandidate;
 };
 
+export type SafeCommunityReportClusterSummary = {
+  id: string;
+  hazardType: HazardType;
+  centerLocation: GeoJsonPoint;
+  firstReportedAt: string;
+  lastReportedAt: string;
+  reportCount: number;
+  activeReportCount: number;
+  pendingReportCount: number;
+  verifiedReportCount: number;
+  rejectedReportCount: number;
+  cancelledReportCount: number;
+  resolvedReportCount: number;
+  highestSeverity: ReportSeverity;
+  photoEvidenceCount: number;
+  voiceEvidenceCount: number;
+  fieldConfirmationCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CommunityClusterReportSummary = SafeReport & {
+  fieldConfirmationCount: number;
+};
+
+export type CommunityClusterFieldConfirmationSummary = {
+  id: string;
+  reportId: string;
+  outcome: 'CONFIRMED' | 'UNABLE_TO_CONFIRM';
+  createdAt: string;
+};
+
+export type SafeCommunityReportClusterDetail = SafeCommunityReportClusterSummary & {
+  reports: CommunityClusterReportSummary[];
+  fieldConfirmations: CommunityClusterFieldConfirmationSummary[];
+};
+
+export type GetOfficerCommunityReportClustersResponse = {
+  clusters: SafeCommunityReportClusterSummary[];
+};
+
+export type GetOfficerCommunityReportClusterResponse = {
+  cluster: SafeCommunityReportClusterDetail;
+};
+
 export type CreateReportRequest = {
   hazardType: HazardType;
   description: string;
@@ -192,6 +237,7 @@ export type UpdateResidentReportRequest = Partial<Omit<CreateReportRequest, 'voi
 export type SafeReport = {
   id: string;
   residentId: string;
+  communityReportClusterId?: string;
   hazardType: HazardType;
   description: string;
   severity: ReportSeverity;
@@ -263,6 +309,7 @@ export type ReviewReportResponse = VerifyReportResponse;
 
 export type CommunityReportSummary = {
   id: string;
+  communityReportClusterId?: string;
   hazardType: HazardType;
   description: string;
   severity: ReportSeverity;
@@ -272,6 +319,7 @@ export type CommunityReportSummary = {
   status: ReportStatus;
   createdAt: string;
   distanceKm?: number;
+  relatedCommunityReportCount?: number;
 };
 
 export type GetCommunityReportsResponse = {

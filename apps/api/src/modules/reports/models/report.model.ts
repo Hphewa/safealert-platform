@@ -168,6 +168,12 @@ const reportSchema = new mongoose.Schema(
       ref: 'User',
       index: true
     },
+    communityReportClusterId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: false,
+      ref: 'CommunityReportCluster',
+      index: true
+    },
     hazardType: {
       type: String,
       required: true,
@@ -237,6 +243,7 @@ reportSchema.index({ location: '2dsphere' });
 export type ReportDocument = InferSchemaType<typeof reportSchema> & {
   _id: { toString(): string };
   residentId: { toString(): string };
+  communityReportClusterId?: { toString(): string };
   createdAt: Date;
   updatedAt: Date;
   verification?: {
@@ -269,6 +276,9 @@ export function toSafeReport(report: ReportDocument): SafeReport {
   const safeReport: SafeReport = {
     id: report._id.toString(),
     residentId: report.residentId.toString(),
+    ...(report.communityReportClusterId
+      ? { communityReportClusterId: report.communityReportClusterId.toString() }
+      : {}),
     hazardType: report.hazardType,
     description: report.description,
     severity: report.severity,

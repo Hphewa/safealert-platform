@@ -62,6 +62,13 @@ export class InMemoryReportRepository implements ReportRepository {
     return [...this.reports.values()].filter((report) => selectedIds.has(report.id.toLowerCase()));
   }
 
+  async findReportsByCommunityReportClusterId(communityReportClusterId: string) {
+    return [...this.reports.values()]
+      .filter((report) => report.communityReportClusterId === communityReportClusterId)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((report) => structuredClone(report));
+  }
+
   async findReportsByStatuses(statuses: ReportStatus[]) {
     return [...this.reports.values()]
       .filter((report) => statuses.includes(report.status))
@@ -90,6 +97,7 @@ export class InMemoryReportRepository implements ReportRepository {
         location: report.location,
         status: report.status,
         createdAt: report.createdAt,
+        ...(report.communityReportClusterId ? { communityReportClusterId: report.communityReportClusterId } : {}),
         ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
         ...(report.voiceEvidence ? { voiceEvidence: report.voiceEvidence } : {}),
         distanceKm: Number(distanceKm.toFixed(2))
@@ -111,9 +119,23 @@ export class InMemoryReportRepository implements ReportRepository {
       location: report.location,
       status: report.status,
       createdAt: report.createdAt,
+      ...(report.communityReportClusterId ? { communityReportClusterId: report.communityReportClusterId } : {}),
       ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
       ...(report.voiceEvidence ? { voiceEvidence: report.voiceEvidence } : {})
     };
+  }
+
+  async setCommunityReportCluster(input: { reportId: string; communityReportClusterId: string | null }) {
+    const report = this.reports.get(input.reportId);
+    if (!report) return null;
+    const updatedReport = { ...report };
+    if (input.communityReportClusterId) {
+      updatedReport.communityReportClusterId = input.communityReportClusterId;
+    } else {
+      delete updatedReport.communityReportClusterId;
+    }
+    this.reports.set(updatedReport.id, updatedReport);
+    return structuredClone(updatedReport);
   }
 
   seedReport(report: SafeReport) {

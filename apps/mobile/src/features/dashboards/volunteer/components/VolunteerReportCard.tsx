@@ -38,6 +38,11 @@ export function VolunteerReportCard({ report }: VolunteerReportCardProps) {
             {report.distanceLabel ? <Text style={styles.metaText}>{report.distanceLabel}</Text> : null}
             <Text style={styles.metaText}>{report.reportedTimeLabel}</Text>
           </View>
+          {report.relatedCommunityReportCount ? (
+            <Text style={styles.relatedText}>
+              {report.relatedCommunityReportCount} other related community report{report.relatedCommunityReportCount === 1 ? '' : 's'}
+            </Text>
+          ) : null}
           {report.descriptionPreview ? (
             <Text numberOfLines={2} style={styles.description}>
               {report.descriptionPreview}
@@ -109,6 +114,11 @@ const styles = StyleSheet.create({
   metaText: {
     fontSize: 14,
     color: dashboardTheme.colors.muted
+  },
+  relatedText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
   },
   description: {
     fontSize: 14,

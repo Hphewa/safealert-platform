@@ -12,6 +12,11 @@ export type CreateReportInput = CreateReportRequest & {
   status: 'PENDING';
 };
 
+export type SetCommunityReportClusterInput = {
+  reportId: string;
+  communityReportClusterId: string | null;
+};
+
 export type NearbyCommunityReportsQuery = {
   statuses: ReportStatus[];
   longitude: number;
@@ -43,10 +48,12 @@ export interface ReportRepository {
   findReportsByResidentId(residentId: string): Promise<SafeReport[]>;
   findReportByIdAndResidentId(reportId: string, residentId: string): Promise<SafeReport | null>;
   findReportsByIds(reportIds: string[]): Promise<SafeReport[]>;
+  findReportsByCommunityReportClusterId(communityReportClusterId: string): Promise<SafeReport[]>;
 
   findReportsByStatuses(statuses: ReportStatus[]): Promise<SafeReport[]>;
   findNearbyCommunityReports(query: NearbyCommunityReportsQuery): Promise<CommunityReportSummary[]>;
   findCommunityReportById(reportId: string, statuses: ReportStatus[]): Promise<CommunityReportSummary | null>;
+  setCommunityReportCluster(input: SetCommunityReportClusterInput): Promise<SafeReport | null>;
   updatePendingResidentReport(input: UpdatePendingResidentReportInput): Promise<SafeReport | null>;
   cancelPendingResidentReport(input: CancelPendingResidentReportInput): Promise<SafeReport | null>;
   reviewReport(input: ReviewReportInput): Promise<SafeReport | null>;

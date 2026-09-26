@@ -10,6 +10,7 @@ import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.rep
 import { InMemoryReportRepository } from '../repositories/inMemoryReport.repository.js';
 import { InMemoryFieldConfirmationRepository } from '../../field-confirmations/repositories/inMemoryFieldConfirmation.repository.js';
 import { InMemoryIncidentRepository } from '../../incidents/repositories/inMemoryIncident.repository.js';
+import { InMemoryCommunityReportClusterRepository } from '../../report-clusters/repositories/inMemoryCommunityReportCluster.repository.js';
 
 function createTestContext(overrides: Partial<ApiConfig> = {}) {
   process.env.NODE_ENV = 'test';
@@ -25,7 +26,14 @@ function createTestContext(overrides: Partial<ApiConfig> = {}) {
   const authRepository = new InMemoryAuthRepository();
   const reportRepository = new InMemoryReportRepository();
   const incidentRepository = new InMemoryIncidentRepository();
-  const app = createApp({ config, authRepository, reportRepository, incidentRepository, fieldConfirmationRepository: new InMemoryFieldConfirmationRepository() });
+  const app = createApp({
+    config,
+    authRepository,
+    reportRepository,
+    incidentRepository,
+    communityReportClusterRepository: new InMemoryCommunityReportClusterRepository(),
+    fieldConfirmationRepository: new InMemoryFieldConfirmationRepository()
+  });
 
   return { app, authRepository, reportRepository, incidentRepository };
 }

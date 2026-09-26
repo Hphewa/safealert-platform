@@ -1,5 +1,5 @@
-import { OfficerGroupedReportsScreen } from '../../../src/features/dashboards/officer/screens/OfficerGroupedReportsScreen';
+import { OfficerCommunityClustersScreen } from '../../../src/features/dashboards/officer/screens/OfficerCommunityClustersScreen';
 
 export default function OfficerReportsIndexRoute() {
-  return <OfficerGroupedReportsScreen />;
+  return <OfficerCommunityClustersScreen />;
 }
