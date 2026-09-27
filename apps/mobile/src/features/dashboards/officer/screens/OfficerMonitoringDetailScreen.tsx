@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { canCreateWarning, type IncidentMonitoringDetailResponse } from '@safealert/contracts';
@@ -17,9 +17,12 @@ export function OfficerMonitoringDetailScreen() {
   const params = useLocalSearchParams<{ incidentId?: string | string[]; notice?: string | string[] }>();
   const incidentId = Array.isArray(params.incidentId) ? params.incidentId[0] : params.incidentId;
   const notice = Array.isArray(params.notice) ? params.notice[0] : params.notice;
-  const noticeConsumed = useRef(false);
-  const showSavedNotice = notice === 'assessment-saved' && !noticeConsumed.current;
-  if (showSavedNotice) noticeConsumed.current = true;
+  const [showSavedNotice, setShowSavedNotice] = useState(notice === 'assessment-saved');
+  useEffect(() => {
+    if (notice !== 'assessment-saved') return;
+    setShowSavedNotice(true);
+    router.setParams({ notice: undefined });
+  }, [notice, router]);
   const load = useCallback(async (): Promise<IncidentMonitoringDetailResponse> => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
     if (!incidentId) throw new Error('An incident reference is required.');
@@ -29,7 +32,6 @@ export function OfficerMonitoringDetailScreen() {
   const item = data?.monitoring;
   const assessment = item?.currentAssessment ?? item?.latestAssessment;
   const currentActive = item?.currentAssessment?.status === 'ACTIVE' ? item.currentAssessment : null;
-  const warning = item?.warnings[0];
 
   return <DashboardScreen bottomNavItems={officerBottomNavItems}>
     <Text style={assessmentStyles.title}>Incident Monitoring</Text>
@@ -68,8 +70,12 @@ export function OfficerMonitoringDetailScreen() {
         <AssessmentButton label="CLOSE ASSESSMENT" onPress={() => router.push({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: currentActive.id } })} />
         {canCreateWarning(currentActive.finalRiskLevel) ? <AssessmentButton label="CREATE WARNING" onPress={() => router.push({ pathname: '/officer/warnings/create', params: { assessmentId: currentActive.id } })} /> : null}
       </> : assessment ? <AssessmentButton label="VIEW HISTORY" onPress={() => router.push({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: assessment.id } })} /> : null}
-      {warning ? <Text style={assessmentStyles.helper}>Warning status: {warning.status}</Text> : null}
-      {warning ? <AssessmentButton label="VIEW WARNING" onPress={() => router.push({ pathname: '/officer/warnings/[warningId]', params: { warningId: warning.id } })} /> : null}
+      {item.warnings.map((warning, index) => <View key={warning.id} style={assessmentStyles.card}>
+        <Text style={assessmentStyles.helper}>Warning {index + 1} status: {warning.status}</Text>
+        <AssessmentButton label={`VIEW WARNING ${index + 1}`} onPress={() => router.push({
+          pathname: '/officer/warnings/[warningId]', params: { warningId: warning.id }
+        })} />
+      </View>)}
       <AssessmentButton label="Refresh monitoring" secondary disabled={loading} onPress={() => void reload()} />
       {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
     </>}

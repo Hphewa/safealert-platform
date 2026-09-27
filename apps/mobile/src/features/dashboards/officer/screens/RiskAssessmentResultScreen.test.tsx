@@ -182,6 +182,16 @@ it('shows every returned status with current, risk, score, date, and available a
   expect(markup).toContain('Assessment Date / Time');
 });
 
+it('opens a historical assessment from the history section so eligible closed records can be managed', () => {
+  const onViewAssessment = vi.fn();
+  renderToStaticMarkup(<AssessmentHistorySection state={{ kind: 'loaded', assessments: [
+    assessment('ACTIVE'), assessment('CLOSED', { id: 'closed-predecessor' })
+  ] }} officer={{ id: 'officer-1', name: 'Officer One' }} onRetry={() => {}} onViewAssessment={onViewAssessment} />);
+  expect(state.actions.has('VIEW HISTORICAL ASSESSMENT')).toBe(true);
+  state.actions.get('VIEW HISTORICAL ASSESSMENT')!();
+  expect(onViewAssessment).toHaveBeenCalledWith('closed-predecessor');
+});
+
 it('shows an empty state only after a successful empty history response', () => {
   const markup = renderToStaticMarkup(<AssessmentHistorySection state={{ kind: 'loaded', assessments: [] }} officer={{ id: 'officer-1', name: 'Officer One' }} onRetry={() => {}} />);
 

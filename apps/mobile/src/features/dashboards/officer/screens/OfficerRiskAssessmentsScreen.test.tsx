@@ -56,7 +56,7 @@ it('loads one queue endpoint and shows only the initial assessment action', asyn
 
 it('shows the exact initial-queue empty state and preserves load errors', () => {
   state.data = [];
-  expect(renderToStaticMarkup(<OfficerRiskAssessmentsScreen />)).toContain('No active incidents are waiting for an initial risk assessment.');
+  expect(renderToStaticMarkup(<OfficerRiskAssessmentsScreen />)).toContain('No incidents currently require an initial risk assessment.');
   state.error = 'Queue unavailable';
   expect(renderToStaticMarkup(<OfficerRiskAssessmentsScreen />)).toContain('Queue unavailable');
 });

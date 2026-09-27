@@ -30,7 +30,7 @@ export function OfficerRiskAssessmentsScreen() {
     <AssessmentButton label="Refresh incidents" secondary disabled={loading} onPress={() => void reload()} />
     {loading || error ? <AssessmentLoadState loading={loading} error={error} retry={() => void reload()} /> : null}
     {data?.length === 0 ? <View style={assessmentStyles.card}>
-      <Text style={assessmentStyles.heading}>No active incidents are waiting for an initial risk assessment.</Text>
+      <Text style={assessmentStyles.heading}>No incidents currently require an initial risk assessment.</Text>
       <AssessmentButton label="Open Incident Grouping" onPress={() => router.push('/officer/incidents')} />
     </View> : null}
     {data?.map((incident) => <View key={incident.incident.id} style={assessmentStyles.card}>

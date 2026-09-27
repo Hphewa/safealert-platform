@@ -191,6 +191,26 @@ describe.skipIf(!mongodbUri)('risk-assessment MongoDB reassessment transactions'
     expect(await repository.findHistoryByIncidentId(legacy.incidentId.toString())).toHaveLength(1);
   });
 
+  it('returns grouped lifecycle summaries while counting but hiding deleted assessment documents', async () => {
+    const active = await activeRecord();
+    const deleted = await closedRecord();
+    await repository.softDeleteClosedAssessment(deleted._id.toString(), deleteInput());
+
+    const lifecycle = await repository.findLifecycleByIncidentIds([
+      active.incidentId.toString(), deleted.incidentId.toString(), new mongoose.Types.ObjectId().toString()
+    ]);
+
+    expect(lifecycle).toEqual(expect.arrayContaining([
+      expect.objectContaining({ incidentId: active.incidentId.toString(), hasEverBeenAssessed: true,
+        currentAssessment: expect.objectContaining({ id: active._id.toString(), status: 'ACTIVE' }),
+        latestAssessment: expect.objectContaining({ id: active._id.toString(), status: 'ACTIVE' }) }),
+      expect.objectContaining({ incidentId: deleted.incidentId.toString(), hasEverBeenAssessed: true,
+        currentAssessment: null, latestAssessment: null }),
+      expect.objectContaining({ hasEverBeenAssessed: false, currentAssessment: null, latestAssessment: null })
+    ]));
+    expect(JSON.stringify(lifecycle)).not.toMatch(/isDeleted|deletedAt|deletedById|deleteReason/);
+  });
+
   it('rejects ACTIVE and VOID states and distinguishes missing and duplicate deletes', async () => {
     const active = await activeRecord();
     const voided = await model.create({

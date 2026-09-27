@@ -233,6 +233,9 @@ export function RiskAssessmentResultScreen() {
         state={historyState}
         officer={user ? { id: user.id, name: user.name } : null}
         onRetry={retryHistory}
+        onViewAssessment={(historicalAssessmentId) => router.push({
+          pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: historicalAssessmentId }
+        })}
       />
     </>}
   </AssessmentPage>;
@@ -241,11 +244,13 @@ export function RiskAssessmentResultScreen() {
 export function AssessmentHistorySection({
   state,
   officer,
-  onRetry
+  onRetry,
+  onViewAssessment
 }: {
   state: AssessmentHistoryState;
   officer: Pick<SafeUser, 'id' | 'name'> | null;
   onRetry: () => void;
+  onViewAssessment?: (assessmentId: string) => void;
 }) {
   return <View style={assessmentStyles.card}>
     <Text style={assessmentStyles.heading}>Assessment History</Text>
@@ -270,6 +275,8 @@ export function AssessmentHistorySection({
       {assessment.closureNote ? <AssessmentDetail label="Closure Note" value={assessment.closureNote} /> : null}
       {assessment.closedAt ? <AssessmentDetail label="Closed At" value={new Date(assessment.closedAt).toLocaleString()} /> : null}
       {assessment.closedById ? <AssessmentDetail label="Closed By" value={officer?.id === assessment.closedById ? officer.name : assessment.closedById} /> : null}
+      {assessment.status !== 'ACTIVE' && onViewAssessment ? <AssessmentButton label="VIEW HISTORICAL ASSESSMENT"
+        onPress={() => onViewAssessment(assessment.id)} /> : null}
     </View>)}
   </View>;
 }
