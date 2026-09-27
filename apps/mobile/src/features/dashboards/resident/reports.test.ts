@@ -64,8 +64,8 @@ describe('resident report presentation helpers', () => {
     expect(hazardIconForResident('LANDSLIDE')).toBe('leaf-outline');
     expect(statusLabelForResident('PENDING')).toBe('Pending');
     expect(statusLabelForResident('CANCELLED')).toBe('Cancelled');
-    expect(statusDescriptionForResident('PENDING')).toBe('Waiting for verification');
-    expect(statusDescriptionForResident('CANCELLED')).toBe('Cancelled before verification');
+    expect(statusDescriptionForResident('PENDING')).toBe('Waiting for official verification');
+    expect(statusDescriptionForResident('CANCELLED')).toBe('You cancelled this report before official review.');
     expect(statusToneForResident('REJECTED')).toBe('critical');
     expect(statusToneForResident('CANCELLED')).toBe('neutral');
     expect(formatResidentReportLocation(baseReport)).toBe('6.9271, 79.8612');
@@ -82,7 +82,7 @@ describe('resident report presentation helpers', () => {
     expect(formatResidentReportCount(0, 'resolved')).toBe('0 resolved reports');
   });
   it('builds a pending timeline from persisted report data', () => {
-    expect(residentReportStatusSummary(baseReport)).toBe('Waiting for verification');
+    expect(residentReportStatusSummary(baseReport)).toBe('Waiting for official verification');
     expect(buildResidentReportTimeline(baseReport).map((item) => [item.title, item.tone])).toEqual([
       ['Report Submitted', 'success'],
       ['Waiting for Official Verification', 'pending']

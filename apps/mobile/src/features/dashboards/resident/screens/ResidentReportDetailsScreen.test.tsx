@@ -1,5 +1,5 @@
 import * as React from 'react';
-import type { SafeReport } from '@safealert/contracts';
+import type { ResidentFieldConfirmation, SafeReport } from '@safealert/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ResidentReportDetailsScreen } from './ResidentReportDetailsScreen';
@@ -180,13 +180,13 @@ describe('ResidentReportDetailsScreen', () => {
 
     render();
     await lifecycle.focus();
-    await vi.waitFor(() => expect(screenText(render())).toContain('Report not found.'));
+    await vi.waitFor(() => expect(screenText(render())).toContain('Report could not be loaded.'));
 
     const retry = screenButtons(render()).find((button) => screenText(button.children).trim() === 'Retry');
     expect(retry).toBeDefined();
     retry?.onPress();
 
-    await vi.waitFor(() => expect(screenText(render())).toContain('Waiting for verification'));
+    await vi.waitFor(() => expect(screenText(render())).toContain('A disaster officer has not completed the official review yet.'));
     expect(getMyReportById).toHaveBeenCalledTimes(2);
     expect(getMyReportById).toHaveBeenNthCalledWith(1, 'report-1', 'resident-token');
     expect(getMyReportById).toHaveBeenNthCalledWith(2, 'report-1', 'resident-token');
@@ -202,7 +202,7 @@ describe('ResidentReportDetailsScreen', () => {
 
     render();
     await lifecycle.focus();
-    await vi.waitFor(() => expect(screenText(render())).toContain('Official Status'));
+    await vi.waitFor(() => expect(screenText(render())).toContain('Official Review'));
 
     const text = screenText(render());
     expect(text).toContain('Community Field Check');
@@ -210,9 +210,118 @@ describe('ResidentReportDetailsScreen', () => {
     expect(text).toContain('Not Reviewed');
     expect(text).toContain('No community volunteer field check has been submitted yet.');
     expect(text).toContain('Selected location');
-    expect(text).toContain('Photo / Media Evidence');
     expect(text).not.toContain('Report ID');
     expect(text).not.toContain('/api/v1/media/report-evidence/photo.jpg');
+  });
+
+  it.each([
+    ['PENDING', 'Pending', 'A disaster officer has not completed the official review yet.'],
+    ['VERIFIED', 'Verified', 'A disaster officer verified this report.'],
+    ['REJECTED', 'Rejected', 'A disaster officer reviewed this report and did not verify it.'],
+    ['CANCELLED', 'Cancelled', 'You cancelled this report before official review.'],
+    ['RESOLVED', 'Resolved', 'This report has been marked resolved.']
+  ] as const)('shows the %s official review section from Report.status only', async (status, label, detail) => {
+    vi.mocked(getMyReportById).mockResolvedValue({
+      report: {
+        ...pendingReport,
+        status
+      }
+    });
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Official Review'));
+
+    const text = screenText(render());
+    expect(text).toContain(label);
+    expect(text).toContain(detail);
+  });
+
+  it('shows the rejection reason only for rejected reports', async () => {
+    vi.mocked(getMyReportById).mockResolvedValue({
+      report: {
+        ...pendingReport,
+        status: 'REJECTED',
+        rejectionReason: 'Location could not be verified.'
+      }
+    });
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Reason for rejection'));
+
+    let text = screenText(render());
+    expect(text).toContain('Location could not be verified.');
+
+    vi.mocked(getMyReportById).mockResolvedValue({
+      report: {
+        ...pendingReport,
+        status: 'VERIFIED',
+        rejectionReason: 'Should not be shown.'
+      }
+    });
+    lifecycle.slots = [];
+
+    render();
+    await lifecycle.focus();
+
+    text = screenText(render());
+    expect(text).not.toContain('Reason for rejection');
+    expect(text).not.toContain('Should not be shown.');
+  });
+
+  it('keeps volunteer confirmed outcomes separate from the official report status', async () => {
+    vi.mocked(getMyReportById).mockResolvedValue({ report: pendingReport });
+    vi.mocked(listMyReportFieldConfirmations).mockResolvedValue({
+      confirmations: [fieldConfirmation('CONFIRMED')]
+    });
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Confirmed by a community volunteer.'));
+
+    const text = screenText(render());
+    expect(text).toContain('Official Review');
+    expect(text).toContain('Pending');
+    expect(text).toContain('A disaster officer has not completed the official review yet.');
+    expect(text).not.toContain('A disaster officer verified this report.');
+  });
+
+  it('keeps volunteer unable-to-confirm outcomes separate from official rejection', async () => {
+    vi.mocked(getMyReportById).mockResolvedValue({ report: pendingReport });
+    vi.mocked(listMyReportFieldConfirmations).mockResolvedValue({
+      confirmations: [fieldConfirmation('UNABLE_TO_CONFIRM')]
+    });
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Unable to confirm.'));
+
+    const text = screenText(render());
+    expect(text).toContain('Official Review');
+    expect(text).toContain('Pending');
+    expect(text).toContain('Unable to confirm.');
+    expect(text).not.toContain('Reason for rejection');
+    expect(text).not.toContain('A disaster officer reviewed this report and did not verify it.');
+  });
+
+  it('shows loading and safe error copy without exposing raw response details', async () => {
+    vi.mocked(getMyReportById).mockReturnValueOnce(new Promise(() => undefined));
+
+    render();
+    void lifecycle.focus();
+    expect(screenText(render())).toContain('Loading report...');
+
+    lifecycle.slots = [];
+    vi.mocked(getMyReportById).mockRejectedValueOnce(new Error('HTTP 404 private report object'));
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Report could not be loaded.'));
+
+    const text = screenText(render());
+    expect(text).not.toContain('HTTP 404 private report object');
+    expect(screenButtons(render()).some((button) => screenText(button.children).trim() === 'Retry')).toBe(true);
   });
 });
 
@@ -226,6 +335,35 @@ type ButtonProps = {
   accessibilityRole?: string;
   onPress: () => void;
 };
+
+function fieldConfirmation(outcome: ResidentFieldConfirmation['outcome']): ResidentFieldConfirmation {
+  const base = {
+    id: `confirmation-${outcome}`,
+    reportId: 'report-1',
+    status: 'PENDING',
+    createdAt: '2026-08-24T09:10:00.000Z',
+    updatedAt: '2026-08-24T09:10:00.000Z'
+  } as const;
+
+  if (outcome === 'CONFIRMED') {
+    return {
+      ...base,
+      outcome,
+      verificationChecklist: {
+        locationMatches: true,
+        photoMatches: true,
+        situationStillExists: true,
+        severityAppearsCorrect: true
+      }
+    };
+  }
+
+  return {
+    ...base,
+    outcome,
+    reason: 'Unable to access location'
+  };
+}
 
 function screenButtons(node: React.ReactNode): ButtonProps[] {
   if (Array.isArray(node)) return node.flatMap(screenButtons);

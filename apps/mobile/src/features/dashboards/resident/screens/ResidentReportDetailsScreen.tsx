@@ -32,12 +32,10 @@ import {
   canPreviewResidentReportMedia,
   formatResidentReportDateTime,
   formatResidentReportLocation,
-  hazardIconForResident,
   hazardLabelForResident,
   isResidentReportEditable,
+  officialReviewDetailForResident,
   residentReportEditHref,
-  residentReportStatusSummary,
-  severityToneForResident,
   statusLabelForResident,
   statusToneForResident,
   type ResidentReportTimelineItem
@@ -102,18 +100,14 @@ export function ResidentReportDetailsScreen() {
         setReport(response.report);
         setFieldConfirmations(confirmationsResponse.confirmations);
         setLoadStatus('success');
-      } catch (error) {
+      } catch {
         if (latestRequestIdRef.current !== requestId) {
           return;
         }
 
         setLoadStatus('error');
         setFieldConfirmations([]);
-        setErrorMessage(
-          error instanceof ApiClientError || error instanceof Error
-            ? error.message
-            : 'Unable to load this report right now.'
-        );
+        setErrorMessage('Report could not be loaded.');
       } finally {
         if (latestRequestIdRef.current === requestId) {
           inFlightRef.current = false;
@@ -155,9 +149,7 @@ export function ResidentReportDetailsScreen() {
       const message =
         error instanceof ApiClientError && error.status === 409
           ? 'This report can no longer be changed because its status has been updated.'
-          : error instanceof ApiClientError || error instanceof Error
-            ? error.message
-            : 'Unable to cancel this report right now.';
+          : 'Unable to cancel this report right now.';
 
       setActionMessage(message);
       await loadReport(true);
@@ -234,8 +226,8 @@ export function ResidentReportDetailsScreen() {
             <ReportDetailStateCard
               icon="refresh-outline"
               loading
-              message="Retrieving the latest persisted report status."
-              title="Loading Report"
+              message="Fetching the latest official status."
+              title="Loading report..."
             />
           ) : report ? (
             <ReportDetailContent
@@ -251,9 +243,9 @@ export function ResidentReportDetailsScreen() {
             <ReportDetailStateCard
               actionLabel="Retry"
               icon="alert-circle-outline"
-              message={errorMessage ?? 'Unable to load this report right now.'}
+              message={errorMessage ?? 'Report could not be loaded.'}
               onActionPress={() => void loadReport(true)}
-              title="Unable to Load Report"
+              title="Report could not be loaded."
             />
           )}
         </ScrollView>
@@ -288,23 +280,21 @@ function ReportDetailContent({
   const canEdit = isResidentReportEditable(report);
   const reportCoordinates = geoJsonPointToMapCoordinates(report.location);
   const hasDisplayablePhoto = mediaUri && canPreviewResidentReportMedia(mediaUri);
+  const officialStatusLabel = statusLabelForResident(report.status);
+  const officialStatusDetail = officialReviewDetailForResident(report.status);
 
   return (
     <>
       <View style={styles.statusPanel}>
-        <Text style={styles.sectionEyebrow}>Official Status</Text>
+        <Text style={styles.sectionEyebrow}>Official Review</Text>
         <View style={styles.statusHeaderRow}>
-          <View style={styles.hazardIconWrap}>
-            <DashboardGlyph color={dashboardTheme.colors.info} name={hazardIconForResident(report.hazardType)} size={22} />
-          </View>
           <View style={styles.statusTextBlock}>
-            <Text style={styles.hazardTitle}>{hazardLabel}</Text>
-            <Text style={styles.statusSummary}>{residentReportStatusSummary(report)}</Text>
+            <Text style={styles.hazardTitle}>{officialStatusLabel}</Text>
+            <Text style={styles.statusSummary}>{officialStatusDetail}</Text>
           </View>
         </View>
         <View style={styles.badgeRow}>
-          <StatusBadge label={statusLabelForResident(report.status)} tone={statusToneForResident(report.status)} />
-          <StatusBadge label={`${report.severity} severity`} tone={severityToneForResident(report.severity)} />
+          <StatusBadge label={officialStatusLabel} tone={statusToneForResident(report.status)} />
         </View>
         {refreshErrorMessage ? <Text style={styles.inlineError}>{refreshErrorMessage}</Text> : null}
         {actionMessage ? <Text style={styles.inlineNotice}>{actionMessage}</Text> : null}
@@ -342,7 +332,7 @@ function ReportDetailContent({
         <View style={styles.rejectionPanel}>
           <View style={styles.rejectionTitleRow}>
             <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={18} />
-            <Text style={styles.rejectionTitle}>Rejection reason</Text>
+            <Text style={styles.rejectionTitle}>Reason for rejection</Text>
           </View>
           <Text style={styles.rejectionReason}>{report.rejectionReason}</Text>
         </View>
@@ -354,7 +344,7 @@ function ReportDetailContent({
             <DashboardGlyph color={dashboardTheme.colors.muted} name="close-circle-outline" size={18} />
             <Text style={styles.cancelledTitle}>Cancelled report</Text>
           </View>
-          <Text style={styles.rejectionReason}>This report was cancelled before verification.</Text>
+          <Text style={styles.rejectionReason}>You cancelled this report before official review.</Text>
         </View>
       ) : null}
 

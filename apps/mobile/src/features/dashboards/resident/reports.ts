@@ -90,15 +90,30 @@ export function statusLabelForResident(status: ReportStatus) {
 export function statusDescriptionForResident(status: ReportStatus) {
   switch (status) {
     case 'PENDING':
-      return 'Waiting for verification';
+      return 'Waiting for official verification';
     case 'VERIFIED':
-      return 'Verified by an officer';
+      return 'A disaster officer verified this report.';
     case 'REJECTED':
-      return 'Reviewed and rejected';
+      return 'A disaster officer reviewed this report and did not verify it.';
     case 'CANCELLED':
-      return 'Cancelled before verification';
+      return 'You cancelled this report before official review.';
     case 'RESOLVED':
       return 'Resolved';
+  }
+}
+
+export function officialReviewDetailForResident(status: ReportStatus) {
+  switch (status) {
+    case 'PENDING':
+      return 'A disaster officer has not completed the official review yet.';
+    case 'VERIFIED':
+      return 'A disaster officer verified this report.';
+    case 'REJECTED':
+      return 'A disaster officer reviewed this report and did not verify it.';
+    case 'CANCELLED':
+      return 'You cancelled this report before official review.';
+    case 'RESOLVED':
+      return 'This report has been marked resolved.';
   }
 }
 
@@ -192,17 +207,17 @@ export function formatResidentReportDateTime(value: string | undefined) {
 export function residentReportStatusSummary(report: SafeReport) {
   switch (report.status) {
     case 'PENDING':
-      return 'Waiting for verification';
+      return 'Waiting for official verification';
     case 'VERIFIED':
       return report.verifiedAt
         ? `Verified ${formatResidentReportDateTime(report.verifiedAt)}`
-        : 'Verified by an officer';
+        : 'A disaster officer verified this report.';
     case 'REJECTED':
       return report.rejectionReason ?? 'Reviewed and rejected';
     case 'CANCELLED':
       return report.cancelledAt
         ? `Cancelled ${formatResidentReportDateTime(report.cancelledAt)}`
-        : 'This report was cancelled before verification.';
+        : 'You cancelled this report before official review.';
     case 'RESOLVED':
       return 'Resolved';
   }
@@ -227,7 +242,7 @@ export function buildResidentReportTimeline(report: SafeReport): ResidentReportT
     timeline.push({
       id: 'waiting',
       title: 'Waiting for Official Verification',
-      detail: 'A disaster officer has not reviewed this report yet.',
+      detail: 'A disaster officer has not completed the official review yet.',
       tone: 'pending'
     });
     return timeline;
