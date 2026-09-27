@@ -78,6 +78,12 @@ vi.mock('../../shared/components/DashboardGlyph', () => ({ DashboardGlyph: () =>
 vi.mock('../../shared/components/StatusBadge', () => ({
   StatusBadge: ({ label }: { label: string }) => <span>{label}</span>
 }));
+vi.mock('../../shared/maps/LocationPreview', () => ({
+  LocationPreview: ({ title }: { title: string }) => <span>{title}</span>
+}));
+vi.mock('../../shared/voice/VoiceNotePlayer', () => ({
+  VoiceNotePlayer: ({ title }: { title: string }) => <span>{title}</span>
+}));
 vi.mock('../api/reportApi', () => ({ cancelMyPendingReport: vi.fn(), getMyReportById: vi.fn(), listMyReportFieldConfirmations: vi.fn() }));
 
 const pendingReport: SafeReport = {
@@ -184,6 +190,29 @@ describe('ResidentReportDetailsScreen', () => {
     expect(getMyReportById).toHaveBeenCalledTimes(2);
     expect(getMyReportById).toHaveBeenNthCalledWith(1, 'report-1', 'resident-token');
     expect(getMyReportById).toHaveBeenNthCalledWith(2, 'report-1', 'resident-token');
+  });
+
+  it('separates official status from community field checks without exposing raw identifiers or media paths', async () => {
+    vi.mocked(getMyReportById).mockResolvedValue({
+      report: {
+        ...pendingReport,
+        mediaReference: '/api/v1/media/report-evidence/photo.jpg'
+      }
+    });
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Official Status'));
+
+    const text = screenText(render());
+    expect(text).toContain('Community Field Check');
+    expect(text).toContain('Community field checks are separate from the official report status.');
+    expect(text).toContain('Not Reviewed');
+    expect(text).toContain('No community volunteer field check has been submitted yet.');
+    expect(text).toContain('Selected location');
+    expect(text).toContain('Photo / Media Evidence');
+    expect(text).not.toContain('Report ID');
+    expect(text).not.toContain('/api/v1/media/report-evidence/photo.jpg');
   });
 });
 

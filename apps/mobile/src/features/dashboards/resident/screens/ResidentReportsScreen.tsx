@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { SafeReport } from '@safealert/contracts';
+import type { ReportStatus, SafeReport } from '@safealert/contracts';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
@@ -13,7 +13,6 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
@@ -81,17 +80,13 @@ export function ResidentReportsScreen() {
 
         setReports(response.reports);
         setLoadStatus('success');
-      } catch (error) {
+      } catch {
         if (latestRequestIdRef.current !== requestId) {
           return;
         }
 
         setLoadStatus('error');
-        setErrorMessage(
-          error instanceof ApiClientError || error instanceof Error
-            ? error.message
-            : 'Unable to load your submitted reports right now.'
-        );
+        setErrorMessage('Your reports could not be loaded.');
       } finally {
         if (latestRequestIdRef.current === requestId) {
           inFlightRef.current = false;
@@ -130,7 +125,7 @@ export function ResidentReportsScreen() {
               <ResidentReportsStateCard
                 icon="refresh-outline"
                 loading
-                message="Retrieving your submitted reports and latest review status."
+                message="Loading your reports..."
                 title="Loading My Reports"
               />
             ) : (
@@ -252,7 +247,13 @@ function ResidentReportCard({ report }: { report: SafeReport }) {
           <Text style={styles.reportTitle}>{hazardLabel}</Text>
           <Text style={styles.reportStatusText}>{statusDescription}</Text>
           <Text style={styles.reportMeta}>{formatResidentReportSubmittedAt(report.createdAt)}</Text>
-          <Text style={styles.reportMeta}>{formatResidentReportLocation(report)}</Text>
+          <Text style={styles.reportMeta}>Location: {formatResidentReportLocation(report)}</Text>
+          {report.mediaReference || report.voiceEvidence ? (
+            <View style={styles.evidenceRow}>
+              {report.mediaReference ? <Text style={styles.evidenceText}>Photo evidence</Text> : null}
+              {report.voiceEvidence ? <Text style={styles.evidenceText}>Voice note</Text> : null}
+            </View>
+          ) : null}
         </View>
         <View style={styles.openHint}>
           <Text style={styles.openHintText}>Open</Text>
@@ -283,27 +284,21 @@ function ResidentReportsEmptyOrErrorState({
   if (loadStatus === 'error' && errorMessage) {
     return (
       <ResidentReportsStateCard
-        actionLabel="Retry"
+        actionLabel="Try Again"
         icon="alert-circle-outline"
         message={errorMessage}
         onActionPress={onRetry}
-        title="Unable to Load Reports"
+        title="Unable to load reports"
       />
     );
   }
 
   if (hasAnyReports) {
-    return activeTab === 'active' ? (
+    return (
       <ResidentReportsStateCard
-        icon="checkmark-done-outline"
-        message="No submitted reports are currently pending or verified. Rejected reports remain available under All."
-        title="No Active Reports"
-      />
-    ) : (
-      <ResidentReportsStateCard
-        icon="checkmark-done-outline"
-        message="No submitted reports have been marked resolved yet. Rejected reports remain available under All."
-        title="No Resolved Reports"
+        icon={emptyIconForFilter(activeTab)}
+        message="No reports match this filter."
+        title={`No ${filterLabelForState(activeTab)} Reports`}
       />
     );
   }
@@ -312,11 +307,56 @@ function ResidentReportsEmptyOrErrorState({
     <ResidentReportsStateCard
       actionLabel="Report Hazard"
       icon="document-text-outline"
-      message="No submitted reports yet. Report a hazard when you see danger nearby."
+      message="You haven't submitted any hazard reports yet."
       onActionPress={onReportHazard}
-      title="No submitted reports yet"
+      title="No hazard reports yet"
     />
   );
+}
+
+function filterLabelForState(filter: ResidentReportFilterKey) {
+  switch (filter) {
+    case 'all':
+      return 'Submitted';
+    case 'pending':
+      return 'Pending';
+    case 'verified':
+      return 'Verified';
+    case 'rejected':
+      return 'Rejected';
+    case 'cancelled':
+      return 'Cancelled';
+    case 'resolved':
+      return 'Resolved';
+  }
+}
+
+function emptyIconForFilter(filter: ResidentReportFilterKey) {
+  const statusIconByFilter: Partial<Record<ResidentReportFilterKey, ReportStatus>> = {
+    pending: 'PENDING',
+    verified: 'VERIFIED',
+    rejected: 'REJECTED',
+    cancelled: 'CANCELLED',
+    resolved: 'RESOLVED'
+  };
+  const status = statusIconByFilter[filter];
+
+  if (!status) {
+    return 'document-text-outline';
+  }
+
+  switch (status) {
+    case 'PENDING':
+      return 'time-outline';
+    case 'VERIFIED':
+      return 'checkmark-circle-outline';
+    case 'REJECTED':
+      return 'close-circle-outline';
+    case 'CANCELLED':
+      return 'remove-circle-outline';
+    case 'RESOLVED':
+      return 'checkmark-done-outline';
+  }
 }
 
 type ResidentReportsStateCardProps = {
@@ -493,6 +533,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: dashboardTheme.colors.muted
+  },
+  evidenceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4
+  },
+  evidenceText: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontSize: 12,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong,
+    backgroundColor: dashboardTheme.colors.primarySoft
   },
   openHint: {
     alignItems: 'center',

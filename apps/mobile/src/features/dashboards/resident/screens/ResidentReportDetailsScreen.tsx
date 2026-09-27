@@ -287,10 +287,12 @@ function ReportDetailContent({
   const timeline = buildResidentReportTimeline(report);
   const canEdit = isResidentReportEditable(report);
   const reportCoordinates = geoJsonPointToMapCoordinates(report.location);
+  const hasDisplayablePhoto = mediaUri && canPreviewResidentReportMedia(mediaUri);
 
   return (
     <>
       <View style={styles.statusPanel}>
+        <Text style={styles.sectionEyebrow}>Official Status</Text>
         <View style={styles.statusHeaderRow}>
           <View style={styles.hazardIconWrap}>
             <DashboardGlyph color={dashboardTheme.colors.info} name={hazardIconForResident(report.hazardType)} size={22} />
@@ -358,10 +360,9 @@ function ReportDetailContent({
 
       <View style={styles.panel}>
         <Text style={styles.panelTitle}>Report Information</Text>
-        <DetailRow label="Report ID" value={report.id} />
         <DetailRow label="Hazard" value={hazardLabel} />
         <DetailRow label="Severity" value={report.severity} />
-        <DetailRow label="Coordinates" value={formatResidentReportLocation(report)} />
+        <DetailRow label="Selected location" value={formatResidentReportLocation(report)} />
         <DetailRow label="Submitted" value={formatResidentReportDateTime(report.createdAt)} />
         <DetailRow label="Last updated" value={formatResidentReportDateTime(report.updatedAt)} />
         {report.verifiedAt ? <DetailRow label="Verified" value={formatResidentReportDateTime(report.verifiedAt)} /> : null}
@@ -383,10 +384,11 @@ function ReportDetailContent({
       {report.mediaReference ? (
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Photo / Media Evidence</Text>
-          {mediaUri && canPreviewResidentReportMedia(mediaUri) ? (
+          {hasDisplayablePhoto ? (
             <Image accessibilityLabel="Submitted report evidence" source={{ uri: mediaUri }} style={styles.mediaPreview} />
-          ) : null}
-          <Text style={styles.mediaReference}>{report.mediaReference}</Text>
+          ) : (
+            <Text style={styles.descriptionText}>Photo evidence is attached, but preview is unavailable on this device.</Text>
+          )}
         </View>
       ) : null}
 
@@ -412,6 +414,9 @@ function ReportDetailContent({
 
       <View style={styles.panel}>
         <Text style={styles.panelTitle}>Community Field Check</Text>
+        <Text style={styles.mapHintText}>
+          Community field checks are separate from the official report status.
+        </Text>
         {fieldConfirmations.length ? (
           <View style={styles.timelineList}>
             {fieldConfirmations.map((confirmation) => (
@@ -419,7 +424,10 @@ function ReportDetailContent({
             ))}
           </View>
         ) : (
-          <Text style={styles.descriptionText}>Not reviewed by a community volunteer yet.</Text>
+          <View style={styles.communityCard}>
+            <Text style={styles.timelineTitle}>Not Reviewed</Text>
+            <Text style={styles.timelineDetail}>No community volunteer field check has been submitted yet.</Text>
+          </View>
         )}
       </View>
     </>
@@ -523,13 +531,13 @@ function ReportDetailStateCard({
 function timelineSymbolFor(tone: ResidentReportTimelineItem['tone']) {
   switch (tone) {
     case 'success':
-      return '?';
+      return 'OK';
     case 'critical':
-      return '�';
+      return '!';
     case 'pending':
-      return '?';
+      return '...';
     case 'neutral':
-      return '�';
+      return '-';
   }
 }
 
@@ -617,6 +625,12 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.surface,
     ...cardShadow
+  },
+  sectionEyebrow: {
+    fontSize: 12,
+    fontWeight: '900',
+    letterSpacing: 0,
+    color: dashboardTheme.colors.muted
   },
   statusHeaderRow: {
     flexDirection: 'row',
@@ -738,11 +752,6 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.sm,
     backgroundColor: dashboardTheme.colors.surfaceMuted
   },
-  mediaReference: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: dashboardTheme.colors.muted
-  },
   mapHintText: {
     fontSize: 13,
     lineHeight: 19,
@@ -800,7 +809,7 @@ const styles = StyleSheet.create({
     borderRadius: 14
   },
   timelineMarkerText: {
-    fontSize: 15,
+    fontSize: 11,
     fontWeight: '900'
   },
   timelineBody: {

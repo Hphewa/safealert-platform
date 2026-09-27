@@ -42,7 +42,7 @@ const reports: SafeReport[] = [
 ];
 
 describe('resident report presentation helpers', () => {
-  it('keeps rejected reports discoverable in All without counting them as Active or Resolved', () => {
+  it('filters reports by the official status values used by My Reports', () => {
     expect(filterResidentReports(reports, 'all').map((report) => report.id)).toEqual([
       'pending',
       'verified',
@@ -50,10 +50,10 @@ describe('resident report presentation helpers', () => {
       'cancelled',
       'resolved'
     ]);
-    expect(filterResidentReports(reports, 'active').map((report) => report.id)).toEqual([
-      'pending',
-      'verified'
-    ]);
+    expect(filterResidentReports(reports, 'pending').map((report) => report.id)).toEqual(['pending']);
+    expect(filterResidentReports(reports, 'verified').map((report) => report.id)).toEqual(['verified']);
+    expect(filterResidentReports(reports, 'rejected').map((report) => report.id)).toEqual(['rejected']);
+    expect(filterResidentReports(reports, 'cancelled').map((report) => report.id)).toEqual(['cancelled']);
     expect(filterResidentReports(reports, 'resolved').map((report) => report.id)).toEqual([
       'resolved'
     ]);
@@ -68,13 +68,16 @@ describe('resident report presentation helpers', () => {
     expect(statusDescriptionForResident('CANCELLED')).toBe('Cancelled before verification');
     expect(statusToneForResident('REJECTED')).toBe('critical');
     expect(statusToneForResident('CANCELLED')).toBe('neutral');
-    expect(formatResidentReportLocation(baseReport)).toBe('Lat 6.9271, Long 79.8612');
+    expect(formatResidentReportLocation(baseReport)).toBe('6.9271, 79.8612');
   });
 
   it('formats submitted timestamps and filter summaries', () => {
     expect(formatResidentReportSubmittedAt('not-a-date')).toBe('Submitted time unavailable');
     expect(formatResidentReportSubmittedAt('2026-08-24T09:00:00.000Z')).toContain('Submitted');
-    expect(formatResidentReportCount(1, 'active')).toBe('1 active report');
+    expect(formatResidentReportCount(1, 'pending')).toBe('1 pending report');
+    expect(formatResidentReportCount(1, 'verified')).toBe('1 verified report');
+    expect(formatResidentReportCount(1, 'rejected')).toBe('1 rejected report');
+    expect(formatResidentReportCount(1, 'cancelled')).toBe('1 cancelled report');
     expect(formatResidentReportCount(2, 'all')).toBe('2 submitted reports');
     expect(formatResidentReportCount(0, 'resolved')).toBe('0 resolved reports');
   });

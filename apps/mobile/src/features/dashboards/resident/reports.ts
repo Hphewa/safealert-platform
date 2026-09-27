@@ -4,14 +4,17 @@ import type { Href } from 'expo-router';
 
 import type { BadgeTone, DashboardIconName } from '../shared/types';
 
-export type ResidentReportFilterKey = 'all' | 'active' | 'resolved';
+export type ResidentReportFilterKey = 'all' | 'pending' | 'verified' | 'rejected' | 'cancelled' | 'resolved';
 
 export const residentReportTabs: ReadonlyArray<{
   key: ResidentReportFilterKey;
   label: string;
 }> = [
   { key: 'all', label: 'All' },
-  { key: 'active', label: 'Active' },
+  { key: 'pending', label: 'Pending' },
+  { key: 'verified', label: 'Verified' },
+  { key: 'rejected', label: 'Rejected' },
+  { key: 'cancelled', label: 'Cancelled' },
   { key: 'resolved', label: 'Resolved' }
 ];
 
@@ -19,8 +22,14 @@ export function filterResidentReports(reports: SafeReport[], filter: ResidentRep
   switch (filter) {
     case 'all':
       return reports;
-    case 'active':
-      return reports.filter((report) => report.status === 'PENDING' || report.status === 'VERIFIED');
+    case 'pending':
+      return reports.filter((report) => report.status === 'PENDING');
+    case 'verified':
+      return reports.filter((report) => report.status === 'VERIFIED');
+    case 'rejected':
+      return reports.filter((report) => report.status === 'REJECTED');
+    case 'cancelled':
+      return reports.filter((report) => report.status === 'CANCELLED');
     case 'resolved':
       return reports.filter((report) => report.status === 'RESOLVED');
   }
@@ -111,7 +120,7 @@ export function statusToneForResident(status: ReportStatus): BadgeTone {
 export function formatResidentReportLocation(report: SafeReport) {
   const [longitude, latitude] = report.location.coordinates;
 
-  return `Lat ${latitude.toFixed(4)}, Long ${longitude.toFixed(4)}`;
+  return `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
 }
 
 export function formatResidentReportSubmittedAt(value: string) {
@@ -130,7 +139,15 @@ export function formatResidentReportSubmittedAt(value: string) {
 }
 
 export function formatResidentReportCount(count: number, filter: ResidentReportFilterKey) {
-  const scope = filter === 'active' ? 'active' : filter === 'resolved' ? 'resolved' : 'submitted';
+  const scopeByFilter: Record<ResidentReportFilterKey, string> = {
+    all: 'submitted',
+    pending: 'pending',
+    verified: 'verified',
+    rejected: 'rejected',
+    cancelled: 'cancelled',
+    resolved: 'resolved'
+  };
+  const scope = scopeByFilter[filter];
 
   return `${count} ${scope} report${count === 1 ? '' : 's'}`;
 }

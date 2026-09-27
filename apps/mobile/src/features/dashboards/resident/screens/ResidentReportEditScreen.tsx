@@ -396,7 +396,7 @@ export function ResidentReportEditScreen() {
                 ) : (
                   <>
                     <Text style={styles.panelText}>
-                      Lat {formatCoordinate(form.coordinates.latitude)}, Long {formatCoordinate(form.coordinates.longitude)}
+                      Selected location: {formatCoordinate(form.coordinates.latitude)}, {formatCoordinate(form.coordinates.longitude)}
                     </Text>
                     <LocationPreview coordinates={form.coordinates} height={210} title="Hazard location" />
                     <Pressable
@@ -425,7 +425,9 @@ export function ResidentReportEditScreen() {
                   {form.selectedPhoto
                     ? 'New photo selected. It will upload when you save changes.'
                     : form.mediaReference
-                      ? 'Current uploaded evidence will be kept unless you choose a new photo.'
+                      ? mediaPreviewUri && canPreviewResidentReportMedia(mediaPreviewUri)
+                        ? 'Current uploaded evidence will be kept unless you choose a new photo.'
+                        : 'Current evidence is attached, but preview is unavailable on this device.'
                       : 'No photo evidence attached.'}
                 </Text>
                 <Pressable
