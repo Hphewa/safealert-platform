@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
+import { EmergencyRequestSummaryCard } from '../components/EmergencyRequestSummaryCard';
 import { residentBottomNavItems } from '../mockData';
 import { useMyEmergencyRequests } from '../useMyEmergencyRequests';
 
@@ -31,7 +32,6 @@ export function MyEmergencyRequestsScreen() {
         <Text accessibilityRole="header" style={styles.title}>My Emergency Requests</Text>
       </View>
       <Text style={styles.description}>Track the progress of your emergency assistance requests.</Text>
-      {/* Request summary cards are added separately in LDFEW-292. */}
       <Text accessibilityLiveRegion="polite" style={styles.description}>
         {error ?? (requests === null
           ? 'Loading your emergency requests…'
@@ -39,6 +39,12 @@ export function MyEmergencyRequestsScreen() {
             ? 'You have no emergency assistance requests yet.'
             : `${requests.length} emergency assistance ${requests.length === 1 ? 'request' : 'requests'} submitted.`)}
       </Text>
+      {!error && requests?.map((request, index) => (
+        <EmergencyRequestSummaryCard
+          key={typeof request.id === 'string' && request.id.trim() ? request.id : `missing-id-${index}`}
+          request={request}
+        />
+      ))}
     </DashboardScreen>
   );
 }

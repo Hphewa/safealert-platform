@@ -6,6 +6,8 @@ import MyEmergencyRequestsRoute from '../../../../../app/resident/my-emergency-r
 import ResidentLayout from '../../../../../app/resident/_layout';
 import { RoleRouteLayout } from '../../../auth/screens/RoleRouteLayout';
 import { listMyResponseRequests } from '../api/responseRequestApi';
+import { EmergencyRequestSummaryCard } from '../components/EmergencyRequestSummaryCard';
+import { formatResidentReportDateTime } from '../reports';
 import { EmergencyAssistanceDraftProvider, useEmergencyAssistanceDraft } from '../emergencyAssistanceDraft';
 import { residentBottomNavItems, residentPrimaryActions } from '../mockData';
 import { EmergencyAssistanceScreen } from './EmergencyAssistanceScreen';
@@ -70,7 +72,17 @@ function render() {
 function screenText(node: React.ReactNode): string {
   if (Array.isArray(node)) return node.map(screenText).join(' ');
   if (typeof node === 'string' || typeof node === 'number') return String(node);
-  return React.isValidElement<{ children?: React.ReactNode }>(node) ? screenText(node.props.children) : '';
+  if (!React.isValidElement<{ children?: React.ReactNode }>(node)) return '';
+  if (typeof node.type === 'function') {
+    return screenText((node.type as (props: unknown) => React.ReactNode)(node.props));
+  }
+  return screenText(node.props.children);
+}
+
+function summaryCards(node: React.ReactNode): React.ReactElement<{ request: SafeResponseRequest }>[] {
+  if (Array.isArray(node)) return node.flatMap(summaryCards);
+  if (!React.isValidElement<{ children?: React.ReactNode; request: SafeResponseRequest }>(node)) return [];
+  return node.type === EmergencyRequestSummaryCard ? [node] : summaryCards(node.props.children);
 }
 
 function press(node: React.ReactNode, label: string): boolean {
@@ -109,11 +121,57 @@ describe('My Emergency Requests foundation', () => {
     expect(listMyResponseRequests).toHaveBeenCalledExactlyOnceWith('resident-token');
   });
 
-  it('keeps successful presentation minimal', async () => {
+  it('renders one summary card from the existing authenticated service', async () => {
     vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [request] });
     render();
     lifecycle.effect();
     await vi.waitFor(() => expect(screenText(render())).toContain('1 emergency assistance request submitted.'));
+    const cards = summaryCards(render());
+    expect(cards).toHaveLength(1);
+    expect(cards[0].key).toBe(request.id);
+    expect(cards[0].props.request).toBe(request);
+    expect(screenText(cards[0])).toContain('Medical Assistance');
+    expect(screenText(cards[0])).toContain(`Submitted:  ${formatResidentReportDateTime(request.createdAt)}`);
+    expect(screenText(cards[0])).toContain('Status:  Submitted');
+    expect(screenText(cards[0])).not.toContain(request.createdAt);
+    expect(listMyResponseRequests).toHaveBeenCalledExactlyOnceWith('resident-token');
+  });
+
+  it('renders multiple requests in API order with readable status labels', async () => {
+    const requests: SafeResponseRequest[] = [
+      { ...request, id: 'in-progress', status: 'IN_PROGRESS', assistanceType: 'RESCUE_EVACUATION' },
+      { ...request, id: 'completed', status: 'COMPLETED', createdAt: '2026-09-20T10:00:00.000Z' },
+      { ...request, id: 'assigned', status: 'ASSIGNED' },
+      { ...request, id: 'dispatched', status: 'DISPATCHED' },
+      { ...request, id: 'arrived', status: 'ARRIVED' }
+    ];
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: requests });
+    render();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(summaryCards(render())).toHaveLength(requests.length));
+    const cards = summaryCards(render());
+    expect(cards.map((card) => card.props.request.id)).toEqual(requests.map((item) => item.id));
+    expect(cards.map((card) => screenText(card).split('Status:  ')[1])).toEqual([
+      'In Progress', 'Completed', 'Assigned', 'Dispatched', 'Arrived'
+    ]);
+    expect(screenText(cards[0])).toContain('Rescue / Evacuation');
+    expect(screenText(render())).not.toContain('IN_PROGRESS');
+  });
+
+  it('keeps incomplete summaries readable with unique fallback keys and no fake action', async () => {
+    const incomplete = { ...request, id: undefined, status: 'UNKNOWN', assistanceType: null, createdAt: null } as unknown as SafeResponseRequest;
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [incomplete, incomplete] });
+    render();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(summaryCards(render())).toHaveLength(2));
+    const cards = summaryCards(render());
+    expect(new Set(cards.map((card) => card.key)).size).toBe(2);
+    const card = EmergencyRequestSummaryCard(cards[0].props);
+    expect(card.props.accessibilityLabel).toBe('Emergency Assistance. Submitted: Not available. Status: Status unavailable.');
+    expect(card.props.accessible).toBe(true);
+    expect(screenText(card)).not.toContain('UNKNOWN');
+    expect(press(card, 'View Details')).toBe(false);
+    expect(navigation.push).not.toHaveBeenCalled();
   });
 
   it.each([null, request])('routes confirmation tracking without request parameters (submission: %j)', (submittedResponseRequest) => {
