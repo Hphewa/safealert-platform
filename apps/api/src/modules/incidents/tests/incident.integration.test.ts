@@ -6,6 +6,8 @@ import { createApp } from '../../../app.js';
 import { loadConfig } from '../../../config/env.js';
 import { InMemoryReportRepository } from '../../reports/repositories/inMemoryReport.repository.js';
 import { InMemoryIncidentRepository } from '../repositories/inMemoryIncident.repository.js';
+import { InMemoryRiskAssessmentRepository } from '../../risk-assessments/repositories/inMemoryRiskAssessment.repository.js';
+import { InMemoryWarningRepository } from '../../warnings/repositories/inMemoryWarning.repository.js';
 
 const reportId = 'abcdef123456789012345601';
 const secondId = 'abcdef123456789012345602';
@@ -29,11 +31,14 @@ function context(overrides: Partial<SafeReport> = {}) {
   const reports = new InMemoryReportRepository();
   reports.seedReport(structuredClone({ ...originalReport, ...overrides }));
   const incidents = new InMemoryIncidentRepository();
-  const app = createApp({ config: loadConfig(), reportRepository: reports, incidentRepository: incidents });
+  const assessments = new InMemoryRiskAssessmentRepository();
+  const warnings = new InMemoryWarningRepository();
+  const app = createApp({ config: loadConfig(), reportRepository: reports, incidentRepository: incidents,
+    riskAssessmentRepository: assessments, warningRepository: warnings });
   const create = (body: object = { reportIds: [reportId] }) =>
     request(app).post(base).auth(token(), { type: 'bearer' }).send(body);
   const get = (id: string) => request(app).get(`${base}/${id}`).auth(token(), { type: 'bearer' });
-  return { app, reports, incidents, create, get };
+  return { app, reports, incidents, assessments, warnings, create, get };
 }
 
 beforeEach(() => {
@@ -43,6 +48,17 @@ beforeEach(() => {
 });
 
 describe('incident API', () => {
+  it('serves officer-only lifecycle queue and monitoring endpoints with validated detail IDs', async () => {
+    const { app, create } = context();
+    expect((await request(app).get(`${base}/assessment-queue`)).status).toBe(401);
+    expect((await request(app).get(`${base}/monitoring`).auth(token('RESIDENT'), { type: 'bearer' })).status).toBe(403);
+    const saved = await create();
+    const queue = await request(app).get(`${base}/assessment-queue`).auth(token(), { type: 'bearer' });
+    expect(queue.status).toBe(200);
+    expect(queue.body).toMatchObject({ incidents: [{ incident: { id: saved.body.incident.id }, reports: [{ id: reportId }] }] });
+    expect((await request(app).get(`${base}/monitoring`).auth(token(), { type: 'bearer' })).body).toEqual({ incidents: [] });
+    expect((await request(app).get(`${base}/monitoring/not-an-id`).auth(token(), { type: 'bearer' })).status).toBe(400);
+  });
   it('creates and retrieves an incident from a verified report without changing source evidence', async () => {
     const { create, get, reports, incidents } = context();
     const response = await create();

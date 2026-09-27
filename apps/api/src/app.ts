@@ -40,6 +40,7 @@ import type { IncidentRepository } from './modules/incidents/repositories/incide
 import { MongooseIncidentRepository } from './modules/incidents/repositories/mongooseIncident.repository.js';
 import { IncidentService } from './modules/incidents/services/incident.service.js';
 import { createIncidentRouter } from './modules/incidents/routes/incident.routes.js';
+import { IncidentLifecycleService } from './modules/incidents/services/incidentLifecycle.service.js';
 
 type CreateAppOptions = {
   config: ApiConfig;
@@ -76,7 +77,11 @@ export function createApp({
   const resolvedAssessmentRepository = riskAssessmentRepository ?? new MongooseRiskAssessmentRepository();
   const riskAssessmentService = new RiskAssessmentService(resolvedAssessmentRepository, resolvedIncidentRepository, resolvedReportRepository);
   const resolvedImages = warningAttachmentRepository ?? new GridFsWarningAttachmentRepository();
-  const warningService = new WarningService(warningRepository ?? new MongooseWarningRepository(), resolvedAssessmentRepository, resolvedImages, resolvedIncidentRepository);
+  const resolvedWarningRepository = warningRepository ?? new MongooseWarningRepository();
+  const warningService = new WarningService(resolvedWarningRepository, resolvedAssessmentRepository, resolvedImages, resolvedIncidentRepository);
+  const incidentLifecycleService = new IncidentLifecycleService(
+    resolvedIncidentRepository, resolvedReportRepository, resolvedAssessmentRepository, resolvedWarningRepository
+  );
   const warningAttachmentService = new WarningAttachmentService(resolvedImages, resolvedAssessmentRepository);
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()
@@ -97,7 +102,7 @@ export function createApp({
 
   app.use('/api/v1/auth', createAuthRouter(authService, config));
   app.use('/api/v1/reports', createReportRouter(reportService, config));
-  app.use('/api/v1/incidents', createIncidentRouter(incidentService, config));
+  app.use('/api/v1/incidents', createIncidentRouter(incidentService, incidentLifecycleService, config));
   app.use('/api/v1/media', createMediaRouter(mediaStorage, config));
   app.use('/api/v1/field-confirmations', createFieldConfirmationRouter(
     new FieldConfirmationService(confirmations, reportService), config
