@@ -485,7 +485,7 @@ function TimelineRow({ item }: { item: ResidentReportTimelineItem }) {
   return (
     <View style={styles.timelineRow}>
       <View style={[styles.timelineMarker, toneStyles.marker]}>
-        <Text style={[styles.timelineMarkerText, toneStyles.markerText]}>{timelineSymbolFor(item.tone)}</Text>
+        <DashboardGlyph color={toneStyles.iconColor} name={timelineIconFor(item.tone)} size={18} />
       </View>
       <View style={styles.timelineBody}>
         <Text style={styles.timelineTitle}>{item.title}</Text>
@@ -535,16 +535,16 @@ function ReportDetailStateCard({
   );
 }
 
-function timelineSymbolFor(tone: ResidentReportTimelineItem['tone']) {
+function timelineIconFor(tone: ResidentReportTimelineItem['tone']) {
   switch (tone) {
     case 'success':
-      return 'OK';
+      return 'checkmark-done-outline';
     case 'critical':
-      return '!';
+      return 'alert-circle-outline';
     case 'pending':
-      return '...';
+      return 'time-outline';
     case 'neutral':
-      return '-';
+      return 'document-text-outline';
   }
 }
 
@@ -553,33 +553,25 @@ const timelineToneStyles = {
     marker: {
       backgroundColor: dashboardTheme.colors.successSoft
     },
-    markerText: {
-      color: dashboardTheme.colors.success
-    }
+    iconColor: dashboardTheme.colors.success
   },
   critical: {
     marker: {
       backgroundColor: dashboardTheme.colors.criticalSoft
     },
-    markerText: {
-      color: dashboardTheme.colors.critical
-    }
+    iconColor: dashboardTheme.colors.critical
   },
   pending: {
     marker: {
       backgroundColor: dashboardTheme.colors.surfaceMuted
     },
-    markerText: {
-      color: dashboardTheme.colors.muted
-    }
+    iconColor: dashboardTheme.colors.muted
   },
   neutral: {
     marker: {
       backgroundColor: dashboardTheme.colors.surfaceMuted
     },
-    markerText: {
-      color: dashboardTheme.colors.text
-    }
+    iconColor: dashboardTheme.colors.text
   }
 } as const;
 
@@ -814,10 +806,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 14
-  },
-  timelineMarkerText: {
-    fontSize: 11,
-    fontWeight: '900'
   },
   timelineBody: {
     flex: 1,

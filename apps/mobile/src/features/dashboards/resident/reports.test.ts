@@ -170,6 +170,43 @@ describe('resident report presentation helpers', () => {
     expect(isResidentReportEditable(cancelled)).toBe(false);
   });
 
+  it('keeps timeline labels readable for every official report status', () => {
+    const rejected: SafeReport = {
+      ...baseReport,
+      status: 'REJECTED',
+      rejectionReason: 'Location could not be verified.'
+    };
+    const verified: SafeReport = {
+      ...baseReport,
+      status: 'VERIFIED',
+      verifiedAt: '2026-08-24T10:00:00.000Z'
+    };
+    const cancelled: SafeReport = {
+      ...baseReport,
+      status: 'CANCELLED',
+      cancelledAt: '2026-08-24T09:30:00.000Z'
+    };
+    const resolved: SafeReport = {
+      ...verified,
+      status: 'RESOLVED',
+      updatedAt: '2026-08-24T12:00:00.000Z'
+    };
+    const timelines = [baseReport, verified, rejected, cancelled, resolved].flatMap(buildResidentReportTimeline);
+
+    expect(timelines.map((item) => item.title)).toEqual(expect.arrayContaining([
+      'Report Submitted',
+      'Waiting for Official Verification',
+      'Officially Verified',
+      'Report Rejected',
+      'Report Cancelled',
+      'Resolved'
+    ]));
+    const mojibakePattern = new RegExp('[\\u00e2\\u00c3\\ufffd]');
+    for (const item of timelines) {
+      expect(`${item.title} ${item.detail} ${item.timeLabel ?? ''}`).not.toMatch(mojibakePattern);
+    }
+  });
+
   it('builds report-status navigation params from a backend report id', () => {
     expect(residentReportStatusHref('report/one')).toEqual({
       pathname: '/resident/report-status',

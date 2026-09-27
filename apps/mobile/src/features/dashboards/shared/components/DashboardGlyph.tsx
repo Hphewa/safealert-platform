@@ -39,16 +39,16 @@ const glyphMap: Record<string, string> = {
   'map-outline': 'MP',
   'camera-outline': 'PH',
   'refresh-outline': 'RF',
-  'play-outline': '▶',
-  'pause-outline': 'Ⅱ',
+  'play-outline': 'PL',
+  'pause-outline': 'PA',
   'log-out-outline': 'LG',
   'construct-outline': 'UI',
-  'chevron-forward': '›',
-  'arrow-back': '‹'
+  'chevron-forward': '>',
+  'arrow-back': '<'
 };
 
 export function DashboardGlyph({ name, color, size = 18 }: DashboardGlyphProps) {
-  const glyph = glyphMap[name] ?? '•';
+  const glyph = glyphMap[name] ?? '*';
   const isSymbol = glyph.length === 1;
 
   return (
