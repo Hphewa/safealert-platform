@@ -5,6 +5,7 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { EmergencyRequestProgressTracker } from '../components/EmergencyRequestProgressTracker';
+import { EmergencyRequestStatePanel } from '../components/EmergencyRequestStatePanel';
 import { presentResidentEmergencyRequestDetails } from '../emergencyRequestPresentation';
 import { residentBottomNavItems } from '../mockData';
 import { useMyEmergencyRequestDetails } from '../useMyEmergencyRequestDetails';
@@ -12,7 +13,7 @@ import { useMyEmergencyRequestDetails } from '../useMyEmergencyRequestDetails';
 export function ResidentEmergencyRequestDetailsScreen() {
   const router = useRouter();
   const { requestId } = useLocalSearchParams<{ requestId?: string | string[] }>();
-  const { request, error, refetch, isRefreshing } = useMyEmergencyRequestDetails(requestId);
+  const { request, error, refetch, isRefreshing, canRefetch } = useMyEmergencyRequestDetails(requestId);
   const details = request ? presentResidentEmergencyRequestDetails(request) : null;
 
   const goBack = () => {
@@ -36,8 +37,8 @@ export function ResidentEmergencyRequestDetailsScreen() {
         <Pressable
           accessibilityLabel="Refresh emergency request details"
           accessibilityRole="button"
-          accessibilityState={{ disabled: isRefreshing, busy: isRefreshing }}
-          disabled={isRefreshing}
+          accessibilityState={{ disabled: isRefreshing || !canRefetch, busy: isRefreshing }}
+          disabled={isRefreshing || !canRefetch}
           onPress={() => void refetch()}
           style={({ pressed }) => [styles.refreshButton, pressed && styles.pressed]}
         >
@@ -63,9 +64,12 @@ export function ResidentEmergencyRequestDetailsScreen() {
           ))}
         </>
       ) : (
-        <Text accessibilityLiveRegion="polite" style={styles.value}>
-          {error ?? 'Loading your emergency request details...'}
-        </Text>
+        <EmergencyRequestStatePanel
+          title={error ? 'Unable to load request details' : 'Loading your emergency request details...'}
+          message={error ?? undefined}
+          loading={isRefreshing}
+          onRetry={error && canRefetch ? () => void refetch() : undefined}
+        />
       )}
     </DashboardScreen>
   );

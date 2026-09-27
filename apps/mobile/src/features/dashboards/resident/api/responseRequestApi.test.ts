@@ -31,6 +31,22 @@ describe('resident emergency request API', () => {
     await expect(listMyResponseRequests('resident-token')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
+  it.each([null, 'invalid', {}, { id: 'invalid-id' }])('rejects malformed list entries: %j', async (entry) => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json({ responseRequests: [entry] })));
+    await expect(listMyResponseRequests('resident-token')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('accepts identified requests with missing optional presentation data', async () => {
+    const response = { responseRequests: [{ id: '507f1f77bcf86cd799439011' }] };
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json(response)));
+    expect(await listMyResponseRequests('resident-token')).toEqual(response);
+  });
+
+  it('rejects an absent response body instead of treating it as an empty list', async () => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 })));
+    await expect(listMyResponseRequests('resident-token')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
   it('preserves authentication failures from the shared client', async () => {
     vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json(
       { error: { code: 'UNAUTHORIZED', message: 'Token expired' } }, { status: 401 }

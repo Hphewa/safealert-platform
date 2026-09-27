@@ -5,12 +5,13 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
 import { EmergencyRequestSummaryCard } from '../components/EmergencyRequestSummaryCard';
+import { EmergencyRequestStatePanel } from '../components/EmergencyRequestStatePanel';
 import { residentBottomNavItems } from '../mockData';
 import { useMyEmergencyRequests } from '../useMyEmergencyRequests';
 
 export function MyEmergencyRequestsScreen() {
   const router = useRouter();
-  const { requests, error, refetch, isRefreshing } = useMyEmergencyRequests();
+  const { requests, error, refetch, isRefreshing, canRefetch } = useMyEmergencyRequests();
 
   const goBack = () => {
     // Direct links may have no history; return those residents to Emergency Assistance.
@@ -33,8 +34,8 @@ export function MyEmergencyRequestsScreen() {
         <Pressable
           accessibilityLabel="Refresh emergency requests"
           accessibilityRole="button"
-          accessibilityState={{ disabled: isRefreshing, busy: isRefreshing }}
-          disabled={isRefreshing}
+          accessibilityState={{ disabled: isRefreshing || !canRefetch, busy: isRefreshing }}
+          disabled={isRefreshing || !canRefetch}
           onPress={() => void refetch()}
           style={({ pressed }) => [styles.refreshButton, pressed && styles.pressed]}
         >
@@ -42,13 +43,24 @@ export function MyEmergencyRequestsScreen() {
         </Pressable>
       </View>
       <Text style={styles.description}>Track the progress of your emergency assistance requests.</Text>
-      <Text accessibilityLiveRegion="polite" style={styles.description}>
-        {error ?? (requests === null
-          ? 'Loading your emergency requests…'
-          : requests.length === 0
-            ? 'You have no emergency assistance requests yet.'
-            : `${requests.length} emergency assistance ${requests.length === 1 ? 'request' : 'requests'} submitted.`)}
-      </Text>
+      {isRefreshing ? (
+        <EmergencyRequestStatePanel title="Loading your emergency requests..." loading />
+      ) : error ? (
+        <EmergencyRequestStatePanel
+          title="Unable to load requests"
+          message={error}
+          onRetry={canRefetch ? () => void refetch() : undefined}
+        />
+      ) : requests?.length === 0 ? (
+        <EmergencyRequestStatePanel
+          title="You have no emergency assistance requests yet."
+          message="Your submitted emergency assistance requests will appear here."
+        />
+      ) : requests ? (
+        <Text accessibilityLiveRegion="polite" style={styles.description}>
+          {`${requests.length} emergency assistance ${requests.length === 1 ? 'request' : 'requests'} submitted.`}
+        </Text>
+      ) : null}
       {!error && requests?.map((request, index) => (
         <EmergencyRequestSummaryCard
           key={typeof request.id === 'string' && request.id.trim() ? request.id : `missing-id-${index}`}

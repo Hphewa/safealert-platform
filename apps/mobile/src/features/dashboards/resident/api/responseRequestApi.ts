@@ -37,7 +37,10 @@ export async function listMyResponseRequests(accessToken: string) {
     accessToken
   });
 
-  if (!Array.isArray(response?.responseRequests)) {
+  // Reject a malformed list rather than rendering invalid cards or claiming it is an empty result.
+  if (!Array.isArray(response?.responseRequests) || response.responseRequests.some(
+    (request) => !request || typeof request !== 'object' || !parseResidentEmergencyRequestId(request.id)
+  )) {
     throw new ApiClientError(502, 'INVALID_RESPONSE', 'Unable to load emergency requests.');
   }
 

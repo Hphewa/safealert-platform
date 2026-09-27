@@ -9,6 +9,7 @@ import { RoleRouteLayout } from '../../../auth/screens/RoleRouteLayout';
 import { getMyResponseRequestById, listMyResponseRequests } from '../api/responseRequestApi';
 import { ApiClientError } from '../../../../services/api/client';
 import { EmergencyRequestSummaryCard } from '../components/EmergencyRequestSummaryCard';
+import { EmergencyRequestStatePanel } from '../components/EmergencyRequestStatePanel';
 import { formatResidentReportDateTime } from '../reports';
 import { EmergencyAssistanceDraftProvider, useEmergencyAssistanceDraft } from '../emergencyAssistanceDraft';
 import { residentBottomNavItems, residentPrimaryActions } from '../mockData';
@@ -111,6 +112,9 @@ function summaryCards(node: React.ReactNode): React.ReactElement<{ request: Safe
 function press(node: React.ReactNode, label: string): boolean {
   if (Array.isArray(node)) return node.some((child) => press(child, label));
   if (!React.isValidElement<{ children?: React.ReactNode; accessibilityLabel?: string; onPress?: () => void }>(node)) return false;
+  if (typeof node.type === 'function') {
+    return press((node.type as (props: unknown) => React.ReactNode)(node.props), label);
+  }
   if (node.props.onPress && (node.props.accessibilityLabel === label || screenText(node.props.children) === label)) {
     node.props.onPress();
     return true;
@@ -134,6 +138,136 @@ beforeEach(() => {
   vi.mocked(useEmergencyAssistanceDraft).mockReturnValue(provider.props.value);
   lifecycle.slots = [];
   lifecycle.cursor = 0;
+});
+
+function statePanel(node: React.ReactNode): React.ComponentProps<typeof EmergencyRequestStatePanel> | undefined {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const panel = statePanel(child);
+      if (panel) return panel;
+    }
+    return undefined;
+  }
+  if (!React.isValidElement<React.ComponentProps<typeof EmergencyRequestStatePanel> & { children?: React.ReactNode }>(node)) return undefined;
+  return node.type === EmergencyRequestStatePanel ? node.props : statePanel(node.props.children);
+}
+
+describe('Resident tracking loading, empty and retry states', () => {
+  it('shows loading with an indicator until a successful empty result arrives', async () => {
+    let resolve: ((value: { responseRequests: SafeResponseRequest[] }) => void) | undefined;
+    vi.mocked(listMyResponseRequests).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    render();
+    lifecycle.effect();
+    expect(statePanel(render())?.loading).toBe(true);
+    expect(screenText(render())).toContain('Loading your emergency requests');
+    expect(screenText(render())).not.toContain('You have no emergency assistance requests yet.');
+    expect(press(render(), 'Retry')).toBe(false);
+    resolve?.({ responseRequests: [] });
+    await vi.waitFor(() => expect(screenText(render())).toContain('You have no emergency assistance requests yet.'));
+    expect(screenText(render())).toContain('Your submitted emergency assistance requests will appear here.');
+    expect(screenText(render())).not.toContain('Loading');
+    expect(press(render(), 'Retry')).toBe(false);
+  });
+
+  it.each([false, true])('retries the list and replaces its error with successful content (empty: %s)', async (empty) => {
+    vi.mocked(listMyResponseRequests).mockRejectedValueOnce(new Error('MongoError: private database host'));
+    render();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Unable to load requests'));
+    expect(screenText(render())).not.toContain('MongoError');
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: empty ? [] : [request] });
+    expect(press(render(), 'Retry')).toBe(true);
+    expect(statePanel(render())?.loading).toBe(true);
+    expect(screenText(render())).not.toContain('Unable to load requests');
+    await vi.waitFor(() => expect(screenText(render())).toContain(
+      empty ? 'Your submitted emergency assistance requests will appear here.' : 'Medical Assistance'
+    ));
+    expect(summaryCards(render())).toHaveLength(empty ? 0 : 1);
+    expect(listMyResponseRequests).toHaveBeenCalledTimes(2);
+    expect(press(render(), 'Retry')).toBe(false);
+  });
+
+  it('retries the selected details request and displays its latest status and progress', async () => {
+    vi.mocked(getMyResponseRequestById).mockRejectedValueOnce(new Error('TypeError: internal stack'));
+    renderDetails();
+    lifecycle.effect();
+    expect(statePanel(renderDetails())?.loading).toBe(true);
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Unable to load request details'));
+    expect(screenText(renderDetails())).not.toContain('TypeError');
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...detailedRequest, status: 'ARRIVED' } });
+    expect(press(renderDetails(), 'Retry')).toBe(true);
+    expect(statePanel(renderDetails())?.loading).toBe(true);
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Arrived Current stage'));
+    expect(screenText(renderDetails())).toContain('Status:  Arrived');
+    expect(getMyResponseRequestById).toHaveBeenCalledTimes(2);
+    expect(getMyResponseRequestById).toHaveBeenLastCalledWith(request.id, 'resident-token');
+  });
+
+  it.each(['list', 'details'] as const)('retains a friendly error and working Retry after repeated %s failures', async (screen) => {
+    vi.mocked(listMyResponseRequests).mockRejectedValue(new Error('Internal API details'));
+    vi.mocked(getMyResponseRequestById).mockRejectedValue(new Error('Internal API details'));
+    const renderScreen = screen === 'list' ? render : renderDetails;
+    renderScreen();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(statePanel(renderScreen())?.onRetry).toBeDefined());
+    press(renderScreen(), 'Retry');
+    expect(statePanel(renderScreen())?.loading).toBe(true);
+    await vi.waitFor(() => expect(statePanel(renderScreen())?.onRetry).toBeDefined());
+    expect(screenText(renderScreen())).not.toContain('Internal API details');
+    expect(screenText(renderScreen())).toContain('Unable to load');
+    expect(screen === 'list' ? listMyResponseRequests : getMyResponseRequestById).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['list', 'details'] as const)('coalesces rapid Retry and Refresh taps for %s before a rerender', async (screen) => {
+    const renderScreen = screen === 'list' ? render : renderDetails;
+    if (screen === 'list') vi.mocked(listMyResponseRequests).mockRejectedValueOnce(new Error('Offline'));
+    else vi.mocked(getMyResponseRequestById).mockRejectedValueOnce(new Error('Offline'));
+    renderScreen();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(statePanel(renderScreen())?.onRetry).toBeDefined());
+    const errorScreen = renderScreen();
+    let resolve: (() => void) | undefined;
+    if (screen === 'list') {
+      vi.mocked(listMyResponseRequests).mockReturnValueOnce(new Promise((done) => {
+        resolve = () => done({ responseRequests: [request] });
+      }));
+    } else {
+      vi.mocked(getMyResponseRequestById).mockReturnValueOnce(new Promise((done) => {
+        resolve = () => done({ responseRequest: detailedRequest });
+      }));
+    }
+    press(errorScreen, 'Retry');
+    press(errorScreen, 'Retry');
+    press(errorScreen, screen === 'list' ? 'Refresh emergency requests' : 'Refresh emergency request details');
+    expect(screen === 'list' ? listMyResponseRequests : getMyResponseRequestById).toHaveBeenCalledTimes(2);
+    expect(statePanel(renderScreen())?.loading).toBe(true);
+    resolve?.();
+    await vi.waitFor(() => expect(screenText(renderScreen())).toContain('Medical Assistance'));
+  });
+
+  it('does not offer a no-op Retry for missing authentication or invalid details identifiers', () => {
+    auth.accessToken = null;
+    expect(press(render(), 'Retry')).toBe(false);
+    expect(screenText(render())).toContain('Please log in again.');
+    auth.accessToken = 'resident-token';
+    lifecycle.params = { requestId: 'invalid' };
+    expect(press(renderDetails(), 'Retry')).toBe(false);
+    expect(screenText(renderDetails())).toContain('Select a valid request');
+    lifecycle.effect();
+    expect(getMyResponseRequestById).not.toHaveBeenCalled();
+  });
+
+  it('announces loading and keeps Retry separate and accessible', () => {
+    const loading = EmergencyRequestStatePanel({ title: 'Loading requests', loading: true });
+    const content = loading.props.children[0];
+    expect(content.props.accessibilityState).toEqual({ busy: true });
+    expect(content.props.accessibilityLiveRegion).toBe('polite');
+    const retry = vi.fn();
+    const error = EmergencyRequestStatePanel({ title: 'Unable to load requests', onRetry: retry });
+    expect(error.props.children[1].props.accessibilityRole).toBe('button');
+    press(error, 'Retry');
+    expect(retry).toHaveBeenCalledOnce();
+  });
 });
 
 describe('Resident status refetch', () => {
