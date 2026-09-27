@@ -4,13 +4,18 @@ import type {
   IncidentCandidatesResponse,
   IncidentResponse,
   IncidentWithReportsResponse,
-  GetActiveIncidentsResponse
+  GetActiveIncidentsResponse,
+  InitialAssessmentQueueResponse
 } from '@safealert/contracts';
 
 import { apiRequest } from '../../../../services/api/client';
 
 export function listActiveIncidents(accessToken: string) {
   return apiRequest<GetActiveIncidentsResponse>('/incidents/active', { accessToken });
+}
+
+export function listInitialAssessmentQueue(accessToken: string) {
+  return apiRequest<InitialAssessmentQueueResponse>('/incidents/assessment-queue', { accessToken });
 }
 
 export function getIncidentCandidates(reportId: string, accessToken: string) {

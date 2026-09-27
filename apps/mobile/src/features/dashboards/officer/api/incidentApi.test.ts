@@ -1,5 +1,6 @@
 import type {
   IncidentCandidatesResponse,
+  InitialAssessmentQueueResponse,
   IncidentWithReportsResponse,
   SafeReport
 } from '@safealert/contracts';
@@ -11,7 +12,8 @@ import {
   createIncidentFromReport,
   getIncidentCandidates,
   getIncidentDetails,
-  listActiveIncidents
+  listActiveIncidents,
+  listInitialAssessmentQueue
 } from './incidentApi';
 
 const reportId = 'report/one';
@@ -20,6 +22,16 @@ const incidentId = 'incident/one';
 afterEach(() => vi.unstubAllGlobals());
 
 describe('Officer incident API', () => {
+  it('loads the initial-assessment queue through one authenticated request', async () => {
+    const body: InitialAssessmentQueueResponse = { incidents: [] };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(body));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(listInitialAssessmentQueue('officer-token')).resolves.toEqual(body);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(`${apiBaseUrl}/incidents/assessment-queue`, expect.objectContaining({
+      method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer officer-token' })
+    }));
+  });
   it('loads active incidents for the assessment selection screen', async () => {
     const body = { incidents: [] };
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(body));
