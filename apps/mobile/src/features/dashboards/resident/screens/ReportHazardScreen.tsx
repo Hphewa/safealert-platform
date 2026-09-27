@@ -40,24 +40,28 @@ const severityOptions: Array<{
   value: HazardSeverity;
   color: string;
   softColor: string;
+  description: string;
 }> = [
   {
     label: 'Low',
     value: 'LOW',
     color: dashboardTheme.colors.low,
-    softColor: dashboardTheme.colors.lowSoft
+    softColor: dashboardTheme.colors.lowSoft,
+    description: 'Limited impact'
   },
   {
     label: 'Moderate',
     value: 'MODERATE',
     color: dashboardTheme.colors.moderate,
-    softColor: dashboardTheme.colors.moderateSoft
+    softColor: dashboardTheme.colors.moderateSoft,
+    description: 'Causing disruption'
   },
   {
     label: 'High',
     value: 'HIGH',
     color: dashboardTheme.colors.high,
-    softColor: dashboardTheme.colors.highSoft
+    softColor: dashboardTheme.colors.highSoft,
+    description: 'Serious danger or major disruption'
   }
 ];
 
@@ -170,7 +174,7 @@ export function ReportHazardScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsEditing: false,
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.82
       });
 
@@ -224,7 +228,7 @@ export function ReportHazardScreen() {
 
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: false,
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.82
       });
 
@@ -332,11 +336,10 @@ export function ReportHazardScreen() {
           {draft.location.status === 'DETECTED' ? (
             <View style={styles.detectedLocation}>
               <Text style={styles.detectedText}>Detected current location</Text>
-              <Text style={styles.coordinateText}>
-                Lat {formatCoordinate(draft.location.latitude)}, Long {formatCoordinate(draft.location.longitude)}
-              </Text>
-
               <Text style={styles.locationHintText}>Adjust the pin if the hazard is somewhere else.</Text>
+              <Text style={styles.coordinateText}>
+                {formatCoordinate(draft.location.latitude)}, {formatCoordinate(draft.location.longitude)}
+              </Text>
             </View>
           ) : null}
           {draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR' ? (
@@ -380,6 +383,11 @@ export function ReportHazardScreen() {
         ) : null}
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Evidence</Text>
+        <Text style={styles.sectionHelper}>Add evidence only if it is safe to do so.</Text>
+      </View>
+
       <View style={styles.photoPanel}>
         {draft.photoEvidence.status === 'LOCAL_SELECTED' ? (
           <Image
@@ -402,9 +410,7 @@ export function ReportHazardScreen() {
             <View style={styles.detectedLocation}>
               <Text style={styles.detectedText}>Photo ready</Text>
               <Text style={styles.panelText}>{draft.photoEvidence.message}</Text>
-              <Text style={styles.mongoHintText}>
-                Photo stays on this device until you submit the report.
-              </Text>
+              <Text style={styles.secondaryHintText}>Photo stays on this device until you submit the report.</Text>
             </View>
           ) : (
             <Text
@@ -415,7 +421,7 @@ export function ReportHazardScreen() {
                   styles.errorText
               ]}
             >
-              {draft.photoEvidence.message ?? 'Add an optional photo from this device.'}
+              {draft.photoEvidence.message ?? 'Add an optional photo if it is safe to do so.'}
             </Text>
           )}
         </View>
@@ -496,9 +502,12 @@ export function ReportHazardScreen() {
                 ]}
               >
                 <View style={[styles.severityDot, { backgroundColor: option.color }]} />
-                <Text style={[styles.severityText, selected && { color: option.color }]}>
-                  {option.label}
-                </Text>
+                <View style={styles.severityCopy}>
+                  <Text style={[styles.severityText, selected && { color: option.color }]}>
+                    {option.label}
+                  </Text>
+                  <Text style={styles.severityHelperText}>{option.description}</Text>
+                </View>
               </Pressable>
             );
           })}
@@ -507,14 +516,14 @@ export function ReportHazardScreen() {
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Short description</Text>
+        <Text style={styles.sectionTitle}>What can you see?</Text>
         <TextInput
-          accessibilityLabel="Short description"
+          accessibilityLabel="What can you see?"
           maxLength={descriptionMaxLength}
           multiline
           onBlur={trimDescription}
           onChangeText={setDescription}
-          placeholder="Briefly describe what you see."
+          placeholder="Example: Water is covering both lanes and still rising."
           placeholderTextColor={dashboardTheme.colors.muted}
           style={styles.descriptionInput}
           textAlignVertical="top"
@@ -667,6 +676,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: dashboardTheme.colors.muted
   },
+  sectionHelper: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: dashboardTheme.colors.muted
+  },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -681,11 +695,11 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.success
   },
   coordinateText: {
-    fontSize: 14,
-    lineHeight: 20,
-    color: dashboardTheme.colors.text
+    fontSize: 12,
+    lineHeight: 18,
+    color: dashboardTheme.colors.muted
   },
-  mongoHintText: {
+  secondaryHintText: {
     fontSize: 12,
     lineHeight: 18,
     color: dashboardTheme.colors.muted
@@ -821,11 +835,11 @@ const styles = StyleSheet.create({
   },
   severityOption: {
     flexGrow: 1,
-    minHeight: 52,
+    minHeight: 64,
     minWidth: 104,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     gap: 8,
     paddingHorizontal: 14,
     borderWidth: 1,
@@ -842,6 +856,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: dashboardTheme.colors.text
+  },
+  severityCopy: {
+    flex: 1,
+    gap: 2
+  },
+  severityHelperText: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: dashboardTheme.colors.muted
   },
   descriptionInput: {
     minHeight: 124,

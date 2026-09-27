@@ -249,7 +249,7 @@ export function ResidentReportEditScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsEditing: false,
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.82
       });
 

@@ -45,6 +45,8 @@ declare module 'expo-image-picker' {
     Images = 'Images'
   }
 
+  export type MediaType = 'images' | 'videos' | 'livePhotos';
+
   export type ImagePickerPermissionResponse = {
     status: PermissionStatus;
   };
@@ -77,7 +79,7 @@ declare module 'expo-image-picker' {
   export function requestCameraPermissionsAsync(): Promise<ImagePickerPermissionResponse>;
   export function launchImageLibraryAsync(options?: {
     allowsEditing?: boolean;
-    mediaTypes?: MediaTypeOptions;
+    mediaTypes?: MediaType | MediaType[] | MediaTypeOptions;
     quality?: number;
     base64?: boolean;
     allowsMultipleSelection?: boolean;
@@ -85,7 +87,7 @@ declare module 'expo-image-picker' {
   }): Promise<ImagePickerResult>;
   export function launchCameraAsync(options?: {
     allowsEditing?: boolean;
-    mediaTypes?: MediaTypeOptions;
+    mediaTypes?: MediaType | MediaType[] | MediaTypeOptions;
     quality?: number;
   }): Promise<ImagePickerResult>;
 }

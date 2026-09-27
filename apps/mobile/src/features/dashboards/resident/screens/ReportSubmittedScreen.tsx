@@ -34,7 +34,7 @@ export function ReportSubmittedScreen() {
           <DashboardGlyph color={dashboardTheme.colors.success} name="checkmark-done-outline" size={24} />
         </View>
         <Text style={styles.successTitle}>Report Submitted Successfully!</Text>
-        <Text style={styles.successText}>Your report has been received.</Text>
+        <Text style={styles.successText}>Your report has been sent for review.</Text>
       </View>
 
       {submittedReport ? (
@@ -46,11 +46,10 @@ export function ReportSubmittedScreen() {
 
           <View style={styles.summaryPanel}>
             <Text style={styles.panelTitle}>Submission details</Text>
-            <SubmittedDetail label="Report ID" value={submittedReport.id} />
             <SubmittedDetail label="Hazard" value={hazardTypeLabels[submittedReport.hazardType]} />
             <SubmittedDetail label="Severity" value={severityLabels[submittedReport.severity]} />
             <SubmittedDetail
-              label="Coordinates"
+              label="Selected location"
               value={`${submittedReport.location.coordinates[1].toFixed(6)}, ${submittedReport.location.coordinates[0].toFixed(6)}`}
             />
           </View>
@@ -65,7 +64,7 @@ export function ReportSubmittedScreen() {
       <View style={styles.confirmationPanel}>
         <View style={styles.connectionDot} />
         <Text style={styles.helperText}>
-          Confirmed by SafeAlert. Keep this report ID for tracking updates.
+          SafeAlert will show updates in My Reports.
         </Text>
       </View>
 

@@ -27,8 +27,6 @@ import {
 } from '../reportSubmissionGuard';
 import { ReportSubmissionError, submitResidentReportDraft } from '../reportSubmission';
 
-const connectionStatus = 'Online';
-
 type SubmitState = {
   status: 'idle' | 'uploading' | 'submitting' | 'error';
   reason?: 'validation' | 'auth' | 'network' | 'upload' | 'server';
@@ -212,8 +210,6 @@ export function ReviewReportScreen() {
         {draft.location.status === 'DETECTED' ? (
           <View style={styles.locationPreview}>
             <Text style={styles.locationPreviewTitle}>Hazard location</Text>
-            <Text style={styles.coordinateText}>Latitude {formatCoordinate(draft.location.latitude)}</Text>
-            <Text style={styles.coordinateText}>Longitude {formatCoordinate(draft.location.longitude)}</Text>
             <LocationPreview
               coordinates={{
                 latitude: draft.location.latitude,
@@ -222,6 +218,9 @@ export function ReviewReportScreen() {
               height={168}
               title="Hazard location"
             />
+            <Text style={styles.coordinateText}>
+              {formatCoordinate(draft.location.latitude)}, {formatCoordinate(draft.location.longitude)}
+            </Text>
             <Text style={styles.helperText}>Edit the report if this pin is not where the hazard is.</Text>
           </View>
         ) : (
@@ -274,7 +273,7 @@ export function ReviewReportScreen() {
           <Text style={styles.helperText}>
             {submitState.reason === 'network'
               ? 'Connection problem detected. Your draft is still saved on this screen.'
-              : `${connectionStatus}. Offline sync will be added later.`}
+              : 'Ready to send. Your draft stays here until submission finishes.'}
           </Text>
         </View>
       </View>
@@ -617,9 +616,9 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.primaryStrong
   },
   coordinateText: {
-    fontSize: 15,
-    lineHeight: 21,
-    color: dashboardTheme.colors.text
+    fontSize: 12,
+    lineHeight: 18,
+    color: dashboardTheme.colors.muted
   },
   helperText: {
     fontSize: 14,

@@ -1,4 +1,4 @@
-import type { BottomNavItem, PlaceholderConfig, QuickAction } from '../shared/types';
+import type { BottomNavItem, QuickAction } from '../shared/types';
 
 export const residentBottomNavItems: BottomNavItem[] = [
   { label: 'Home', href: '/resident', icon: 'home-outline' },
@@ -28,9 +28,3 @@ export const residentPrimaryActions: QuickAction[] = [
   }
 ];
 
-export const residentPlaceholderContent: Record<string, PlaceholderConfig> = {
-  reports: {
-    title: 'Report Status & Reviews',
-    description: 'Open My Reports to view submitted hazard reports and review timelines.'
-  }
-};
