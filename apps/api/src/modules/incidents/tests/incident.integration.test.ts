@@ -59,6 +59,33 @@ describe('incident API', () => {
     expect((await request(app).get(`${base}/monitoring`).auth(token(), { type: 'bearer' })).body).toEqual({ incidents: [] });
     expect((await request(app).get(`${base}/monitoring/not-an-id`).auth(token(), { type: 'bearer' })).status).toBe(400);
   });
+
+  it('keeps an assessed incident in Monitoring through close and soft delete without exposing deleted details', async () => {
+    const { app, create, assessments } = context();
+    const saved = await create();
+    const incidentId = saved.body.incident.id as string;
+    const active = await assessments.create({
+      incidentId, assessedById: officerId, hazardSeverity: 'HIGH', peopleAffected: 8, vulnerablePeople: 2,
+      roadAccessibility: 'ACCESSIBLE', infrastructureImpact: 'LOW', waterLevelTrend: 'RISING',
+      weatherCondition: 'HEAVY_RAIN', calculatedScore: 18, systemSuggestedRisk: 'HIGH', finalRiskLevel: 'HIGH',
+      status: 'ACTIVE', assessedAt: '2026-09-26T12:00:00.000Z'
+    });
+    expect((await request(app).get(`${base}/assessment-queue`).auth(token(), { type: 'bearer' })).body.incidents).toEqual([]);
+    expect((await request(app).get(`${base}/monitoring/${incidentId}`).auth(token(), { type: 'bearer' })).body.monitoring)
+      .toMatchObject({ currentAssessment: { id: active.id, status: 'ACTIVE' }, newVerifiedReportsSinceAssessment: 0 });
+
+    await assessments.closeActiveAssessment(active.id, {
+      closureReason: 'INCIDENT_RESOLVED', closedAt: '2026-09-26T13:00:00.000Z', closedById: officerId
+    });
+    expect((await request(app).get(`${base}/monitoring`).auth(token(), { type: 'bearer' })).body.incidents[0])
+      .toMatchObject({ currentAssessment: null, latestAssessment: { id: active.id, status: 'CLOSED' } });
+    await assessments.softDeleteClosedAssessment(active.id, {
+      deletedAt: '2026-09-26T14:00:00.000Z', deletedById: officerId, deleteReason: 'CREATED_BY_MISTAKE'
+    });
+    const detail = await request(app).get(`${base}/monitoring/${incidentId}`).auth(token(), { type: 'bearer' });
+    expect(detail.body.monitoring).toMatchObject({ incident: { id: incidentId }, currentAssessment: null, latestAssessment: null });
+    expect(JSON.stringify(detail.body)).not.toMatch(/isDeleted|deletedAt|deletedById|deleteReason/);
+  });
   it('creates and retrieves an incident from a verified report without changing source evidence', async () => {
     const { create, get, reports, incidents } = context();
     const response = await create();

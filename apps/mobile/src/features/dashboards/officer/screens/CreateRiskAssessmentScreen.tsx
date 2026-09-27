@@ -115,6 +115,9 @@ export function CreateRiskAssessmentScreen() {
   const showResult = (savedAssessmentId: string) => router.replace({
     pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: savedAssessmentId }
   });
+  const showMonitoring = (savedIncidentId: string) => router.replace({
+    pathname: '/officer/monitoring/[incidentId]', params: { incidentId: savedIncidentId, notice: 'assessment-saved' }
+  });
 
   const viewLatestAssessment = async () => {
     if (!accessToken || !incidentId || busy) return;
@@ -211,7 +214,7 @@ export function CreateRiskAssessmentScreen() {
     try {
       // Submit factors and decision only; authoritative scoring/audit fields never leave the client.
       const result = await createRiskAssessment(createRequest, accessToken);
-      if (generation.current === current) showResult(result.assessment.id);
+      if (generation.current === current) showMonitoring(result.incident.id);
     } catch (failure) {
       if (generation.current !== current) return;
       setError(assessmentErrorMessage(failure));

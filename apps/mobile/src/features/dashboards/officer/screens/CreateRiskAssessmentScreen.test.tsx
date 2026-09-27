@@ -23,6 +23,7 @@ const state = vi.hoisted(() => ({
   getAssessment: vi.fn(),
   getAssessmentForIncident: vi.fn(),
   calculateRisk: vi.fn(),
+  createRisk: vi.fn(),
   reassess: vi.fn(),
   replace: vi.fn()
 }));
@@ -75,7 +76,7 @@ vi.mock('@/services/api/client', () => ({ ApiClientError: class ApiClientError e
   constructor(public readonly status: number, public readonly code: string, message: string) { super(message); }
 } }));
 vi.mock('../api/riskAssessmentApi', () => ({
-  calculateRiskAssessment: state.calculateRisk, createRiskAssessment: vi.fn(),
+  calculateRiskAssessment: state.calculateRisk, createRiskAssessment: state.createRisk,
   getRiskAssessment: state.getAssessment, getRiskAssessmentForIncident: state.getAssessmentForIncident,
   reassessRiskAssessment: state.reassess
 }));
@@ -149,6 +150,7 @@ beforeEach(() => {
   state.getAssessment.mockReset();
   state.getAssessmentForIncident.mockReset();
   state.calculateRisk.mockReset();
+  state.createRisk.mockReset();
   state.reassess.mockReset();
   state.replace.mockReset();
 });
@@ -341,4 +343,24 @@ it('saves a reassessment and replaces the route with the new assessment ID', asy
   expect(state.replace).toHaveBeenCalledWith({
     pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: 'assessment-new' }
   });
+});
+
+it('routes an initial assessment save directly to Monitoring with a success notice', async () => {
+  state.params = { incidentId: 'incident-1' };
+  const incidentResponse: RiskAssessmentForIncidentResponse = { assessment: null, incident: response.incident, reports: response.reports };
+  state.resource = { data: incidentResponse, loading: false, error: null, reload: vi.fn() };
+  state.calculateRisk.mockResolvedValue({ calculatedScore: 18, systemSuggestedRisk: 'HIGH' });
+  state.createRisk.mockResolvedValue(response);
+  renderScreen(); renderScreen();
+  state.inputs.get('People Affected')!('18');
+  state.inputs.get('Vulnerable People')!('6');
+  renderScreen();
+  state.actions.get('CALCULATE RISK')!();
+  await Promise.resolve(); await Promise.resolve(); renderScreen();
+  state.actions.get('SAVE ASSESSMENT')!();
+  await Promise.resolve(); await Promise.resolve();
+  expect(state.createRisk).toHaveBeenCalled();
+  expect(state.replace).toHaveBeenCalledWith({ pathname: '/officer/monitoring/[incidentId]', params: {
+    incidentId: 'incident-1', notice: 'assessment-saved'
+  } });
 });

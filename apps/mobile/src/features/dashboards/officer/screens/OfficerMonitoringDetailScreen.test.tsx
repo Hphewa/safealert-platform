@@ -5,7 +5,8 @@ import type { IncidentMonitoringDetailResponse } from '@safealert/contracts';
 
 const { renderToStaticMarkup } = createRequire(import.meta.url)('react-dom/server') as { renderToStaticMarkup: (node: ReactNode) => string };
 const state = vi.hoisted(() => ({ data: null as IncidentMonitoringDetailResponse | null, loading: false, error: null as string | null,
-  loader: null as (() => Promise<IncidentMonitoringDetailResponse>) | null, get: vi.fn(), params: { incidentId: 'incident-1' },
+  loader: null as (() => Promise<IncidentMonitoringDetailResponse>) | null, get: vi.fn(),
+  params: { incidentId: 'incident-1' } as { incidentId: string; notice?: string },
   actions: new Map<string, () => void>(), push: vi.fn(), reload: vi.fn() }));
 vi.mock('react-native', () => ({ View: ({ children }: { children?: ReactNode }) => <div>{children}</div>, Text: ({ children }: { children?: ReactNode }) => <span>{children}</span> }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push }), useLocalSearchParams: () => state.params, useFocusEffect: vi.fn() }));
@@ -50,6 +51,12 @@ it('loads evidence and routes active assessment lifecycle actions to existing sc
   expect(state.push).toHaveBeenLastCalledWith({ pathname: '/officer/warnings/create', params: { assessmentId: 'assessment-1' } });
   state.actions.get('VIEW WARNING')!();
   expect(state.push).toHaveBeenLastCalledWith({ pathname: '/officer/warnings/[warningId]', params: { warningId: 'warning-1' } });
+});
+
+it('shows the initial-save confirmation notice on monitoring detail', () => {
+  state.params = { incidentId: 'incident-1', notice: 'assessment-saved' };
+  state.data = detail();
+  expect(renderToStaticMarkup(<OfficerMonitoringDetailScreen />)).toContain('Risk assessment saved successfully. This incident is now available in Monitoring.');
 });
 
 it('shows closed and no-visible-assessment states without offering lifecycle mutations', () => {

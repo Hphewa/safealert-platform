@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { canCreateWarning, type IncidentMonitoringDetailResponse } from '@safealert/contracts';
@@ -14,8 +14,12 @@ import { formatIncidentLocation, formatIncidentTime } from '../incidentGrouping'
 export function OfficerMonitoringDetailScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ incidentId?: string | string[] }>();
+  const params = useLocalSearchParams<{ incidentId?: string | string[]; notice?: string | string[] }>();
   const incidentId = Array.isArray(params.incidentId) ? params.incidentId[0] : params.incidentId;
+  const notice = Array.isArray(params.notice) ? params.notice[0] : params.notice;
+  const noticeConsumed = useRef(false);
+  const showSavedNotice = notice === 'assessment-saved' && !noticeConsumed.current;
+  if (showSavedNotice) noticeConsumed.current = true;
   const load = useCallback(async (): Promise<IncidentMonitoringDetailResponse> => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
     if (!incidentId) throw new Error('An incident reference is required.');
@@ -29,6 +33,9 @@ export function OfficerMonitoringDetailScreen() {
 
   return <DashboardScreen bottomNavItems={officerBottomNavItems}>
     <Text style={assessmentStyles.title}>Incident Monitoring</Text>
+    {showSavedNotice ? <Text accessibilityRole="alert" style={assessmentStyles.helper}>
+      Risk assessment saved successfully. This incident is now available in Monitoring.
+    </Text> : null}
     {!item ? <AssessmentLoadState loading={loading} error={error} retry={() => void reload()} /> : <>
       <View style={assessmentStyles.card}>
         <Text style={assessmentStyles.label}>INCIDENT · {item.incident.status}</Text>
