@@ -86,6 +86,7 @@ export function ResidentReportEditScreen() {
   const [loadStatus, setLoadStatus] = useState<EditLoadStatus>('loading');
   const [submitStatus, setSubmitStatus] = useState<EditSubmitStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [canRetrySave, setCanRetrySave] = useState(false);
   const submitInFlightRef = useRef(false);
 
   const loadReport = useCallback(async () => {
@@ -103,6 +104,7 @@ export function ResidentReportEditScreen() {
 
     setLoadStatus('loading');
     setErrorMessage(null);
+    setCanRetrySave(false);
 
     try {
       const response = await getMyReportById(reportId, accessToken);
@@ -134,11 +136,13 @@ export function ResidentReportEditScreen() {
 
     if (validationMessage) {
       setErrorMessage(validationMessage);
+      setCanRetrySave(false);
       return;
     }
 
     submitInFlightRef.current = true;
     setErrorMessage(null);
+    setCanRetrySave(false);
 
     try {
       let mediaReference = form.mediaReference;
@@ -218,16 +222,14 @@ export function ResidentReportEditScreen() {
       router.replace(residentReportStatusHref(response.report.id));
     } catch (error) {
       if (error instanceof ApiClientError && error.status === 409) {
-        setErrorMessage('This report can no longer be changed because its status has been updated.');
+        setErrorMessage('This report can no longer be edited because its status has changed.');
+        setCanRetrySave(false);
         await loadReport();
         return;
       }
 
-      setErrorMessage(
-        error instanceof ApiClientError || error instanceof Error
-          ? error.message
-          : 'Unable to save this report right now.'
-      );
+      setErrorMessage('Your changes could not be saved.');
+      setCanRetrySave(true);
     } finally {
       submitInFlightRef.current = false;
       setSubmitStatus('idle');
@@ -329,7 +331,7 @@ export function ResidentReportEditScreen() {
           ) : report.status !== 'PENDING' ? (
             <StatePanel
               actionLabel="View Details"
-              message="This report can no longer be changed because its status has been updated."
+              message="This report can no longer be edited because its status has changed."
               onActionPress={() => router.replace(residentReportStatusHref(report.id))}
               title={`${statusLabelForResident(report.status)} Report`}
             />
@@ -507,11 +509,9 @@ export function ResidentReportEditScreen() {
                 }}
                 style={({ pressed }) => [styles.saveButton, isSubmitting && styles.buttonDisabled, pressed && styles.pressed]}
               >
-                {isSubmitting ? (
-                  <ActivityIndicator color="#ffffff" size="small" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Save Changes</Text>
-                )}
+                <Text style={styles.saveButtonText}>
+                  {isSubmitting ? 'Saving changes...' : canRetrySave ? 'Try Again' : 'Save Changes'}
+                </Text>
               </Pressable>
 
               <Text style={styles.hintText}>
