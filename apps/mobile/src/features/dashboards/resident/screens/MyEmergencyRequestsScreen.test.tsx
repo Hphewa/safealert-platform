@@ -17,7 +17,7 @@ import { EmergencyRequestSubmittedScreen } from './EmergencyRequestSubmittedScre
 import { MyEmergencyRequestsScreen } from './MyEmergencyRequestsScreen';
 import { ResidentEmergencyRequestDetailsScreen } from './ResidentEmergencyRequestDetailsScreen';
 
-// Follow the existing mobile tests: exercise screen callbacks without a native runtime.
+// Follow the existing mobile tests: exercise focus/blur and refresh callbacks without a native runtime.
 const lifecycle = vi.hoisted(() => ({
   slots: [] as unknown[], cursor: 0,
   params: {} as { requestId?: string | string[] },
@@ -31,6 +31,12 @@ const auth = vi.hoisted(() => ({
 vi.mock('react', async (importOriginal) => ({
   ...await importOriginal<typeof React>(),
   useMemo: (factory: () => unknown) => factory(),
+  useCallback: (callback: unknown) => callback,
+  useRef: (initial: unknown) => {
+    const index = lifecycle.cursor++;
+    lifecycle.slots[index] ??= { current: initial };
+    return lifecycle.slots[index];
+  },
   useEffect: (callback: typeof lifecycle.effect) => { lifecycle.effect = callback; },
   useState: (initial: unknown) => {
     const index = lifecycle.cursor++;
@@ -39,6 +45,7 @@ vi.mock('react', async (importOriginal) => ({
   }
 }));
 vi.mock('expo-router', () => ({
+  useFocusEffect: (callback: typeof lifecycle.effect) => { lifecycle.effect = callback; },
   useRouter: () => navigation, useLocalSearchParams: () => lifecycle.params,
   Redirect: 'redirect', Stack: 'stack'
 }));
@@ -127,6 +134,104 @@ beforeEach(() => {
   vi.mocked(useEmergencyAssistanceDraft).mockReturnValue(provider.props.value);
   lifecycle.slots = [];
   lifecycle.cursor = 0;
+});
+
+describe('Resident status refetch', () => {
+  const statuses = [
+    ['NEW', 'Submitted'], ['ASSIGNED', 'Assigned'], ['DISPATCHED', 'Dispatched'],
+    ['ARRIVED', 'Arrived'], ['IN_PROGRESS', 'In Progress'], ['COMPLETED', 'Completed']
+  ] as const;
+
+  it('replaces summary card data with each newly retrieved backend status after Refresh', async () => {
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [request] });
+    render();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(summaryCards(render())).toHaveLength(1));
+
+    for (const [status, label] of statuses) {
+      vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [{ ...request, status }] });
+      expect(press(render(), 'Refresh emergency requests')).toBe(true);
+      await vi.waitFor(() => expect(screenText(render())).toContain(`Status:  ${label}`));
+      expect(summaryCards(render())[0].props.request.status).toBe(status);
+      expect(screenText(render())).not.toContain('IN_PROGRESS');
+    }
+    expect(listMyResponseRequests).toHaveBeenCalledTimes(statuses.length + 1);
+    expect(listMyResponseRequests).toHaveBeenLastCalledWith('resident-token');
+  });
+
+  it('keeps the details heading and tracker on the same refetched request status', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...detailedRequest, status: 'NEW' } });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Submitted Current stage'));
+
+    for (const [status, label] of statuses) {
+      vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...detailedRequest, status } });
+      expect(press(renderDetails(), 'Refresh emergency request details')).toBe(true);
+      await vi.waitFor(() => expect(screenText(renderDetails())).toContain(`${label} Current stage`));
+      expect(screenText(renderDetails())).toContain(`Status:  ${label}`);
+      expect(screenText(renderDetails())).not.toContain('IN_PROGRESS');
+    }
+    expect(getMyResponseRequestById).toHaveBeenCalledTimes(statuses.length + 1);
+    expect(getMyResponseRequestById).toHaveBeenLastCalledWith(request.id, 'resident-token');
+  });
+
+  it.each(['list', 'details'] as const)('refetches a still-mounted %s screen on return to focus', async (screen) => {
+    const renderScreen = screen === 'list' ? render : renderDetails;
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [{ ...request, status: 'ASSIGNED' }] });
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...detailedRequest, status: 'ASSIGNED' } });
+    renderScreen();
+    const blur = lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderScreen())).toContain('Status:  Assigned'));
+    blur?.();
+
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [{ ...request, status: 'DISPATCHED' }] });
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...detailedRequest, status: 'DISPATCHED' } });
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderScreen())).toContain('Status:  Dispatched'));
+    expect(screenText(renderScreen())).not.toContain('Status:  Assigned');
+  });
+
+  it.each(['list', 'details'] as const)('ignores an older %s response that arrives after a newer read', async (screen) => {
+    let resolveList: ((value: { responseRequests: SafeResponseRequest[] }) => void) | undefined;
+    let resolveDetails: ((value: { responseRequest: SafeResponseRequest }) => void) | undefined;
+    if (screen === 'list') {
+      vi.mocked(listMyResponseRequests).mockReturnValueOnce(new Promise((done) => { resolveList = done; }));
+    } else {
+      vi.mocked(getMyResponseRequestById).mockReturnValueOnce(new Promise((done) => { resolveDetails = done; }));
+    }
+    const renderScreen = screen === 'list' ? render : renderDetails;
+    renderScreen();
+    const blur = lifecycle.effect();
+    blur?.();
+
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [{ ...request, status: 'ARRIVED' }] });
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...detailedRequest, status: 'ARRIVED' } });
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderScreen())).toContain('Status:  Arrived'));
+    if (screen === 'list') resolveList?.({ responseRequests: [{ ...request, status: 'ASSIGNED' }] });
+    else resolveDetails?.({ responseRequest: { ...detailedRequest, status: 'ASSIGNED' } });
+    await Promise.resolve();
+    expect(screenText(renderScreen())).toContain('Status:  Arrived');
+    expect(screenText(renderScreen())).not.toContain('Status:  Assigned');
+  });
+
+  it.each(['list', 'details'] as const)('does not present stale %s status as current after a failed refresh', async (screen) => {
+    const renderScreen = screen === 'list' ? render : renderDetails;
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [request] });
+    renderScreen();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderScreen())).toContain('Status:'));
+    vi.mocked(listMyResponseRequests).mockRejectedValue(new Error('Internal database information'));
+    vi.mocked(getMyResponseRequestById).mockRejectedValue(new ApiClientError(404, 'REQUEST_NOT_FOUND', 'Private owner data'));
+    press(renderScreen(), screen === 'list' ? 'Refresh emergency requests' : 'Refresh emergency request details');
+    await vi.waitFor(() => expect(screenText(renderScreen())).toContain(
+      screen === 'list' ? 'Unable to load your emergency requests right now.' : 'This emergency request is unavailable.'
+    ));
+    expect(screenText(renderScreen())).not.toContain('Status:');
+    expect(screenText(renderScreen())).not.toContain('Internal database');
+    expect(screenText(renderScreen())).not.toContain('Private owner');
+  });
 });
 
 describe('My Emergency Requests foundation', () => {

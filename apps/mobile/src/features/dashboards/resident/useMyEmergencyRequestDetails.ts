@@ -1,5 +1,6 @@
 import type { SafeResponseRequest } from '@safealert/contracts';
-import { useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 
@@ -18,35 +19,38 @@ export function useMyEmergencyRequestDetails(routeId: string | string[] | undefi
   const { accessToken } = useAuth();
   const requestId = parseResidentEmergencyRequestId(routeId);
   const [state, setState] = useState<DetailsState | null>(null);
+  const latestRead = useRef(0);
 
-  useEffect(() => {
+  const refetch = useCallback(async () => {
+    const readId = ++latestRead.current;
     if (!requestId || !accessToken?.trim()) return;
-    let active = true;
     setState({ requestId, accessToken, request: null, error: null });
 
-    void getMyResponseRequestById(requestId, accessToken).then(
-      ({ responseRequest }) => {
-        if (active) setState({ requestId, accessToken, request: responseRequest, error: null });
-      },
-      (error: unknown) => {
-        if (active) setState({ requestId, accessToken, request: null, error: detailsErrorMessage(error) });
-      }
-    );
-
-    // A late response must not populate a different request or a different signed-in session.
-    return () => { active = false; };
+    try {
+      const { responseRequest } = await getMyResponseRequestById(requestId, accessToken);
+      if (readId === latestRead.current) setState({ requestId, accessToken, request: responseRequest, error: null });
+    } catch (error) {
+      if (readId === latestRead.current) setState({ requestId, accessToken, request: null, error: detailsErrorMessage(error) });
+    }
   }, [requestId, accessToken]);
 
+  useFocusEffect(useCallback(() => {
+    // Refetch the same backend request so the status heading and tracker share responder-confirmed progress.
+    void refetch();
+    // Ignore late responses from a previous focus, request ID or authenticated session.
+    return () => { latestRead.current += 1; };
+  }, [refetch]));
+
   if (!accessToken?.trim()) {
-    return { request: null, error: 'Your resident session is unavailable. Please log in again.' };
+    return { request: null, error: 'Your resident session is unavailable. Please log in again.', refetch, isRefreshing: false };
   }
   if (!requestId) {
-    return { request: null, error: 'Select a valid request from My Emergency Requests.' };
+    return { request: null, error: 'Select a valid request from My Emergency Requests.', refetch, isRefreshing: false };
   }
   if (state?.requestId !== requestId || state.accessToken !== accessToken) {
-    return { request: null, error: null };
+    return { request: null, error: null, refetch, isRefreshing: true };
   }
-  return { request: state.request, error: state.error };
+  return { request: state.request, error: state.error, refetch, isRefreshing: state.request === null && state.error === null };
 }
 
 function detailsErrorMessage(error: unknown): string {

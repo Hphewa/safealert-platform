@@ -10,7 +10,7 @@ import { useMyEmergencyRequests } from '../useMyEmergencyRequests';
 
 export function MyEmergencyRequestsScreen() {
   const router = useRouter();
-  const { requests, error } = useMyEmergencyRequests();
+  const { requests, error, refetch, isRefreshing } = useMyEmergencyRequests();
 
   const goBack = () => {
     // Direct links may have no history; return those residents to Emergency Assistance.
@@ -30,6 +30,16 @@ export function MyEmergencyRequestsScreen() {
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
         </Pressable>
         <Text accessibilityRole="header" style={styles.title}>My Emergency Requests</Text>
+        <Pressable
+          accessibilityLabel="Refresh emergency requests"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: isRefreshing, busy: isRefreshing }}
+          disabled={isRefreshing}
+          onPress={() => void refetch()}
+          style={({ pressed }) => [styles.refreshButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.refreshText}>Refresh</Text>
+        </Pressable>
       </View>
       <Text style={styles.description}>Track the progress of your emergency assistance requests.</Text>
       <Text accessibilityLiveRegion="polite" style={styles.description}>
@@ -50,6 +60,16 @@ export function MyEmergencyRequestsScreen() {
 }
 
 const styles = StyleSheet.create({
+  refreshButton: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  refreshText: { fontSize: 14, fontWeight: '700', color: dashboardTheme.colors.primaryStrong },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

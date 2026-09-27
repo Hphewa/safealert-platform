@@ -1,5 +1,6 @@
 import type { SafeResponseRequest } from '@safealert/contracts';
-import { useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useRef, useState } from 'react';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 
@@ -14,31 +15,35 @@ type RequestsState = {
 export function useMyEmergencyRequests() {
   const { accessToken } = useAuth();
   const [state, setState] = useState<RequestsState>({ accessToken: null, requests: null, error: null });
+  const latestRead = useRef(0);
 
-  useEffect(() => {
-    if (!accessToken) return;
-    let active = true;
-
+  const refetch = useCallback(async () => {
+    const readId = ++latestRead.current;
+    if (!accessToken?.trim()) return;
     setState({ accessToken, requests: null, error: null });
-    void listMyResponseRequests(accessToken).then(
-      ({ responseRequests }) => {
-        if (active) setState({ accessToken, requests: responseRequests, error: null });
-      },
-      () => {
-        if (active) {
-          setState({ accessToken, requests: null, error: 'Unable to load your emergency requests right now.' });
-        }
-      }
-    );
 
-    // Ignore late responses after leaving the screen or changing the authenticated session.
-    return () => { active = false; };
+    try {
+      const { responseRequests } = await listMyResponseRequests(accessToken);
+      if (readId === latestRead.current) setState({ accessToken, requests: responseRequests, error: null });
+    } catch {
+      if (readId === latestRead.current) {
+        setState({ accessToken, requests: null, error: 'Unable to load your emergency requests right now.' });
+      }
+    }
   }, [accessToken]);
 
-  if (!accessToken) {
-    return { requests: null, error: 'Your resident session is unavailable. Please log in again.' };
+  useFocusEffect(useCallback(() => {
+    // Returning from details must read persisted responder updates, not retain a local status snapshot.
+    void refetch();
+    // Invalidate older reads on blur, unmount or session change so they cannot overwrite a newer read.
+    return () => { latestRead.current += 1; };
+  }, [refetch]));
+
+  if (!accessToken?.trim()) {
+    return { requests: null, error: 'Your resident session is unavailable. Please log in again.', refetch, isRefreshing: false };
   }
 
   // Do not display a previous session's data while the new session starts loading.
-  return state.accessToken === accessToken ? state : { requests: null, error: null };
+  const current = state.accessToken === accessToken ? state : { requests: null, error: null };
+  return { requests: current.requests, error: current.error, refetch, isRefreshing: current.requests === null && current.error === null };
 }
