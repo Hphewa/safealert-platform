@@ -206,9 +206,9 @@ describe('ResidentReportDetailsScreen', () => {
 
     const text = screenText(render());
     expect(text).toContain('Community Field Check');
-    expect(text).toContain('Community field checks are separate from the official report status.');
-    expect(text).toContain('Not Reviewed');
-    expect(text).toContain('No community volunteer field check has been submitted yet.');
+    expect(text).toContain('Community volunteer checks are separate from the official review.');
+    expect(text).toContain('Not reviewed');
+    expect(text).toContain('Not reviewed by a community volunteer yet.');
     expect(text).toContain('Selected location');
     expect(text).not.toContain('Report ID');
     expect(text).not.toContain('/api/v1/media/report-evidence/photo.jpg');
@@ -278,12 +278,13 @@ describe('ResidentReportDetailsScreen', () => {
 
     render();
     await lifecycle.focus();
-    await vi.waitFor(() => expect(screenText(render())).toContain('Confirmed by a community volunteer.'));
+    await vi.waitFor(() => expect(screenText(render())).toContain('Community field check confirmed'));
 
     const text = screenText(render());
     expect(text).toContain('Official Review');
     expect(text).toContain('Pending');
     expect(text).toContain('A disaster officer has not completed the official review yet.');
+    expect(text).toContain('A community volunteer reported that the current situation matched this report.');
     expect(text).not.toContain('A disaster officer verified this report.');
   });
 
@@ -295,14 +296,64 @@ describe('ResidentReportDetailsScreen', () => {
 
     render();
     await lifecycle.focus();
-    await vi.waitFor(() => expect(screenText(render())).toContain('Unable to confirm.'));
+    await vi.waitFor(() => expect(screenText(render())).toContain('Unable to confirm'));
 
     const text = screenText(render());
     expect(text).toContain('Official Review');
     expect(text).toContain('Pending');
-    expect(text).toContain('Unable to confirm.');
+    expect(text).toContain('Unable to confirm');
+    expect(text).toContain('A community volunteer could not confirm that the current situation matched this report.');
+    expect(text).toContain('Reason');
+    expect(text).toContain('Unable to access location');
     expect(text).not.toContain('Reason for rejection');
     expect(text).not.toContain('A disaster officer reviewed this report and did not verify it.');
+  });
+
+  it('shows unable-to-confirm reason details when they are safe for the resident response', async () => {
+    vi.mocked(getMyReportById).mockResolvedValue({ report: { ...pendingReport, status: 'VERIFIED' } });
+    vi.mocked(listMyReportFieldConfirmations).mockResolvedValue({
+      confirmations: [
+        fieldConfirmation('UNABLE_TO_CONFIRM', {
+          reason: 'Location does not match',
+          reasonDetails: 'The volunteer found the hazard one street away.'
+        })
+      ]
+    });
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Location does not match'));
+
+    const text = screenText(render());
+    expect(text).toContain('Official Review');
+    expect(text).toContain('Verified');
+    expect(text).toContain('A disaster officer verified this report.');
+    expect(text).toContain('Unable to confirm');
+    expect(text).toContain('The volunteer found the hazard one street away.');
+    expect(text).not.toContain('Reason for rejection');
+  });
+
+  it('shows multiple field checks without implying all volunteers agreed', async () => {
+    vi.mocked(getMyReportById).mockResolvedValue({ report: { ...pendingReport, status: 'REJECTED' } });
+    vi.mocked(listMyReportFieldConfirmations).mockResolvedValue({
+      confirmations: [
+        fieldConfirmation('CONFIRMED'),
+        fieldConfirmation('UNABLE_TO_CONFIRM', { id: 'confirmation-unable-2', reason: 'Report information is incorrect' })
+      ]
+    });
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('community field checks are shown below.'));
+
+    const text = screenText(render());
+    expect(text).toContain('Official Review');
+    expect(text).toContain('Rejected');
+    expect(text).toContain('Community field check confirmed');
+    expect(text).toContain('Unable to confirm');
+    expect(text).toContain('Report information is incorrect');
+    expect(text).not.toContain('volunteer-1');
+    expect(text).not.toContain('@');
   });
 
   it('shows loading and safe error copy without exposing raw response details', async () => {
@@ -336,7 +387,18 @@ type ButtonProps = {
   onPress: () => void;
 };
 
-function fieldConfirmation(outcome: ResidentFieldConfirmation['outcome']): ResidentFieldConfirmation {
+function fieldConfirmation(
+  outcome: 'CONFIRMED',
+  overrides?: Partial<Extract<ResidentFieldConfirmation, { outcome: 'CONFIRMED' }>>
+): ResidentFieldConfirmation;
+function fieldConfirmation(
+  outcome: 'UNABLE_TO_CONFIRM',
+  overrides?: Partial<Extract<ResidentFieldConfirmation, { outcome: 'UNABLE_TO_CONFIRM' }>>
+): ResidentFieldConfirmation;
+function fieldConfirmation(
+  outcome: ResidentFieldConfirmation['outcome'],
+  overrides: Partial<ResidentFieldConfirmation> = {}
+): ResidentFieldConfirmation {
   const base = {
     id: `confirmation-${outcome}`,
     reportId: 'report-1',
@@ -354,15 +416,17 @@ function fieldConfirmation(outcome: ResidentFieldConfirmation['outcome']): Resid
         photoMatches: true,
         situationStillExists: true,
         severityAppearsCorrect: true
-      }
-    };
+      },
+      ...overrides
+    } as ResidentFieldConfirmation;
   }
 
   return {
     ...base,
     outcome,
-    reason: 'Unable to access location'
-  };
+    reason: 'Unable to access location',
+    ...overrides
+  } as ResidentFieldConfirmation;
 }
 
 function screenButtons(node: React.ReactNode): ButtonProps[] {

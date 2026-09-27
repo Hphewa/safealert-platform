@@ -405,18 +405,23 @@ function ReportDetailContent({
       <View style={styles.panel}>
         <Text style={styles.panelTitle}>Community Field Check</Text>
         <Text style={styles.mapHintText}>
-          Community field checks are separate from the official report status.
+          Community volunteer checks are separate from the official review.
         </Text>
         {fieldConfirmations.length ? (
           <View style={styles.timelineList}>
+            {fieldConfirmations.length > 1 ? (
+              <Text style={styles.mapHintText}>
+                {fieldConfirmations.length} community field checks are shown below.
+              </Text>
+            ) : null}
             {fieldConfirmations.map((confirmation) => (
               <CommunityFieldCheckCard confirmation={confirmation} key={confirmation.id} />
             ))}
           </View>
         ) : (
           <View style={styles.communityCard}>
-            <Text style={styles.timelineTitle}>Not Reviewed</Text>
-            <Text style={styles.timelineDetail}>No community volunteer field check has been submitted yet.</Text>
+            <Text style={styles.timelineTitle}>Not reviewed</Text>
+            <Text style={styles.timelineDetail}>Not reviewed by a community volunteer yet.</Text>
           </View>
         )}
       </View>
@@ -428,9 +433,8 @@ function CommunityFieldCheckCard({ confirmation }: { confirmation: ResidentField
   const mediaUri = confirmation.outcome === 'CONFIRMED' ? resolveMediaReferenceUri(confirmation.mediaReference) : undefined;
   return (
     <View style={styles.communityCard}>
-      <Text style={styles.timelineTitle}>
-        {confirmation.outcome === 'CONFIRMED' ? 'Confirmed by a community volunteer.' : 'Unable to confirm.'}
-      </Text>
+      <Text style={styles.timelineTitle}>{communityFieldCheckTitle(confirmation)}</Text>
+      <Text style={styles.timelineDetail}>{communityFieldCheckSummary(confirmation)}</Text>
       <Text style={styles.timelineTime}>{formatResidentReportDateTime(confirmation.createdAt)}</Text>
       {confirmation.outcome === 'CONFIRMED' ? (
         <>
@@ -445,12 +449,25 @@ function CommunityFieldCheckCard({ confirmation }: { confirmation: ResidentField
         </>
       ) : (
         <>
-          <Text style={styles.timelineDetail}>Reason: {confirmation.reason}</Text>
+          <Text style={styles.detailLabel}>Reason</Text>
+          <Text style={styles.timelineDetail}>{confirmation.reason}</Text>
           {confirmation.reasonDetails ? <Text style={styles.descriptionText}>{confirmation.reasonDetails}</Text> : null}
         </>
       )}
     </View>
   );
+}
+
+function communityFieldCheckTitle(confirmation: ResidentFieldConfirmation) {
+  return confirmation.outcome === 'CONFIRMED'
+    ? 'Community field check confirmed'
+    : 'Unable to confirm';
+}
+
+function communityFieldCheckSummary(confirmation: ResidentFieldConfirmation) {
+  return confirmation.outcome === 'CONFIRMED'
+    ? 'A community volunteer reported that the current situation matched this report.'
+    : 'A community volunteer could not confirm that the current situation matched this report.';
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
