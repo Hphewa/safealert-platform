@@ -20,7 +20,8 @@ const warningSchema = new mongoose.Schema({
   status: { type: String, enum: WARNING_STATUSES, required: true, default: 'DRAFT' }
   ,notificationTarget: {
     scope: { type: String, enum: ['AFFECTED_AREA', 'DISTRICT', 'WHOLE_COUNTRY'] },
-    district: { type: String, enum: WARNING_DISTRICTS }
+    district: { type: String, enum: WARNING_DISTRICTS },
+    country: { type: String, enum: ['Sri Lanka'] }
   }
   ,publishedAt: { type: Date },
   publishedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
@@ -41,7 +42,9 @@ export function toSafeWarning(warning: WarningDocument): SafeWarning {
     ...(warning.notificationTarget?.scope ? {
       notificationTarget: warning.notificationTarget.scope === 'DISTRICT'
         ? { scope: 'DISTRICT' as const, district: warning.notificationTarget.district! }
-        : { scope: warning.notificationTarget.scope as 'AFFECTED_AREA' | 'WHOLE_COUNTRY' }
+        : warning.notificationTarget.scope === 'WHOLE_COUNTRY'
+          ? { scope: 'WHOLE_COUNTRY' as const, country: 'Sri Lanka' as const }
+          : { scope: 'AFFECTED_AREA' as const }
     } : {}),
     createdAt: warning.createdAt.toISOString(), updatedAt: warning.updatedAt.toISOString(),
     ...(warning.publishedAt ? { publishedAt: warning.publishedAt.toISOString() } : {}),

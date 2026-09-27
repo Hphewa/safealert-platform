@@ -7,6 +7,10 @@ import { InMemoryReportRepository } from '../../reports/repositories/inMemoryRep
 import { InMemoryRiskAssessmentRepository } from '../../risk-assessments/repositories/inMemoryRiskAssessment.repository.js';
 import { InMemoryWarningRepository } from '../repositories/inMemoryWarning.repository.js';
 import { InMemoryIncidentRepository } from '../../incidents/repositories/inMemoryIncident.repository.js';
+import { InMemoryNotificationRecipientRepository } from '../../notifications/repositories/inMemoryNotificationRecipient.repository.js';
+import { InMemoryWarningDeliveryRepository } from '../../notifications/repositories/inMemoryWarningDelivery.repository.js';
+import { MockPushProvider } from '../../notifications/providers/mockPushProvider.js';
+import { MockSmsProvider } from '../../notifications/providers/mockSmsProvider.js';
 import type { WarningPublishedHandler } from '../services/warning.service.js';
 
 export const officerId = '123456789012345678901235';
@@ -43,6 +47,11 @@ export async function warningContext(finalRiskLevel: RiskLevel = 'HIGH', warning
   });
   const app = createApp({ config: loadConfig(), authRepository: new InMemoryAuthRepository(),
     reportRepository: reports, incidentRepository: incidents, riskAssessmentRepository: assessments, warningRepository: warnings,
+    // LDFEW-127 post-publication delivery stays in memory here so warning tests never touch
+    // MongoDB, Notify.lk, or Firebase.
+    warningDeliveryRepository: new InMemoryWarningDeliveryRepository(),
+    notificationRecipientRepository: new InMemoryNotificationRecipientRepository(),
+    smsProvider: new MockSmsProvider(), pushProvider: new MockPushProvider(),
     ...(warningPublishedHandler ? { warningPublishedHandler } : {}) });
   return { app, assessments, assessment, warnings, reportId, payload: { assessmentId: assessment.id, ...warningInput } };
 }

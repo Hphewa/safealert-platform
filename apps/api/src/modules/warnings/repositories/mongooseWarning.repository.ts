@@ -10,6 +10,7 @@ export class MongooseWarningRepository implements WarningRepository {
     return warning ? toSafeWarning(warning) : null;
   }
   async publish(id: string, publishedById: string, publishedAt: string, notificationTarget: Parameters<WarningRepository['publish']>[3]) {
+    if (notificationTarget.scope === 'WHOLE_COUNTRY') notificationTarget = { scope: 'WHOLE_COUNTRY', country: 'Sri Lanka' };
     const warning = await WarningModel.findOneAndUpdate(
       { _id: id, status: 'DRAFT', affectedArea: { $type: 'string', $ne: '' } },
       { $set: { status: 'PUBLISHED', publishedAt: new Date(publishedAt), publishedById, notificationTarget } },

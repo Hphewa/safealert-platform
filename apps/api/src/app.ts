@@ -31,6 +31,18 @@ import { RiskAssessmentService } from './modules/risk-assessments/services/riskA
 import { createWarningRouter } from './modules/warnings/routes/warning.routes.js';
 import { WarningService, type WarningPublishedHandler } from './modules/warnings/services/warning.service.js';
 import { MongooseWarningRepository } from './modules/warnings/repositories/mongooseWarning.repository.js';
+import { createNotificationRouter } from './modules/notifications/routes/notification.routes.js';
+import { NotificationProfileService } from './modules/notifications/services/notificationProfile.service.js';
+import { WarningNotificationService } from './modules/notifications/services/warningNotification.service.js';
+import { MongooseNotificationProfileRepository } from './modules/notifications/repositories/mongooseNotificationProfile.repository.js';
+import { MongooseNotificationRecipientRepository } from './modules/notifications/repositories/mongooseNotificationRecipient.repository.js';
+import { MongooseWarningDeliveryRepository } from './modules/notifications/repositories/mongooseWarningDelivery.repository.js';
+import type { NotificationProfileRepository } from './modules/notifications/repositories/notificationProfile.repository.js';
+import type { NotificationRecipientRepository } from './modules/notifications/repositories/notificationRecipient.repository.js';
+import type { WarningDeliveryRepository } from './modules/notifications/repositories/warningDelivery.repository.js';
+import { createPushProvider, createSmsProvider } from './modules/notifications/providers/createNotificationProviders.js';
+import type { PushProvider } from './modules/notifications/providers/pushProvider.js';
+import type { SmsProvider } from './modules/notifications/providers/smsProvider.js';
 import type { WarningRepository } from './modules/warnings/repositories/warning.repository.js';
 import type { WarningAttachmentRepository } from './modules/warnings/repositories/warningAttachment.repository.js';
 import { GridFsWarningAttachmentRepository } from './modules/warnings/repositories/gridFsWarningAttachment.repository.js';
@@ -52,6 +64,11 @@ type CreateAppOptions = {
   warningAttachmentRepository?: WarningAttachmentRepository;
   incidentRepository?: IncidentRepository;
   warningPublishedHandler?: WarningPublishedHandler;
+  warningDeliveryRepository?: WarningDeliveryRepository;
+  notificationRecipientRepository?: NotificationRecipientRepository;
+  notificationProfileRepository?: NotificationProfileRepository;
+  smsProvider?: SmsProvider;
+  pushProvider?: PushProvider;
   enableRbacTestRoutes?: boolean;
 };
 
@@ -66,6 +83,11 @@ export function createApp({
   warningAttachmentRepository,
   incidentRepository,
   warningPublishedHandler,
+  warningDeliveryRepository,
+  notificationRecipientRepository,
+  notificationProfileRepository,
+  smsProvider,
+  pushProvider,
   enableRbacTestRoutes = false
 }: CreateAppOptions) {
   const app = express();
@@ -78,7 +100,27 @@ export function createApp({
   const resolvedAssessmentRepository = riskAssessmentRepository ?? new MongooseRiskAssessmentRepository();
   const riskAssessmentService = new RiskAssessmentService(resolvedAssessmentRepository, resolvedIncidentRepository, resolvedReportRepository);
   const resolvedImages = warningAttachmentRepository ?? new GridFsWarningAttachmentRepository();
-  const warningService = new WarningService(warningRepository ?? new MongooseWarningRepository(), resolvedAssessmentRepository, resolvedImages, resolvedIncidentRepository, warningPublishedHandler);
+  // LDFEW-127: publication persists first; this handler then runs targeted SMS (Notify.lk)
+  // and push (Firebase Cloud Messaging) delivery without ever affecting publication.
+  const warningNotificationService = new WarningNotificationService({
+    recipients: notificationRecipientRepository ?? new MongooseNotificationRecipientRepository(),
+    deliveries: warningDeliveryRepository ?? new MongooseWarningDeliveryRepository(),
+    smsProvider: smsProvider ?? createSmsProvider(config),
+    pushProvider: pushProvider ?? createPushProvider(config),
+    countryName: config.notificationCountryName,
+    logger: console
+  });
+  const resolvedWarningPublishedHandler: WarningPublishedHandler = warningPublishedHandler ??
+    ((warning) => warningNotificationService.notifyPublishedWarning(warning)
+      .then(() => undefined)
+      .catch(() => {
+        // Publication remains authoritative. This log makes an unexpected orchestration
+        // failure visible without exposing provider credentials or changing warning status.
+        console.error('Warning notification processing failed after publication.', {
+          warningId: warning.id
+        });
+      }));
+  const warningService = new WarningService(warningRepository ?? new MongooseWarningRepository(), resolvedAssessmentRepository, resolvedImages, resolvedIncidentRepository, resolvedWarningPublishedHandler);
   const warningAttachmentService = new WarningAttachmentService(resolvedImages, resolvedAssessmentRepository);
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()
@@ -106,6 +148,9 @@ export function createApp({
   ));
   app.use('/api/v1/risk-assessments', createRiskAssessmentRouter(riskAssessmentService, config));
   app.use('/api/v1/warnings', createWarningRouter(warningService, config));
+  app.use('/api/v1/notifications', createNotificationRouter(
+    new NotificationProfileService(notificationProfileRepository ?? new MongooseNotificationProfileRepository()), config
+  ));
   app.use('/api/v1/response-requests', createResponseRequestRouter(responseRequestService, config));
 
   if (enableRbacTestRoutes) {

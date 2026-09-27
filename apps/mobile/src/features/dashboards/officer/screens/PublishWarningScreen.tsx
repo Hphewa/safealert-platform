@@ -33,15 +33,16 @@ function TargetOption({ label, selected, onPress }: {
   </Pressable>;
 }
 
-function NotificationTargetSelector({ target, onChange }: {
-  target: WarningNotificationTarget; onChange: (target: WarningNotificationTarget) => void;
+function NotificationTargetSelector({ target, onChange, affectedArea }: {
+  target: WarningNotificationTarget; onChange: (target: WarningNotificationTarget) => void; affectedArea: string;
 }) {
   return <View style={publishStyles.targetCard}>
     <Text style={assessmentStyles.heading}>Notification Target</Text>
     <Text style={assessmentStyles.helper}>Choose who should receive this warning. This does not change the warning's affected area.</Text>
     <TargetOption label="Affected Area" selected={target.scope === 'AFFECTED_AREA'} onPress={() => onChange({ scope: 'AFFECTED_AREA' })} />
     <TargetOption label="District" selected={target.scope === 'DISTRICT'} onPress={() => onChange({ scope: 'DISTRICT', district: 'Colombo' })} />
-    {target.scope === 'AFFECTED_AREA' ? <AssessmentDetail label="Selected area" value="The saved warning affected area" /> : null}
+    {target.scope === 'AFFECTED_AREA' ? <AssessmentDetail label="Selected area" value={affectedArea} /> : null}
+    {target.scope === 'WHOLE_COUNTRY' ? <AssessmentDetail label="Country" value="Sri Lanka" /> : null}
     {target.scope === 'DISTRICT' ? <View style={publishStyles.districtPicker}>
       <Text style={assessmentStyles.label}>Select district</Text>
       <View style={publishStyles.districtOptions}>
@@ -68,6 +69,15 @@ export function PublishWarningScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/officer');
+  };
+
   const load = useCallback(async () => {
     if (!accessToken || !warningId) throw new Error('A warning reference is required.');
     return getWarning(warningId, accessToken);
@@ -91,12 +101,12 @@ export function PublishWarningScreen() {
 
   const displayedWarning = publishedWarning ?? warning;
   if (!displayedWarning) {
-    return <WarningPage title="Publish Warning" onBack={() => router.back()} busy={busy}>
+    return <WarningPage title="Publish Warning" onBack={goBack} busy={busy}>
       <AssessmentLoadState loading={resource.loading} error={resource.error} retry={() => void resource.reload()} />
     </WarningPage>;
   }
 
-  return <WarningPage title={publishedWarning ? 'Warning Published!' : 'Publish Warning'} onBack={() => router.back()} busy={busy}>
+  return <WarningPage title={publishedWarning ? 'Warning Published!' : 'Publish Warning'} onBack={goBack} busy={busy}>
     {publishedWarning ? <View style={warningStyles.success}>
       <Text style={warningStyles.successTitle}>Warning Published!</Text>
       <AssessmentDetail label="Status" value="PUBLISHED" />
@@ -115,7 +125,7 @@ export function PublishWarningScreen() {
       <AssessmentDetail label="Message" value={displayedWarning.message} />
       <AssessmentDetail label="Attachments" value={displayedWarning.attachments?.length ? displayedWarning.attachments.join(', ') : 'None'} />
       <AssessmentDetail label="Current Status" value={displayedWarning.status} />
-      <NotificationTargetSelector target={notificationTarget} onChange={setNotificationTarget} />
+      <NotificationTargetSelector target={notificationTarget} onChange={setNotificationTarget} affectedArea={displayedWarning.affectedArea} />
       {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
       {displayedWarning.status === 'DRAFT' ? !displayedWarning.affectedArea.trim() ? <Text accessibilityRole="alert" style={assessmentStyles.error}>The saved warning has no affected area.</Text> : confirming ? <>
         <Text style={warningStyles.notice}>Review the saved warning details and confirm the selected notification target before publishing.</Text>
