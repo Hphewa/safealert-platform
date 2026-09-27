@@ -1,13 +1,13 @@
 import * as React from 'react';
 import type { SafeResponseRequest, UserRole } from '@safealert/contracts';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import MyEmergencyRequestsRoute from '../../../../../app/resident/my-emergency-requests';
 import ResidentEmergencyRequestDetailsRoute from '../../../../../app/resident/emergency-request/[requestId]';
 import ResidentLayout from '../../../../../app/resident/_layout';
 import { RoleRouteLayout } from '../../../auth/screens/RoleRouteLayout';
 import { getMyResponseRequestById, listMyResponseRequests } from '../api/responseRequestApi';
-import { ApiClientError } from '../../../../services/api/client';
+import { ApiClientError, apiBaseUrl } from '../../../../services/api/client';
 import { EmergencyRequestSummaryCard } from '../components/EmergencyRequestSummaryCard';
 import { EmergencyRequestStatePanel } from '../components/EmergencyRequestStatePanel';
 import { formatResidentReportDateTime } from '../reports';
@@ -138,6 +138,105 @@ beforeEach(() => {
   vi.mocked(useEmergencyAssistanceDraft).mockReturnValue(provider.props.value);
   lifecycle.slots = [];
   lifecycle.cursor = 0;
+});
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe('Resident tracking HTTP-client and reload validation', () => {
+  async function useRealResidentApi() {
+    // Keep native rendering mocked, but exercise the production API adapter, bearer headers and response validation.
+    const api = await vi.importActual<typeof import('../api/responseRequestApi')>('../api/responseRequestApi');
+    vi.mocked(listMyResponseRequests).mockImplementation(api.listMyResponseRequests);
+    vi.mocked(getMyResponseRequestById).mockImplementation(api.getMyResponseRequestById);
+  }
+
+  it.each(['list', 'details'] as const)('renders all server statuses through the real %s client and rereads after unmount', async (screen) => {
+    await useRealResidentApi();
+    let serverResponse: SafeResponseRequest = { ...detailedRequest, status: 'NEW' };
+    const fetchMock = vi.fn<typeof fetch>().mockImplementation(async () => Response.json(
+      screen === 'list' ? { responseRequests: [serverResponse] } : { responseRequest: serverResponse }
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    const renderScreen = screen === 'list' ? render : renderDetails;
+    renderScreen();
+    let cleanup = lifecycle.effect();
+    const statuses = [
+      ['NEW', 'Submitted'], ['ASSIGNED', 'Assigned'], ['DISPATCHED', 'Dispatched'],
+      ['ARRIVED', 'Arrived'], ['IN_PROGRESS', 'In Progress'], ['COMPLETED', 'Completed']
+    ] as const;
+
+    for (const [status, label] of statuses) {
+      serverResponse = { ...serverResponse, status };
+      if (status !== 'NEW') {
+        press(renderScreen(), screen === 'list' ? 'Refresh emergency requests' : 'Refresh emergency request details');
+      }
+      await vi.waitFor(() => expect(screenText(renderScreen())).toContain(`Status:  ${label}`));
+      expect(screenText(renderScreen())).not.toContain(status);
+      if (screen === 'details') expect(screenText(renderScreen())).toContain(`${label} Current stage`);
+
+      if (status === 'IN_PROGRESS' || status === 'COMPLETED') {
+        const readsBeforeReload = fetchMock.mock.calls.length;
+        cleanup?.();
+        // Discard all component state to model closing/reloading, not merely rerendering cached data.
+        lifecycle.slots = [];
+        expect(screenText(renderScreen())).toContain('Loading');
+        cleanup = lifecycle.effect();
+        await vi.waitFor(() => expect(screenText(renderScreen())).toContain(`Status:  ${label}`));
+        expect(fetchMock).toHaveBeenCalledTimes(readsBeforeReload + 1);
+      }
+    }
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      `${apiBaseUrl}/response-requests/mine${screen === 'details' ? `/${request.id}` : ''}`,
+      expect.objectContaining({ method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer resident-token' }) })
+    );
+    cleanup?.();
+  });
+
+  it('drops previously visible details when a manually changed route is denied by the secure endpoint', async () => {
+    await useRealResidentApi();
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(Response.json({ responseRequest: detailedRequest }))
+      .mockResolvedValueOnce(Response.json({ error: { code: 'REQUEST_NOT_FOUND', message: 'Emergency request not found.' } }, { status: 404 }));
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+    const cleanup = lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain(detailedRequest.description));
+    cleanup?.();
+    lifecycle.params = { requestId: '507f1f77bcf86cd799439012' };
+    expect(screenText(renderDetails())).not.toContain(detailedRequest.description);
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('This emergency request is unavailable.'));
+    expect(screenText(renderDetails())).not.toContain(detailedRequest.contact.phoneNumber);
+    expect(fetchMock).toHaveBeenLastCalledWith(`${apiBaseUrl}/response-requests/mine/507f1f77bcf86cd799439012`,
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer resident-token' }) }));
+  });
+
+  it.each(['network', 'malformed', 'expired'] as const)('handles a real-client %s failure and recovers with a fresh read', async (failure) => {
+    await useRealResidentApi();
+    const fetchMock = vi.fn<typeof fetch>();
+    if (failure === 'network') fetchMock.mockRejectedValueOnce(new Error('Internal network configuration'));
+    else if (failure === 'malformed') fetchMock.mockResolvedValueOnce(Response.json({ responseRequest: null }));
+    else fetchMock.mockResolvedValueOnce(Response.json({ error: { code: 'INVALID_TOKEN', message: 'Internal token details' } }, { status: 401 }));
+    fetchMock.mockImplementation(async () => Response.json({ responseRequest: detailedRequest }));
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+    const cleanup = lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Unable to load request details'));
+    expect(screenText(renderDetails())).not.toContain('Internal');
+    if (failure === 'expired') {
+      expect(screenText(renderDetails())).toContain('Please log in again.');
+      // Session renewal is owned by the existing auth flow, not by Retry.
+      cleanup?.();
+      auth.accessToken = 'renewed-resident-token';
+      renderDetails();
+      lifecycle.effect();
+    } else {
+      press(renderDetails(), 'Retry');
+    }
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('In Progress Current stage'));
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenLastCalledWith(`${apiBaseUrl}/response-requests/mine/${detailedRequest.id}`,
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: `Bearer ${auth.accessToken}` }) }));
+  });
 });
 
 function statePanel(node: React.ReactNode): React.ComponentProps<typeof EmergencyRequestStatePanel> | undefined {

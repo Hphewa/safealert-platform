@@ -53,7 +53,7 @@ async function createContext() {
   const otherRequest = storedRequest(otherResident.id, { id: otherRequestId });
   responseRequestRepository.seedResponseRequest(ownRequest);
   responseRequestRepository.seedResponseRequest(otherRequest);
-  return { app, resident, otherResident, ownRequest, otherRequest, responseRequestRepository, createActor };
+  return { app, config, authRepository, resident, otherResident, ownRequest, otherRequest, responseRequestRepository, createActor };
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -140,6 +140,19 @@ describe('resident emergency request retrieval', () => {
     expect(invalid.body.error.code).toBe('INVALID_TOKEN');
   });
 
+  it.each(residentPaths)('rejects expired Resident credentials before reading %s', async (path) => {
+    const { app, config, resident, responseRequestRepository } = await createContext();
+    const token = signAccessToken({ ...config, jwtAccessExpiresIn: '-1s' }, { id: resident.id, role: 'RESIDENT' });
+    const list = vi.spyOn(responseRequestRepository, 'findResponseRequestsByResidentId');
+    const detail = vi.spyOn(responseRequestRepository, 'findResponseRequestById');
+    const response = await request(app).get(path).auth(token, { type: 'bearer' });
+    expect(response.status).toBe(401);
+    expect(response.body.error.code).toBe('INVALID_TOKEN');
+    expect(response.body.responseRequest).toBeUndefined();
+    expect(list).not.toHaveBeenCalled();
+    expect(detail).not.toHaveBeenCalled();
+  });
+
   it.each(USER_ROLES.filter((role) => role !== 'RESIDENT'))('rejects %s access to both resident endpoints', async (role) => {
     const { app, createActor } = await createContext();
     const actor = await createActor(role, `${role}@example.com`);
@@ -151,7 +164,7 @@ describe('resident emergency request retrieval', () => {
   });
 
   it('reads the same persisted status and timestamps after acceptance and every responder progress update', async () => {
-    const { app, resident, createActor } = await createContext();
+    const { app, config, authRepository, resident, otherResident, createActor, responseRequestRepository } = await createContext();
     const responder = await createActor('EMERGENCY_RESPONDER', 'responder@example.com');
     const accepted = await request(app).patch(`${basePath}/responder/requests/${requestId}/accept`)
       .auth(responder.token, { type: 'bearer' });
@@ -173,6 +186,16 @@ describe('resident emergency request retrieval', () => {
       expect(detail.body).toEqual({ responseRequest: persisted });
       expect(list.body).toEqual({ responseRequests: [persisted] });
       expect(persisted.status).toBe(status);
+      // Recreate the API/service layer so this read cannot rely on the previous handler's state.
+      // This suite uses an in-memory repository; the opt-in persistence suite tests a MongoDB reconnect.
+      const reopenedApp = createApp({ config, authRepository, responseRequestRepository });
+      const reopened = await request(reopenedApp).get(`${basePath}/mine/${requestId}`)
+        .auth(resident.token, { type: 'bearer' });
+      expect(reopened.body).toEqual({ responseRequest: persisted });
+      const denied = await request(reopenedApp).get(`${basePath}/mine/${requestId}`)
+        .auth(otherResident.token, { type: 'bearer' });
+      expect(denied.status).toBe(404);
+      expect(denied.body).toEqual({ error: { code: 'REQUEST_NOT_FOUND', message: 'Emergency request not found.' } });
     }
 
     for (const field of ['acceptedAt', 'dispatchedAt', 'arrivedAt', 'inProgressAt', 'completedAt'] as const) {
