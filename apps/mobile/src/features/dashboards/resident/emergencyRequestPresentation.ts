@@ -1,4 +1,4 @@
-import type { ResponseStatus, SafeResponseRequest } from '@safealert/contracts';
+import { RESPONSE_PROGRESS_SEQUENCE, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
 
 import { accessConditionLabels, emergencyAssistanceTypeLabels } from './emergencyAssistanceDraft';
 import { formatResidentReportDateTime } from './reports';
@@ -12,6 +12,27 @@ const residentRequestStatusLabels: Record<ResponseStatus, string> = {
   IN_PROGRESS: 'In Progress',
   COMPLETED: 'Completed'
 };
+
+// Residents also see submission (NEW); subsequent stages reuse the responder's persisted lifecycle.
+const residentProgressSequence: readonly ResponseStatus[] = ['NEW', ...RESPONSE_PROGRESS_SEQUENCE];
+
+export type ResidentEmergencyRequestProgressStage = {
+  status: ResponseStatus;
+  label: string;
+  state: 'reached' | 'current' | 'future';
+};
+
+export function buildResidentEmergencyRequestProgress(status: unknown): ResidentEmergencyRequestProgressStage[] | null {
+  const currentIndex = residentProgressSequence.findIndex((stage) => stage === status);
+  // An unsupported status must not imply that any normal lifecycle stage has been reached.
+  if (currentIndex < 0) return null;
+
+  return residentProgressSequence.map((stage, index) => ({
+    status: stage,
+    label: residentRequestStatusLabels[stage],
+    state: index < currentIndex ? 'reached' : index === currentIndex ? 'current' : 'future'
+  }));
+}
 
 type EmergencyRequestSummary = Pick<SafeResponseRequest, 'assistanceType' | 'createdAt' | 'status'>;
 

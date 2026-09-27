@@ -1,13 +1,38 @@
 import { EMERGENCY_ASSISTANCE_TYPES, RESPONSE_STATUSES, type SafeResponseRequest } from '@safealert/contracts';
 import { describe, expect, it } from 'vitest';
 
-import { presentResidentEmergencyRequest, presentResidentEmergencyRequestDetails } from './emergencyRequestPresentation';
+import { buildResidentEmergencyRequestProgress, presentResidentEmergencyRequest, presentResidentEmergencyRequestDetails } from './emergencyRequestPresentation';
 
 const summary: Pick<SafeResponseRequest, 'assistanceType' | 'createdAt' | 'status'> = {
   assistanceType: 'MEDICAL_ASSISTANCE',
   createdAt: '2026-09-27T05:05:21.123Z',
   status: 'NEW'
 };
+
+describe('resident emergency request progress', () => {
+  it.each([
+    ['NEW', ['current', 'future', 'future', 'future', 'future', 'future']],
+    ['ASSIGNED', ['reached', 'current', 'future', 'future', 'future', 'future']],
+    ['DISPATCHED', ['reached', 'reached', 'current', 'future', 'future', 'future']],
+    ['ARRIVED', ['reached', 'reached', 'reached', 'current', 'future', 'future']],
+    ['IN_PROGRESS', ['reached', 'reached', 'reached', 'reached', 'current', 'future']],
+    ['COMPLETED', ['reached', 'reached', 'reached', 'reached', 'reached', 'current']]
+  ] as const)('presents the persisted %s status in lifecycle order', (status, expectedStates) => {
+    const stages = buildResidentEmergencyRequestProgress(status);
+    expect(stages?.map((stage) => stage.status)).toEqual(RESPONSE_STATUSES);
+    expect(stages?.map((stage) => stage.label)).toEqual([
+      'Submitted', 'Assigned', 'Dispatched', 'Arrived', 'In Progress', 'Completed'
+    ]);
+    expect(stages?.map((stage) => stage.state)).toEqual(expectedStates);
+    expect(stages?.filter((stage) => stage.state === 'current')).toHaveLength(1);
+  });
+
+  it.each([undefined, null, '', 'UNKNOWN', 'CANCELLED', 'toString', 4, {}, ['NEW']])(
+    'does not infer normal progression for unsupported input: %j', (status) => {
+      expect(buildResidentEmergencyRequestProgress(status)).toBeNull();
+    }
+  );
+});
 
 describe('resident emergency request presentation', () => {
   it('labels every assistance type from the shared contract', () => {

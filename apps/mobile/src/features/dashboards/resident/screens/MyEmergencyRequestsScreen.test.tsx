@@ -338,6 +338,21 @@ describe('Resident Emergency Request Details', () => {
     }
   });
 
+  it.each([
+    ['DISPATCHED', 'Dispatched Current stage', 'In Progress Not yet reached'],
+    ['IN_PROGRESS', 'In Progress Current stage', 'Dispatched Reached']
+  ] as const)('renders progress from the authenticated details response status: %s', async (status, current, other) => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...detailedRequest, status } });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Emergency Response Progress'));
+    const text = screenText(renderDetails());
+    expect(text).toContain(current);
+    expect(text).toContain(other);
+    expect(text).not.toContain('IN_PROGRESS');
+    expect(getMyResponseRequestById).toHaveBeenCalledExactlyOnceWith(request.id, 'resident-token');
+  });
+
   it.each([undefined, '', 'bad-id', '../requests', [request.id], [request.id, request.id]])(
     'does not fetch for a missing or ambiguous route ID: %j', (requestId) => {
       lifecycle.params = { requestId };

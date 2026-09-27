@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { EmergencyRequestProgressTracker } from '../components/EmergencyRequestProgressTracker';
 import { presentResidentEmergencyRequestDetails } from '../emergencyRequestPresentation';
 import { residentBottomNavItems } from '../mockData';
 import { useMyEmergencyRequestDetails } from '../useMyEmergencyRequestDetails';
@@ -38,6 +39,7 @@ export function ResidentEmergencyRequestDetailsScreen() {
           <View style={styles.panel}>
             <Text style={styles.status}>Status: {details.status}</Text>
           </View>
+          {request ? <EmergencyRequestProgressTracker status={request.status} /> : null}
           {details.sections.map((section) => (
             <View key={section.title} style={styles.panel}>
               <Text accessibilityRole="header" style={styles.sectionTitle}>{section.title}</Text>
