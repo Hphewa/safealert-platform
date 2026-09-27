@@ -155,8 +155,8 @@ export class MongooseRiskAssessmentRepository implements RiskAssessmentRepositor
         id: assessment._id.toString(), finalRiskLevel: assessment.finalRiskLevel,
         calculatedScore: assessment.calculatedScore, status: assessment.status,
         assessedAt: assessment.assessedAt.toISOString(),
-        ...(assessment.closureReason === undefined ? {} : { closureReason: assessment.closureReason }),
-        ...(assessment.closedAt === undefined ? {} : { closedAt: assessment.closedAt.toISOString() })
+        ...(assessment.closureReason == null ? {} : { closureReason: assessment.closureReason }),
+        ...(assessment.closedAt == null ? {} : { closedAt: assessment.closedAt.toISOString() })
       });
       const active = visible.find((assessment) => assessment.status === 'ACTIVE');
       return {

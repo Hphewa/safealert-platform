@@ -30,7 +30,7 @@ export class InMemoryIncidentRepository implements IncidentRepository {
 
   async findAll() {
     return [...this.incidents.values()]
-      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
       .map((incident) => structuredClone(incident));
   }
 
