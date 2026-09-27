@@ -3,9 +3,11 @@ import type { SafeResponseRequest, UserRole } from '@safealert/contracts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import MyEmergencyRequestsRoute from '../../../../../app/resident/my-emergency-requests';
+import ResidentEmergencyRequestDetailsRoute from '../../../../../app/resident/emergency-request/[requestId]';
 import ResidentLayout from '../../../../../app/resident/_layout';
 import { RoleRouteLayout } from '../../../auth/screens/RoleRouteLayout';
-import { listMyResponseRequests } from '../api/responseRequestApi';
+import { getMyResponseRequestById, listMyResponseRequests } from '../api/responseRequestApi';
+import { ApiClientError } from '../../../../services/api/client';
 import { EmergencyRequestSummaryCard } from '../components/EmergencyRequestSummaryCard';
 import { formatResidentReportDateTime } from '../reports';
 import { EmergencyAssistanceDraftProvider, useEmergencyAssistanceDraft } from '../emergencyAssistanceDraft';
@@ -13,10 +15,12 @@ import { residentBottomNavItems, residentPrimaryActions } from '../mockData';
 import { EmergencyAssistanceScreen } from './EmergencyAssistanceScreen';
 import { EmergencyRequestSubmittedScreen } from './EmergencyRequestSubmittedScreen';
 import { MyEmergencyRequestsScreen } from './MyEmergencyRequestsScreen';
+import { ResidentEmergencyRequestDetailsScreen } from './ResidentEmergencyRequestDetailsScreen';
 
 // Follow the existing mobile tests: exercise screen callbacks without a native runtime.
 const lifecycle = vi.hoisted(() => ({
   slots: [] as unknown[], cursor: 0,
+  params: {} as { requestId?: string | string[] },
   effect: (() => undefined) as () => (() => void) | undefined
 }));
 const navigation = vi.hoisted(() => ({ back: vi.fn(), push: vi.fn(), replace: vi.fn(), canGoBack: vi.fn() }));
@@ -34,7 +38,10 @@ vi.mock('react', async (importOriginal) => ({
     return [lifecycle.slots[index], (value: unknown) => { lifecycle.slots[index] = value; }];
   }
 }));
-vi.mock('expo-router', () => ({ useRouter: () => navigation, Redirect: 'redirect', Stack: 'stack' }));
+vi.mock('expo-router', () => ({
+  useRouter: () => navigation, useLocalSearchParams: () => lifecycle.params,
+  Redirect: 'redirect', Stack: 'stack'
+}));
 vi.mock('react-native', () => ({
   ActivityIndicator: 'span', Pressable: 'button', Text: 'span', View: 'div', TextInput: 'input',
   StyleSheet: { create: (styles: unknown) => styles }
@@ -46,7 +53,7 @@ vi.mock('../../shared/components/DashboardScreen', () => ({
   DashboardScreen: ({ children }: { children: React.ReactNode }) => children
 }));
 vi.mock('../../shared/currentLocation', () => ({ captureCurrentLocation: vi.fn(), formatCoordinate: vi.fn() }));
-vi.mock('../api/responseRequestApi', () => ({ listMyResponseRequests: vi.fn() }));
+vi.mock('../api/responseRequestApi', () => ({ listMyResponseRequests: vi.fn(), getMyResponseRequestById: vi.fn() }));
 vi.mock('../reportDraft', () => ({ ReportHazardDraftProvider: 'report-provider' }));
 vi.mock('../emergencyAssistanceDraft', async (importOriginal) => ({
   ...await importOriginal<typeof import('../emergencyAssistanceDraft')>(),
@@ -62,6 +69,15 @@ const request: SafeResponseRequest = {
   roadAccessibility: 'ACCESSIBLE', contact: { name: 'Resident', phoneNumber: '+94-77-555-1234' },
   description: 'Medical assistance needed.',
   createdAt: '2026-09-24T10:00:00.000Z', updatedAt: '2026-09-24T10:00:00.000Z'
+};
+
+const detailedRequest: SafeResponseRequest = {
+  ...request, status: 'IN_PROGRESS', affectedPeople: 7, injuredPeople: 2,
+  vulnerablePeople: { children: 3, elderlyPeople: 1, personsWithDisabilities: 2, pregnantPersons: 0 },
+  roadAccessibility: 'LIMITED',
+  description: 'Water has entered the house.',
+  specialRequirements: 'Wheelchair-accessible transport required.',
+  contact: { name: 'Resident Contact', phoneNumber: '+94-77-555-1234', email: 'resident@example.test' }
 };
 
 function render() {
@@ -99,11 +115,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   lifecycle.slots = [];
   lifecycle.cursor = 0;
+  lifecycle.params = { requestId: request.id };
   auth.accessToken = 'resident-token';
   auth.status = 'authenticated';
   auth.user.role = 'RESIDENT';
   navigation.canGoBack.mockReturnValue(true);
   vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [] });
+  vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: detailedRequest });
   // Read the existing provider's initial draft so navigation tests don't duplicate form defaults.
   const provider = EmergencyAssistanceDraftProvider({ children: null });
   vi.mocked(useEmergencyAssistanceDraft).mockReturnValue(provider.props.value);
@@ -135,6 +153,13 @@ describe('My Emergency Requests foundation', () => {
     expect(screenText(cards[0])).toContain('Status:  Submitted');
     expect(screenText(cards[0])).not.toContain(request.createdAt);
     expect(listMyResponseRequests).toHaveBeenCalledExactlyOnceWith('resident-token');
+    const card = EmergencyRequestSummaryCard(cards[0].props);
+    expect(card.props.accessibilityRole).toBe('button');
+    expect(screenText(card)).toContain('View Details');
+    expect(press(card, card.props.accessibilityLabel)).toBe(true);
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith({
+      pathname: '/resident/emergency-request/[requestId]', params: { requestId: request.id }
+    });
   });
 
   it('renders multiple requests in API order with readable status labels', async () => {
@@ -151,7 +176,7 @@ describe('My Emergency Requests foundation', () => {
     await vi.waitFor(() => expect(summaryCards(render())).toHaveLength(requests.length));
     const cards = summaryCards(render());
     expect(cards.map((card) => card.props.request.id)).toEqual(requests.map((item) => item.id));
-    expect(cards.map((card) => screenText(card).split('Status:  ')[1])).toEqual([
+    expect(cards.map((card) => screenText(card).split('Status:  ')[1].trim())).toEqual([
       'In Progress', 'Completed', 'Assigned', 'Dispatched', 'Arrived'
     ]);
     expect(screenText(cards[0])).toContain('Rescue / Evacuation');
@@ -171,6 +196,25 @@ describe('My Emergency Requests foundation', () => {
     expect(card.props.accessible).toBe(true);
     expect(screenText(card)).not.toContain('UNKNOWN');
     expect(press(card, 'View Details')).toBe(false);
+    expect(card.props.disabled).toBe(true);
+    press(card, card.props.accessibilityLabel);
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it.each(['507f1f77bcf86cd799439011', '507f1f77bcf86cd799439012'])(
+    'opens the selected card using only its identifier: %s', (id) => {
+      const card = EmergencyRequestSummaryCard({ request: { ...request, id } });
+      press(card, card.props.accessibilityLabel);
+      expect(navigation.push).toHaveBeenCalledExactlyOnceWith({
+        pathname: '/resident/emergency-request/[requestId]', params: { requestId: id }
+      });
+    }
+  );
+
+  it.each(['', '../request', 'invalid-id'])('does not navigate for an invalid card identifier: %s', (id) => {
+    const card = EmergencyRequestSummaryCard({ request: { ...request, id } });
+    expect(card.props.disabled).toBe(true);
+    press(card, card.props.accessibilityLabel);
     expect(navigation.push).not.toHaveBeenCalled();
   });
 
@@ -248,5 +292,117 @@ describe('My Emergency Requests foundation', () => {
     await vi.waitFor(() => expect(screenText(render())).toContain('You have no emergency assistance requests yet.'));
     auth.accessToken = 'another-session-token';
     expect(screenText(render())).toContain('Loading your emergency requests');
+  });
+});
+
+function renderDetails() {
+  lifecycle.cursor = 0;
+  return ResidentEmergencyRequestDetailsScreen();
+}
+
+describe('Resident Emergency Request Details', () => {
+  it('registers the screen in the resident route and retrieves the selected ID with the session token', async () => {
+    expect(ResidentEmergencyRequestDetailsRoute().type).toBe(ResidentEmergencyRequestDetailsScreen);
+    expect(screenText(renderDetails())).toContain('Loading your emergency request details');
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Water has entered the house.'));
+    expect(getMyResponseRequestById).toHaveBeenCalledExactlyOnceWith(request.id, 'resident-token');
+    expect(listMyResponseRequests).not.toHaveBeenCalled();
+
+    const text = screenText(renderDetails());
+    for (const expected of [
+      'Emergency Request Details', 'Status:  In Progress', request.id, 'Medical Assistance',
+      formatResidentReportDateTime(request.createdAt), 'People needing assistance 7', 'Injured people 2',
+      'Children 3', 'Elderly people 1', 'Persons with disabilities 2', 'Pregnant persons 0',
+      'Medical assistance Required', 'Road access Limited', 'Wheelchair-accessible transport required.',
+      'Latitude 6.927100', 'Longitude 79.861200', 'Name Resident Contact',
+      'Phone +94-77-555-1234', 'Email resident@example.test'
+    ]) expect(text).toContain(expected);
+    expect(text).not.toContain('IN_PROGRESS');
+    expect(text).not.toContain(request.createdAt);
+  });
+
+  it('renders missing optional and null presentation fields safely', async () => {
+    const incomplete = {
+      ...detailedRequest, specialRequirements: undefined, vulnerablePeople: null, medicalNeeds: null,
+      roadAccessibility: null, location: null, contact: null, createdAt: 'invalid-date'
+    } as unknown as SafeResponseRequest;
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: incomplete });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Special requirements Not provided'));
+    const text = screenText(renderDetails());
+    for (const expected of ['Submitted Not available', 'Children Not provided', 'Medical assistance Not provided',
+      'Road access Not provided', 'Latitude Not provided', 'Name Not provided', 'Email Not provided']) {
+      expect(text).toContain(expected);
+    }
+  });
+
+  it.each([undefined, '', 'bad-id', '../requests', [request.id], [request.id, request.id]])(
+    'does not fetch for a missing or ambiguous route ID: %j', (requestId) => {
+      lifecycle.params = { requestId };
+      expect(screenText(renderDetails())).toContain('Select a valid request from My Emergency Requests.');
+      lifecycle.effect();
+      expect(getMyResponseRequestById).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not fetch without authentication', () => {
+    auth.accessToken = null;
+    expect(screenText(renderDetails())).toContain('Please log in again.');
+    lifecycle.effect();
+    expect(getMyResponseRequestById).not.toHaveBeenCalled();
+  });
+
+  it.each([403, 404])('does not expose private details when the secure endpoint denies access (%s)', async (status) => {
+    vi.mocked(getMyResponseRequestById).mockRejectedValue(new ApiClientError(status, 'REQUEST_NOT_FOUND', 'Private server message'));
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('This emergency request is unavailable.'));
+    expect(screenText(renderDetails())).not.toContain(detailedRequest.description);
+    expect(screenText(renderDetails())).not.toContain('Private server message');
+  });
+
+  it.each([
+    [401, 'Your session has expired. Please log in again.'],
+    [500, 'Unable to load your emergency request details right now.'],
+    [0, 'Unable to load your emergency request details right now.']
+  ] as const)('shows safe feedback for API failures (%s)', async (status, message) => {
+    vi.mocked(getMyResponseRequestById).mockRejectedValue(new ApiClientError(status, 'ERROR', 'Internal database information'));
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain(message));
+    expect(screenText(renderDetails())).not.toContain('Internal');
+  });
+
+  it('preserves back navigation and uses the request list for a direct link without history', () => {
+    press(renderDetails(), 'Go back');
+    expect(navigation.back).toHaveBeenCalledOnce();
+    navigation.canGoBack.mockReturnValue(false);
+    press(renderDetails(), 'Go back');
+    expect(navigation.replace).toHaveBeenCalledExactlyOnceWith('/resident/my-emergency-requests');
+  });
+
+  it('hides old details immediately when the selected request or session changes', async () => {
+    renderDetails();
+    const cleanup = lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain(detailedRequest.description));
+    lifecycle.params = { requestId: '507f1f77bcf86cd799439012' };
+    expect(screenText(renderDetails())).not.toContain(detailedRequest.description);
+    lifecycle.params = { requestId: request.id };
+    auth.accessToken = 'another-resident-token';
+    expect(screenText(renderDetails())).not.toContain(detailedRequest.description);
+    cleanup?.();
+  });
+
+  it('ignores a late response after leaving the details screen', async () => {
+    let resolve: ((value: { responseRequest: SafeResponseRequest }) => void) | undefined;
+    vi.mocked(getMyResponseRequestById).mockReturnValue(new Promise((done) => { resolve = done; }));
+    renderDetails();
+    const cleanup = lifecycle.effect();
+    cleanup?.();
+    resolve?.({ responseRequest: detailedRequest });
+    await Promise.resolve();
+    expect(screenText(renderDetails())).not.toContain(detailedRequest.description);
   });
 });

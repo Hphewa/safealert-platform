@@ -1,10 +1,31 @@
 import type {
   CreateResponseRequestRequest,
   CreateResponseRequestResponse,
+  GetResidentResponseRequestResponse,
   GetResidentResponseRequestsResponse
 } from '@safealert/contracts';
 
 import { ApiClientError, apiRequest } from '../../../../services/api/client';
+import { parseResidentEmergencyRequestId } from '../emergencyRequestNavigation';
+
+export async function getMyResponseRequestById(requestId: string, accessToken: string) {
+  if (!accessToken.trim()) {
+    throw new ApiClientError(401, 'UNAUTHORIZED', 'Authentication is required.');
+  }
+  const normalizedId = parseResidentEmergencyRequestId(requestId);
+  if (!normalizedId) {
+    throw new ApiClientError(400, 'INVALID_REQUEST_ID', 'Select a valid emergency request.');
+  }
+
+  // The authenticated backend scopes /mine to the token's resident; no client-selected owner is sent.
+  const response = await apiRequest<GetResidentResponseRequestResponse>(
+    `/response-requests/mine/${encodeURIComponent(normalizedId)}`, { accessToken }
+  );
+  if (parseResidentEmergencyRequestId(response?.responseRequest?.id) !== normalizedId) {
+    throw new ApiClientError(502, 'INVALID_RESPONSE', 'Unable to load emergency request details.');
+  }
+  return response;
+}
 
 export async function listMyResponseRequests(accessToken: string) {
   if (!accessToken.trim()) {

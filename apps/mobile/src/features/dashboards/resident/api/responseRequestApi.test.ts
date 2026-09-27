@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { apiBaseUrl } from '../../../../services/api/client';
-import { listMyResponseRequests } from './responseRequestApi';
+import { getMyResponseRequestById, listMyResponseRequests } from './responseRequestApi';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -36,5 +36,48 @@ describe('resident emergency request API', () => {
       { error: { code: 'UNAUTHORIZED', message: 'Token expired' } }, { status: 401 }
     )));
     await expect(listMyResponseRequests('expired-token')).rejects.toMatchObject({ status: 401 });
+  });
+});
+
+describe('resident single emergency request API', () => {
+  const requestId = '507f1f77bcf86cd799439011';
+
+  it('uses the owner-scoped endpoint and existing bearer token with only the selected ID', async () => {
+    const response = { responseRequest: { id: requestId } };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(response));
+    vi.stubGlobal('fetch', fetchMock);
+    expect(await getMyResponseRequestById(requestId.toUpperCase(), 'resident-token')).toEqual(response);
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${apiBaseUrl}/response-requests/mine/${requestId}`, {
+      method: 'GET', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer resident-token' },
+      body: undefined
+    });
+  });
+
+  it.each(['', '   ', '../another-request', '507f1f77bcf86cd799439011?residentId=other'])('rejects malformed IDs before fetching: %s', async (id) => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(getMyResponseRequestById(id, 'resident-token')).rejects.toMatchObject({ code: 'INVALID_REQUEST_ID' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not fetch without a token', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(getMyResponseRequestById(requestId, ' ')).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([null, {}, { responseRequest: null }, { responseRequest: { id: '507f1f77bcf86cd799439012' } }])(
+    'rejects missing or mismatched response data: %j', async (response) => {
+      vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json(response)));
+      await expect(getMyResponseRequestById(requestId, 'resident-token')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
+  );
+
+  it.each([401, 403, 404])('preserves a secure endpoint rejection (%s) without returning request data', async (status) => {
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json(
+      { error: { code: 'REQUEST_NOT_AVAILABLE', message: 'Unavailable' } }, { status }
+    )));
+    await expect(getMyResponseRequestById(requestId, 'resident-token')).rejects.toMatchObject({ status });
   });
 });
