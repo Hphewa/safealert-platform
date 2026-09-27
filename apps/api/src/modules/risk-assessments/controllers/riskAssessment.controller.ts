@@ -4,7 +4,7 @@ import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { RiskAssessmentService } from '../services/riskAssessment.service.js';
 import {
   calculateRiskAssessmentSchema, closeRiskAssessmentSchema, createRiskAssessmentSchema, reassessRiskAssessmentSchema,
-  riskAssessmentIdSchema
+  deleteRiskAssessmentSchema, riskAssessmentIdSchema
 } from '../validation/riskAssessment.schemas.js';
 
 export function createRiskAssessmentController(service: RiskAssessmentService) {
@@ -41,8 +41,16 @@ export function createRiskAssessmentController(service: RiskAssessmentService) {
       ...input, ...(closureNote === undefined ? {} : { closureNote })
     }));
   });
+  const softDelete: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    const assessmentId = riskAssessmentIdSchema.parse(request.params.assessmentId);
+    const { deleteNote, ...input } = deleteRiskAssessmentSchema.parse(request.body);
+    response.json(await service.softDelete(request.auth.id, assessmentId, {
+      ...input, ...(deleteNote === undefined ? {} : { deleteNote })
+    }));
+  });
   const getHistoryForIncident: RequestHandler = asyncHandler(async (request, response) => {
     response.json(await service.getHistoryForIncident(riskAssessmentIdSchema.parse(request.params.incidentId)));
   });
-  return { calculate, create, reassess, close, getById, getForIncident, getHistoryForIncident };
+  return { calculate, create, reassess, close, softDelete, getById, getForIncident, getHistoryForIncident };
 }

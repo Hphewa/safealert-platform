@@ -48,6 +48,22 @@ describe.skipIf(!mongodbUri)('risk-assessment MongoDB reassessment transactions'
     });
   }
 
+  async function closedRecord(incidentId = new mongoose.Types.ObjectId().toString()) {
+    return model.create({
+      incidentId, assessedById: new mongoose.Types.ObjectId(), hazardSeverity: 'MODERATE',
+      peopleAffected: 8, vulnerablePeople: 2, roadAccessibility: 'ACCESSIBLE', infrastructureImpact: 'LOW',
+      waterLevelTrend: 'STABLE', weatherCondition: 'CLEAR', calculatedScore: 12,
+      systemSuggestedRisk: 'MODERATE', finalRiskLevel: 'MODERATE', status: 'CLOSED',
+      closureReason: 'INCIDENT_RESOLVED', closedAt: new Date('2026-09-26T12:30:00.000Z'),
+      closedById: new mongoose.Types.ObjectId(), assessedAt: new Date('2026-09-26T12:00:00.000Z')
+    });
+  }
+
+  const deleteInput = () => ({
+    deletedAt: '2026-09-26T14:00:00.000Z',
+    deletedById: new mongoose.Types.ObjectId().toString(), deleteReason: 'DUPLICATE_RECORD' as const
+  });
+
   it('closes the old assessment and stores its active replacement and history link', async () => {
     const old = await activeRecord();
 
@@ -150,5 +166,60 @@ describe.skipIf(!mongodbUri)('risk-assessment MongoDB reassessment transactions'
       expect(await model.countDocuments({ incidentId: active.incidentId, status: 'ACTIVE' })).toBe(1);
     }
     expect(await repository.findById(active._id.toString())).toMatchObject({ status: 'CLOSED' });
+  });
+
+  it('atomically soft deletes a CLOSED document and keeps it stored while filtering normal reads', async () => {
+    const closed = await closedRecord();
+
+    const result = await repository.softDeleteClosedAssessment(closed._id.toString(), deleteInput());
+
+    expect(result).toMatchObject({ kind: 'deleted', assessment: {
+      id: closed._id.toString(), status: 'CLOSED', isDeleted: true,
+      deletedById: expect.any(String), deletedAt: '2026-09-26T14:00:00.000Z', deleteReason: 'DUPLICATE_RECORD'
+    } });
+    expect(await model.collection.countDocuments({ _id: closed._id })).toBe(1);
+    expect(await repository.findById(closed._id.toString())).toBeNull();
+    expect(await repository.findHistoryByIncidentId(closed.incidentId.toString())).toEqual([]);
+  });
+
+  it('treats legacy documents without isDeleted as visible', async () => {
+    const legacy = await activeRecord();
+    await model.collection.updateOne({ _id: legacy._id }, { $unset: { isDeleted: '' } });
+
+    expect(await repository.findById(legacy._id.toString())).toMatchObject({ id: legacy._id.toString(), isDeleted: false });
+    expect(await repository.findActiveByIncidentId(legacy.incidentId.toString())).toMatchObject({ id: legacy._id.toString() });
+    expect(await repository.findHistoryByIncidentId(legacy.incidentId.toString())).toHaveLength(1);
+  });
+
+  it('rejects ACTIVE and VOID states and distinguishes missing and duplicate deletes', async () => {
+    const active = await activeRecord();
+    const voided = await model.create({
+      ...(await activeRecord()).toObject(), _id: new mongoose.Types.ObjectId(), status: 'VOID'
+    });
+    const closed = await closedRecord();
+
+    await expect(repository.softDeleteClosedAssessment(active._id.toString(), deleteInput())).resolves.toEqual({ kind: 'not_closed' });
+    await expect(repository.softDeleteClosedAssessment(voided._id.toString(), deleteInput())).resolves.toEqual({ kind: 'not_closed' });
+    await expect(repository.softDeleteClosedAssessment('999999999999999999999999', deleteInput())).resolves.toEqual({ kind: 'not_found' });
+    await expect(repository.softDeleteClosedAssessment(closed._id.toString(), deleteInput())).resolves.toMatchObject({ kind: 'deleted' });
+    await expect(repository.softDeleteClosedAssessment(closed._id.toString(), deleteInput())).resolves.toEqual({ kind: 'already_deleted' });
+  });
+
+  it('allows one concurrent delete and preserves reassessment linkage', async () => {
+    const old = await activeRecord();
+    const replacement = await repository.reassess(old._id.toString(), recordInput({
+      incidentId: old.incidentId.toString()
+    }));
+
+    const results = await Promise.all([
+      repository.softDeleteClosedAssessment(old._id.toString(), deleteInput()),
+      repository.softDeleteClosedAssessment(old._id.toString(), deleteInput())
+    ]);
+
+    expect(results.map(({ kind }) => kind).sort()).toEqual(['already_deleted', 'deleted']);
+    expect(await model.collection.countDocuments({ _id: old._id })).toBe(1);
+    expect(await repository.findById(replacement.id)).toMatchObject({ previousAssessmentId: old._id.toString(), status: 'ACTIVE' });
+    expect(await repository.findActiveByIncidentId(old.incidentId.toString())).toMatchObject({ id: replacement.id });
+    expect((await repository.findHistoryByIncidentId(old.incidentId.toString())).map(({ id }) => id)).toEqual([replacement.id]);
   });
 });

@@ -1,5 +1,6 @@
 import type {
-  CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CloseRiskAssessmentRequest, CloseRiskAssessmentResponse, CreateRiskAssessmentRequest,
+  CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CloseRiskAssessmentRequest, CloseRiskAssessmentResponse,
+  CreateRiskAssessmentRequest, DeleteRiskAssessmentRequest, DeleteRiskAssessmentResponse,
   ReassessRiskAssessmentRequest, RiskAssessmentForIncidentResponse, RiskAssessmentHistoryResponse, RiskAssessmentResponse,
   SafeIncident, SafeReport
 } from '@safealert/contracts';
@@ -109,6 +110,24 @@ export class RiskAssessmentService {
     });
     if (!assessment) throw inactiveConflict();
     return { assessment };
+  }
+
+  async softDelete(
+    officerId: string, assessmentId: string, input: DeleteRiskAssessmentRequest
+  ): Promise<DeleteRiskAssessmentResponse> {
+    const result = await this.repository.softDeleteClosedAssessment(assessmentId, {
+      deletedAt: new Date().toISOString(), deletedById: officerId,
+      deleteReason: input.deleteReason,
+      ...(input.deleteNote === undefined ? {} : { deleteNote: input.deleteNote })
+    });
+    if (result.kind === 'deleted') return { assessment: result.assessment };
+    if (result.kind === 'not_found') {
+      throw new ApiError(404, 'ASSESSMENT_NOT_FOUND', 'Risk assessment not found.');
+    }
+    if (result.kind === 'already_deleted') {
+      throw new ApiError(409, 'ASSESSMENT_ALREADY_DELETED', 'This assessment has already been deleted.');
+    }
+    throw new ApiError(409, 'ASSESSMENT_NOT_CLOSED', 'Only a closed assessment can be deleted.');
   }
 
   async getHistoryForIncident(incidentId: string): Promise<RiskAssessmentHistoryResponse> {

@@ -21,7 +21,7 @@ const state = vi.hoisted(() => ({
   refs: [] as { current: unknown }[], refIndex: 0,
   effectDeps: [] as (readonly unknown[] | undefined)[], effectIndex: 0,
   effects: [] as (() => void)[],
-  push: vi.fn(), reload: vi.fn(), close: vi.fn(), history: vi.fn()
+  push: vi.fn(), replace: vi.fn(), reload: vi.fn(), close: vi.fn(), softDelete: vi.fn(), history: vi.fn()
 }));
 
 vi.mock('react', async (importOriginal) => {
@@ -61,7 +61,7 @@ vi.mock('react-native', () => ({
   }
 }));
 vi.mock('expo-router', () => ({
-  useRouter: () => ({ push: state.push }),
+  useRouter: () => ({ push: state.push, replace: state.replace }),
   useLocalSearchParams: () => ({ assessmentId: state.assessmentId })
 }));
 vi.mock('@/features/auth/hooks/useAuth', () => ({ useAuth: () => ({
@@ -89,7 +89,10 @@ vi.mock('../components/RiskAssessmentComponents', () => ({
 vi.mock('../hooks/useAssessmentResource', () => ({
   useAssessmentResource: () => ({ data: state.data, loading: state.loading, error: state.error, reload: state.reload })
 }));
-vi.mock('../api/riskAssessmentApi', () => ({ getRiskAssessment: vi.fn(), getRiskAssessmentHistory: state.history, closeRiskAssessment: state.close }));
+vi.mock('../api/riskAssessmentApi', () => ({
+  getRiskAssessment: vi.fn(), getRiskAssessmentHistory: state.history,
+  closeRiskAssessment: state.close, softDeleteRiskAssessment: state.softDelete
+}));
 
 import { AssessmentHistorySection, RiskAssessmentResultScreen } from './RiskAssessmentResultScreen';
 
@@ -100,6 +103,7 @@ function assessment(status: 'ACTIVE' | 'CLOSED' | 'VOID', overrides: Partial<Ris
     roadAccessibility: 'ACCESSIBLE', infrastructureImpact: 'LOW', waterLevelTrend: 'RISING',
     weatherCondition: 'HEAVY_RAIN', finalRiskLevel: 'HIGH', calculatedScore: 18,
     systemSuggestedRisk: 'HIGH', assessedById: 'officer-1', status,
+    isDeleted: false,
     assessedAt: '2026-09-26T12:24:00.000Z', createdAt: '2026-09-26T12:24:00.000Z',
     updatedAt: '2026-09-26T12:24:00.000Z', ...overrides
   };
@@ -131,8 +135,10 @@ beforeEach(() => {
   state.effectDeps = [];
   state.effects = [];
   state.push.mockReset();
+  state.replace.mockReset();
   state.reload.mockReset();
   state.close.mockReset();
+  state.softDelete.mockReset();
   state.history.mockReset();
   state.history.mockResolvedValue({ assessments: [] });
 });
@@ -490,4 +496,83 @@ it('offers a reload after a stale close conflict while retaining form values', a
   expect(markup).toContain('Site is now safe.');
   state.actions.get('Refresh Assessment')!();
   expect(state.reload).toHaveBeenCalledOnce();
+});
+
+it('offers the delete confirmation only for a CLOSED assessment', () => {
+  state.data = savedResult();
+  expect(renderResult()).not.toContain('DELETE ASSESSMENT');
+
+  const closed = savedResult();
+  closed.assessment = assessment('CLOSED');
+  state.data = closed;
+  expect(renderResult()).toContain('DELETE ASSESSMENT');
+  state.actions.get('DELETE ASSESSMENT')!();
+  const form = renderResult();
+  expect(form).toContain('Delete assessment');
+  expect(form).toContain('Delete Reason');
+  expect(form).toContain('Delete Note');
+  expect(form).toContain('Confirm Delete');
+  expect(form).toContain('Cancel');
+});
+
+it('does not submit on cancel or without the required OTHER note', () => {
+  const closed = savedResult();
+  closed.assessment = assessment('CLOSED');
+  state.data = closed;
+  renderResult();
+  state.actions.get('DELETE ASSESSMENT')!();
+  renderResult();
+  state.options.get('Delete Reason')!.choose('OTHER');
+  renderResult();
+  state.actions.get('Confirm Delete')!();
+  expect(state.softDelete).not.toHaveBeenCalled();
+  expect(renderResult()).toContain('delete note for OTHER');
+  state.actions.get('Cancel')!();
+  expect(renderResult()).not.toContain('Confirm Delete');
+  expect(state.softDelete).not.toHaveBeenCalled();
+});
+
+it('blocks duplicate deletion submits and keeps the assessment visible on failure', async () => {
+  const closed = savedResult();
+  closed.assessment = assessment('CLOSED');
+  state.data = closed;
+  renderResult();
+  state.actions.get('DELETE ASSESSMENT')!();
+  renderResult();
+  let resolveDelete!: (value: unknown) => void;
+  state.softDelete.mockImplementationOnce(() => new Promise((resolve) => { resolveDelete = resolve; }));
+  const submit = state.actions.get('Confirm Delete')!;
+  submit();
+  submit();
+  expect(state.softDelete).toHaveBeenCalledOnce();
+  resolveDelete({ assessment: assessment('CLOSED', { isDeleted: true }) });
+  await Promise.resolve();
+  renderResult();
+
+  state.softDelete.mockRejectedValueOnce(new Error('Delete unavailable'));
+  state.actions.get('DELETE ASSESSMENT')!();
+  renderResult();
+  state.actions.get('Confirm Delete')!();
+  await Promise.resolve();
+  const markup = renderResult();
+  expect(markup).toContain('Delete unavailable');
+  expect(markup).toContain('Saved assessment');
+});
+
+it('returns to the refreshed assessment list after a successful delete', async () => {
+  const closed = savedResult();
+  closed.assessment = assessment('CLOSED');
+  state.data = closed;
+  state.softDelete.mockResolvedValue({ assessment: assessment('CLOSED', { isDeleted: true }) });
+  renderResult();
+  state.actions.get('DELETE ASSESSMENT')!();
+  renderResult();
+  state.actions.get('Confirm Delete')!();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  expect(state.softDelete).toHaveBeenCalledWith('assessment-closed', { deleteReason: 'CREATED_BY_MISTAKE' }, 'officer-token');
+  expect(state.replace).toHaveBeenCalledWith(expect.objectContaining({
+    pathname: '/officer/assessments', params: expect.objectContaining({ refresh: expect.any(String) })
+  }));
 });

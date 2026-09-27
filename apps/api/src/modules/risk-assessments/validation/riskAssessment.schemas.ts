@@ -1,7 +1,8 @@
 import {
   HAZARD_ASSESSMENT_SEVERITIES, INFRASTRUCTURE_IMPACT_LEVELS, RISK_LEVELS,
   RISK_DECISION_REASON_MAX_LENGTH, RISK_DECISION_REASON_MIN_LENGTH,
-  RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS, ROAD_ACCESSIBILITY_OPTIONS, WATER_LEVEL_TRENDS,
+  RISK_ASSESSMENT_DELETE_REASONS, RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS,
+  ROAD_ACCESSIBILITY_OPTIONS, WATER_LEVEL_TRENDS,
   WEATHER_CONDITIONS, type RiskAssessmentFactors
 } from '@safealert/contracts';
 import { z } from 'zod';
@@ -43,4 +44,13 @@ export const closeRiskAssessmentSchema = z.object({
 }).strict().refine(
   (input) => input.closureReason !== 'OTHER' || Boolean(input.closureNote),
   { message: 'A closure note is required for OTHER.', path: ['closureNote'] }
+);
+export const deleteRiskAssessmentSchema = z.object({
+  deleteReason: z.enum(RISK_ASSESSMENT_DELETE_REASONS),
+  deleteNote: z.string().trim()
+    .min(RISK_DECISION_REASON_MIN_LENGTH, 'Delete note must be at least 10 characters.')
+    .max(RISK_DECISION_REASON_MAX_LENGTH, 'Delete note must be at most 500 characters.').optional()
+}).strict().refine(
+  (input) => input.deleteReason !== 'OTHER' || Boolean(input.deleteNote),
+  { message: 'A delete note is required for OTHER.', path: ['deleteNote'] }
 );

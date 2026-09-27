@@ -26,8 +26,61 @@ describe('risk persistence constraints', () => {
   it('validates and serializes dates and references safely', async () => {
     const assessment = document();
     await expect(assessment.validate()).resolves.toBeUndefined();
-    expect(toSafeRiskAssessment(assessment)).toMatchObject({ status: 'ACTIVE', assessedAt: expect.any(String), incidentId: assessment.incidentId.toString() });
+    expect(assessment.isDeleted).toBe(false);
+    expect(toSafeRiskAssessment(assessment)).toMatchObject({ status: 'ACTIVE', isDeleted: false, assessedAt: expect.any(String), incidentId: assessment.incidentId.toString() });
     expect(toSafeRiskAssessment(assessment)).not.toHaveProperty('_id');
+  });
+  it('serializes deletion audit fields without changing operational status', async () => {
+    const assessment = document();
+    const deletedAt = new Date('2026-09-26T13:00:00.000Z');
+    const deletedById = new mongoose.Types.ObjectId();
+    assessment.set({
+      status: 'CLOSED', isDeleted: true, deletedAt, deletedById,
+      deleteReason: 'DUPLICATE_RECORD', deleteNote: 'Duplicate field assessment.'
+    });
+
+    await expect(assessment.validate()).resolves.toBeUndefined();
+
+    expect(toSafeRiskAssessment(assessment)).toMatchObject({
+      status: 'CLOSED', isDeleted: true, deletedAt: deletedAt.toISOString(),
+      deletedById: deletedById.toString(), deleteReason: 'DUPLICATE_RECORD',
+      deleteNote: 'Duplicate field assessment.'
+    });
+  });
+  it('keeps legacy assessments visible when deletion state was not stored', () => {
+    const legacy = RiskAssessmentModel.hydrate(document().toObject());
+    expect(legacy.isDeleted).toBe(false);
+    expect(toSafeRiskAssessment(legacy)).toMatchObject({ isDeleted: false });
+  });
+  it.each([
+    { deletedAt: undefined }, { deletedById: undefined }, { deleteReason: undefined }
+  ])('requires deletion audit fields for a deleted record: %j', async (missing) => {
+    const assessment = document();
+    assessment.status = 'CLOSED';
+    assessment.set({
+      isDeleted: true, deletedAt: new Date(), deletedById: new mongoose.Types.ObjectId(),
+      deleteReason: 'CREATED_BY_MISTAKE', ...missing
+    });
+    await expect(assessment.validate()).rejects.toThrow();
+  });
+  it.each([undefined, '', '          ', 'too short', 'x'.repeat(501)])(
+    'requires a valid OTHER delete note: %j', async (deleteNote) => {
+      const assessment = document();
+      assessment.status = 'CLOSED';
+      assessment.set({
+        isDeleted: true, deletedAt: new Date(), deletedById: new mongoose.Types.ObjectId(),
+        deleteReason: 'OTHER', deleteNote
+      });
+      await expect(assessment.validate()).rejects.toThrow();
+    });
+  it('rejects unsupported delete reasons', async () => {
+    const assessment = document();
+    assessment.status = 'CLOSED';
+    assessment.set({
+      isDeleted: true, deletedAt: new Date(), deletedById: new mongoose.Types.ObjectId(),
+      deleteReason: 'UNKNOWN'
+    });
+    await expect(assessment.validate()).rejects.toThrow();
   });
   it('persists and safely serializes reassessment lineage and closure metadata', async () => {
     const assessment = document();
@@ -107,10 +160,27 @@ describe('risk persistence constraints', () => {
 
     const result = await new MongooseRiskAssessmentRepository().findHistoryByIncidentId(assessment.incidentId.toString());
 
-    expect(find).toHaveBeenCalledWith({ incidentId: assessment.incidentId.toString() });
+    expect(find).toHaveBeenCalledWith({ incidentId: assessment.incidentId.toString(), isDeleted: { $ne: true } });
     expect(sort).toHaveBeenCalledWith({ assessedAt: -1, _id: -1 });
     expect(execute).toHaveBeenCalledOnce();
     expect(result).toEqual([toSafeRiskAssessment(assessment)]);
+  });
+  it('filters soft-deleted records from direct and active Mongoose lookups', async () => {
+    const directQuery = RiskAssessmentModel.findOne({});
+    vi.spyOn(directQuery, 'exec').mockResolvedValue(null);
+    const findOne = vi.spyOn(RiskAssessmentModel, 'findOne').mockReturnValue(directQuery);
+    const repository = new MongooseRiskAssessmentRepository();
+
+    await repository.findById('123456789012345678901234');
+    expect(findOne).toHaveBeenCalledWith({ _id: '123456789012345678901234', isDeleted: { $ne: true } });
+
+    const activeQuery = RiskAssessmentModel.findOne({});
+    vi.spyOn(activeQuery, 'exec').mockResolvedValue(null);
+    findOne.mockReturnValue(activeQuery);
+    await repository.findActiveByIncidentId('223456789012345678901234');
+    expect(findOne).toHaveBeenLastCalledWith({
+      incidentId: '223456789012345678901234', status: 'ACTIVE', isDeleted: { $ne: true }
+    });
   });
   it.each([{ vulnerablePeople: 2 }, { peopleAffected: -1 }, { vulnerablePeople: 0.5 }, { finalRiskLevel: 'HIGH' }])('enforces model invariants %j', async (invalid) => {
     const assessment = document();

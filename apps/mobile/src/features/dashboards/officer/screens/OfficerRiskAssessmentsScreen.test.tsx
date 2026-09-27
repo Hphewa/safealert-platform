@@ -69,6 +69,7 @@ function savedAssessment(): RiskAssessmentForIncidentResponse['assessment'] {
     vulnerablePeople: 1, roadAccessibility: 'ACCESSIBLE', infrastructureImpact: 'LOW',
     waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN', finalRiskLevel: 'HIGH',
     calculatedScore: 12, systemSuggestedRisk: 'HIGH', assessedById: 'officer-1', status: 'ACTIVE',
+    isDeleted: false,
     assessedAt: '2026-09-25T12:00:00.000Z', createdAt: '2026-09-25T12:00:00.000Z', updatedAt: '2026-09-25T12:00:00.000Z'
   };
 }
@@ -146,6 +147,15 @@ it('routes assessment preparation through the incident', () => {
     pathname: '/officer/assessments/create',
     params: { incidentId: 'incident-1' }
   });
+});
+
+it('shows a neutral state when the incident has no visible assessment history', () => {
+  state.data = [{ incident: activeIncident, assessment: null }];
+  const markup = renderToStaticMarkup(<OfficerRiskAssessmentsScreen />);
+
+  expect(markup).toContain('No current assessment');
+  expect(markup).toContain('ASSESS INCIDENT');
+  expect(markup).not.toContain('Not assessed');
 });
 
 it('shows VIEW ASSESSMENT when any member report already has an assessment', () => {

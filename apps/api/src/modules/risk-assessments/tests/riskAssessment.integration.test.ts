@@ -48,8 +48,10 @@ function context() {
   const post = (body: object = payload, path = base) => request(app).post(path).auth(token(), { type: 'bearer' }).send(body);
   const close = (assessmentId: string, body: object = { closureReason: 'INCIDENT_RESOLVED' }) =>
     request(app).patch(`${base}/${assessmentId}/close`).auth(token(), { type: 'bearer' }).send(body);
+  const softDelete = (assessmentId: string, body: object = { deleteReason: 'CREATED_BY_MISTAKE' }) =>
+    request(app).patch(`${base}/${assessmentId}/delete`).auth(token(), { type: 'bearer' }).send(body);
   const get = (path: string) => request(app).get(path).auth(token(), { type: 'bearer' });
-  return { app, post, close, get, reportRepository, riskAssessmentRepository, incidentRepository };
+  return { app, post, close, softDelete, get, reportRepository, riskAssessmentRepository, incidentRepository };
 }
 beforeEach(() => {
   process.env.NODE_ENV = 'test';
@@ -60,7 +62,7 @@ beforeEach(() => {
 describe('risk assessment API', () => {
   const protectedRoutes = [
     ['post', `${base}/calculate`], ['post', base], ['post', `${base}/${reportId}/reassess`],
-    ['patch', `${base}/${reportId}/close`], ['get', `${base}/${reportId}`],
+    ['patch', `${base}/${reportId}/close`], ['patch', `${base}/${reportId}/delete`], ['get', `${base}/${reportId}`],
     ['get', `${base}/incident/${incidentId}`], ['get', `${base}/incident/${incidentId}/history`],
     ['get', '/api/v1/reports/officer/verified']
   ] as const;
@@ -366,6 +368,88 @@ describe('risk assessment API', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ incidentId, assessments: [] });
+  });
+  it('soft deletes a CLOSED assessment, preserves audit data, and hides it from normal reads', async () => {
+    const { post, close, softDelete, get, riskAssessmentRepository } = context();
+    const created = await post();
+    const assessmentId = created.body.assessment.id as string;
+    expect((await close(assessmentId)).status).toBe(200);
+
+    const deleted = await softDelete(assessmentId, {
+      deleteReason: 'OTHER', deleteNote: '  Created against the wrong incident.  '
+    });
+
+    expect(deleted.status).toBe(200);
+    expect(deleted.body.assessment).toMatchObject({
+      id: assessmentId, status: 'CLOSED', isDeleted: true, deletedById: officerId,
+      deleteReason: 'OTHER', deleteNote: 'Created against the wrong incident.',
+      deletedAt: expect.any(String)
+    });
+    expect(await riskAssessmentRepository.findById(assessmentId)).toBeNull();
+    expect((await get(`${base}/${assessmentId}`)).status).toBe(404);
+    expect((await get(`${base}/incident/${incidentId}/history`)).body.assessments).toEqual([]);
+    expect((await get(`${base}/incident/${incidentId}`)).body.assessment).toBeNull();
+  });
+  it('rejects invalid, forged, missing, and ineligible deletion requests', async () => {
+    const { post, softDelete } = context();
+    const active = await post();
+    expect((await softDelete(active.body.assessment.id)).status).toBe(409);
+    expect((await softDelete('invalid')).status).toBe(400);
+    expect((await softDelete(missingId)).status).toBe(404);
+
+    const ineligibleContext = context();
+    const voided = await ineligibleContext.riskAssessmentRepository.create(
+      savedAssessment('VOID', '2026-09-26T12:00:00.000Z')
+    );
+    expect((await ineligibleContext.softDelete(voided.id)).status).toBe(409);
+
+    const closedContext = context();
+    const created = await closedContext.post();
+    const assessmentId = created.body.assessment.id as string;
+    expect((await closedContext.close(assessmentId)).status).toBe(200);
+
+    for (const body of [
+      { deleteReason: 'OTHER' }, { deleteReason: 'OTHER', deleteNote: '   ' },
+      { deleteReason: 'CREATED_BY_MISTAKE', isDeleted: true },
+      { deleteReason: 'CREATED_BY_MISTAKE', deletedAt: new Date().toISOString() },
+      { deleteReason: 'CREATED_BY_MISTAKE', deletedById: officerId },
+      { deleteReason: 'CREATED_BY_MISTAKE', status: 'CLOSED' }
+    ]) {
+      expect((await closedContext.softDelete(assessmentId, body)).status).toBe(400);
+    }
+  });
+  it('returns conflict for a repeated or concurrent delete', async () => {
+    const { post, close, softDelete } = context();
+    const created = await post();
+    const assessmentId = created.body.assessment.id as string;
+    await close(assessmentId);
+
+    const responses = await Promise.all([softDelete(assessmentId), softDelete(assessmentId)]);
+
+    expect(responses.map(({ status }) => status).sort()).toEqual([200, 409]);
+    expect(responses.find(({ status }) => status === 409)?.body.error.code).toBe('ASSESSMENT_ALREADY_DELETED');
+    const repeat = await softDelete(assessmentId);
+    expect(repeat.status).toBe(409);
+    expect(repeat.body.error.code).toBe('ASSESSMENT_ALREADY_DELETED');
+  });
+  it('hides a deleted predecessor while keeping its ACTIVE reassessment linked and current', async () => {
+    const { post, softDelete, get } = context();
+    const original = await post();
+    const previousId = original.body.assessment.id as string;
+    const replacement = await post({
+      hazardSeverity: 'HIGH', peopleAffected: 80, vulnerablePeople: 12,
+      roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
+      waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN', finalRiskLevel: 'HIGH',
+      reassessmentReason: 'Conditions have changed substantially.'
+    }, `${base}/${previousId}/reassess`);
+    expect(replacement.status).toBe(201);
+
+    expect((await softDelete(previousId)).status).toBe(200);
+
+    expect((await get(`${base}/incident/${incidentId}`)).body.assessment)
+      .toMatchObject({ id: replacement.body.assessment.id, status: 'ACTIVE' });
+    expect((await get(`${base}/incident/${incidentId}/history`)).body.assessments)
+      .toMatchObject([{ id: replacement.body.assessment.id, previousAssessmentId: previousId }]);
   });
   it.each(['assessedById', 'assessedBy', 'calculatedScore', 'systemSuggestedRisk', 'createdAt', 'updatedAt', 'assessedAt', 'status', 'role', 'hazardType', 'reportStatus'])('rejects forged %s on both endpoints', async (key) => {
     const { post } = context();

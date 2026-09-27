@@ -1,6 +1,7 @@
 import {
-  RISK_DECISION_REASON_MAX_LENGTH, RISK_DECISION_REASON_MIN_LENGTH,
-  type CloseRiskAssessmentRequest, type CreateRiskAssessmentRequest, type ManualRiskAssessmentClosureReason,
+  RISK_ASSESSMENT_DELETE_REASONS, RISK_DECISION_REASON_MAX_LENGTH, RISK_DECISION_REASON_MIN_LENGTH,
+  type CloseRiskAssessmentRequest, type CreateRiskAssessmentRequest, type DeleteRiskAssessmentRequest,
+  type ManualRiskAssessmentClosureReason, type RiskAssessmentDeleteReason,
   type ReassessRiskAssessmentRequest, type RiskAssessmentFactors, type RiskLevel
 } from '@safealert/contracts';
 import { ApiClientError } from '../../../services/api/client';
@@ -99,6 +100,20 @@ export function buildCloseRiskAssessmentRequest(
   if (error) throw new Error(error);
   const closureNote = note.trim();
   return { closureReason: reason, ...(closureNote ? { closureNote } : {}) };
+}
+export function buildDeleteRiskAssessmentRequest(
+  reason: RiskAssessmentDeleteReason, note: string
+): DeleteRiskAssessmentRequest {
+  if (!RISK_ASSESSMENT_DELETE_REASONS.includes(reason)) throw new Error('Choose a valid delete reason.');
+  const deleteNote = note.trim();
+  if (deleteNote && deleteNote.length < RISK_DECISION_REASON_MIN_LENGTH) {
+    throw new Error('Enter a delete note of at least 10 characters.');
+  }
+  if (deleteNote.length > RISK_DECISION_REASON_MAX_LENGTH) {
+    throw new Error('Delete note must be at most 500 characters.');
+  }
+  if (reason === 'OTHER' && !deleteNote) throw new Error('Enter a delete note for OTHER.');
+  return { deleteReason: reason, ...(deleteNote ? { deleteNote } : {}) };
 }
 export function assessmentErrorMessage(error: unknown) {
   if (error instanceof ApiClientError && error.code === 'ASSESSMENT_NOT_ACTIVE') {

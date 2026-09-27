@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS } from '@safealert/contracts';
-import { closeRiskAssessmentSchema, reassessRiskAssessmentSchema } from '../validation/riskAssessment.schemas.js';
+import { RISK_ASSESSMENT_DELETE_REASONS, RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS } from '@safealert/contracts';
+import { closeRiskAssessmentSchema, deleteRiskAssessmentSchema, reassessRiskAssessmentSchema } from '../validation/riskAssessment.schemas.js';
 
 const validFactorsDecision = {
   hazardSeverity: 'HIGH', peopleAffected: 8, vulnerablePeople: 2,
@@ -87,6 +87,53 @@ describe('closeRiskAssessmentSchema', () => {
   it('accepts notes at the 10 and 500 character limits after trimming', () => {
     for (const length of [10, 500]) {
       expect(closeRiskAssessmentSchema.parse({ closureReason: 'OTHER', closureNote: ` ${'x'.repeat(length)} ` }).closureNote)
+        .toHaveLength(length);
+    }
+  });
+});
+
+describe('deleteRiskAssessmentSchema', () => {
+  it.each(['CREATED_BY_MISTAKE', 'DUPLICATE_RECORD', 'INCORRECT_INFORMATION', 'OTHER'])(
+    'accepts the shared delete reason %s', (deleteReason) => {
+      const request = deleteReason === 'OTHER'
+        ? { deleteReason, deleteNote: 'Created against the wrong incident.' }
+        : { deleteReason };
+      expect(deleteRiskAssessmentSchema.parse(request)).toEqual(request);
+    });
+
+  it('shares the controlled deletion reasons with clients', () => {
+    expect(RISK_ASSESSMENT_DELETE_REASONS).toEqual([
+      'CREATED_BY_MISTAKE', 'DUPLICATE_RECORD', 'INCORRECT_INFORMATION', 'OTHER'
+    ]);
+  });
+
+  it.each(['UNKNOWN', 'REASSESSED'])('rejects invalid delete reason %s', (deleteReason) => {
+    expect(deleteRiskAssessmentSchema.safeParse({ deleteReason }).success).toBe(false);
+  });
+
+  it.each(['isDeleted', 'deletedAt', 'deletedById', 'status', 'closedAt', 'closedById', 'assessedById'])(
+    'rejects forged server-owned field %s', (field) => {
+      expect(deleteRiskAssessmentSchema.safeParse({ deleteReason: 'CREATED_BY_MISTAKE', [field]: 'forged' }).success)
+        .toBe(false);
+    });
+
+  it('trims a supplied note for a predefined reason', () => {
+    expect(deleteRiskAssessmentSchema.parse({
+      deleteReason: 'CREATED_BY_MISTAKE', deleteNote: '  Created against the wrong evidence.  '
+    })).toEqual({ deleteReason: 'CREATED_BY_MISTAKE', deleteNote: 'Created against the wrong evidence.' });
+  });
+
+  it('requires a note for OTHER', () => {
+    expect(deleteRiskAssessmentSchema.safeParse({ deleteReason: 'OTHER' }).success).toBe(false);
+  });
+
+  it.each(['', '          ', 'too short', 'x'.repeat(501)])('rejects invalid note %j', (deleteNote) => {
+    expect(deleteRiskAssessmentSchema.safeParse({ deleteReason: 'OTHER', deleteNote }).success).toBe(false);
+  });
+
+  it('accepts notes at both length limits after trimming', () => {
+    for (const length of [10, 500]) {
+      expect(deleteRiskAssessmentSchema.parse({ deleteReason: 'OTHER', deleteNote: ` ${'x'.repeat(length)} ` }).deleteNote)
         .toHaveLength(length);
     }
   });

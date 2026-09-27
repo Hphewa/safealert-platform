@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS, canCreateWarning, type ManualRiskAssessmentClosureReason, type SafeRiskAssessment, type SafeUser } from '@safealert/contracts';
+import {
+  RISK_ASSESSMENT_DELETE_REASONS, RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS, canCreateWarning,
+  type ManualRiskAssessmentClosureReason, type RiskAssessmentDeleteReason, type SafeRiskAssessment, type SafeUser
+} from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '../../../../services/api/client';
-import { closeRiskAssessment, getRiskAssessment, getRiskAssessmentHistory } from '../api/riskAssessmentApi';
-import { assessmentErrorMessage, buildCloseRiskAssessmentRequest } from '../riskAssessmentForm';
+import { closeRiskAssessment, getRiskAssessment, getRiskAssessmentHistory, softDeleteRiskAssessment } from '../api/riskAssessmentApi';
+import {
+  assessmentErrorMessage, buildCloseRiskAssessmentRequest, buildDeleteRiskAssessmentRequest
+} from '../riskAssessmentForm';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { dashboardTheme } from '../../shared/theme';
@@ -35,6 +40,13 @@ export function RiskAssessmentResultScreen() {
   const [closureNote, setClosureNote] = useState('');
   const [closeError, setCloseError] = useState<string | null>(null);
   const [staleClose, setStaleClose] = useState(false);
+  const [deleteFormScope, setDeleteFormScope] = useState<{
+    routeId: string | undefined; accessToken: string | null; generation: number;
+  } | null>(null);
+  const [showDeleteForm, setShowDeleteForm] = useState(false);
+  const [deleteReason, setDeleteReason] = useState<RiskAssessmentDeleteReason>('CREATED_BY_MISTAKE');
+  const [deleteNote, setDeleteNote] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [, refreshPending] = useState(0);
   const params = useLocalSearchParams<{ assessmentId?: string | string[] }>();
   const assessmentId = Array.isArray(params.assessmentId) ? params.assessmentId[0] : params.assessmentId;
@@ -44,12 +56,18 @@ export function RiskAssessmentResultScreen() {
   }
   const closeGeneration = closeContext.current.generation;
   const pendingCloses = useRef<Array<{ assessmentId: string; accessToken: string }>>([]);
+  const pendingDeletes = useRef<Array<{ assessmentId: string; accessToken: string }>>([]);
   const pendingForCurrent = pendingCloses.current.some((pending) =>
+    pending.assessmentId === assessmentId && pending.accessToken === accessToken);
+  const pendingDeleteForCurrent = pendingDeletes.current.some((pending) =>
     pending.assessmentId === assessmentId && pending.accessToken === accessToken);
   const currentForm = closeFormScope !== null && closeFormScope.routeId === assessmentId
     && closeFormScope.accessToken === accessToken && closeFormScope.generation === closeGeneration;
   const closeFormVisible = showCloseForm && currentForm;
-  const currentBusy = pendingForCurrent;
+  const currentDeleteForm = deleteFormScope !== null && deleteFormScope.routeId === assessmentId
+    && deleteFormScope.accessToken === accessToken && deleteFormScope.generation === closeGeneration;
+  const deleteFormVisible = showDeleteForm && currentDeleteForm;
+  const currentBusy = pendingForCurrent || pendingDeleteForCurrent;
   const load = useCallback(async () => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
     if (!assessmentId) throw new Error('An assessment reference is required.');
@@ -112,6 +130,35 @@ export function RiskAssessmentResultScreen() {
       refreshPending((version) => version + 1);
     }
   }, [accessToken, assessmentId, closeFormVisible, closeGeneration, closureNote, closureReason, displayedAssessment]);
+  const submitDelete = useCallback(async () => {
+    if (!deleteFormVisible || !displayedAssessment || displayedAssessment.status !== 'CLOSED'
+      || !accessToken || pendingDeletes.current.some((pending) =>
+        pending.assessmentId === displayedAssessment.id && pending.accessToken === accessToken)) return;
+    let input;
+    try {
+      input = buildDeleteRiskAssessmentRequest(deleteReason, deleteNote);
+    } catch (failure) {
+      setDeleteError(assessmentErrorMessage(failure));
+      return;
+    }
+    const pending = { assessmentId: displayedAssessment.id, accessToken };
+    pendingDeletes.current.push(pending);
+    refreshPending((version) => version + 1);
+    setDeleteError(null);
+    try {
+      await softDeleteRiskAssessment(displayedAssessment.id, input, accessToken);
+      if (closeContext.current.generation !== closeGeneration) return;
+      setShowDeleteForm(false);
+      setHistoryRetry((retry) => retry + 1);
+      router.replace({ pathname: '/officer/assessments', params: { refresh: Date.now().toString() } });
+    } catch (failure) {
+      if (closeContext.current.generation !== closeGeneration) return;
+      setDeleteError(assessmentErrorMessage(failure));
+    } finally {
+      pendingDeletes.current = pendingDeletes.current.filter((request) => request !== pending);
+      refreshPending((version) => version + 1);
+    }
+  }, [accessToken, closeGeneration, deleteFormVisible, deleteNote, deleteReason, displayedAssessment, router]);
   return <AssessmentPage title="Risk Assessment Result">
     {!data ? <AssessmentLoadState loading={loading} error={error} retry={() => void reload()} /> : <>
       <View style={assessmentStyles.card}>
@@ -137,6 +184,26 @@ export function RiskAssessmentResultScreen() {
           setClosureReason('INCIDENT_RESOLVED'); setClosureNote('');
           setCloseError(null); setStaleClose(false); setShowCloseForm(true);
         }} /> : null}
+      {displayedAssessment!.status === 'CLOSED' && !deleteFormVisible ? <AssessmentButton label="DELETE ASSESSMENT"
+        disabled={currentBusy} onPress={() => {
+          setDeleteFormScope({ routeId: assessmentId, accessToken, generation: closeGeneration });
+          setDeleteReason('CREATED_BY_MISTAKE'); setDeleteNote(''); setDeleteError(null); setShowDeleteForm(true);
+        }} /> : null}
+      {displayedAssessment!.status === 'CLOSED' && deleteFormVisible ? <View style={assessmentStyles.card}>
+        <Text style={assessmentStyles.heading}>Delete assessment</Text>
+        <Text style={assessmentStyles.helper}>This hides the closed assessment from normal history. Its audit record remains stored.</Text>
+        <AssessmentOptions label="Delete Reason" options={RISK_ASSESSMENT_DELETE_REASONS}
+          value={deleteReason} onChange={setDeleteReason} disabled={currentBusy} />
+        <View style={assessmentStyles.detail}>
+          <Text style={assessmentStyles.label}>Delete Note</Text>
+          <TextInput accessibilityLabel="Delete Note" value={deleteNote} onChangeText={setDeleteNote}
+            placeholder={deleteReason === 'OTHER' ? 'Explain why this record is being hidden' : 'Optional details'}
+            multiline editable={!currentBusy} style={assessmentStyles.input} />
+        </View>
+        {deleteError ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{deleteError}</Text> : null}
+        <AssessmentButton label="Confirm Delete" disabled={currentBusy} onPress={() => void submitDelete()} />
+        <AssessmentButton label="Cancel" secondary disabled={currentBusy} onPress={() => setShowDeleteForm(false)} />
+      </View> : null}
       {displayedAssessment!.status === 'ACTIVE' && closeFormVisible ? <View style={assessmentStyles.card}>
         <Text style={assessmentStyles.heading}>Close assessment</Text>
         <Text style={assessmentStyles.helper}>Confirm the reason for closing this assessment. This action cannot be undone.</Text>

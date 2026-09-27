@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CalculateRiskAssessmentRequest, CloseRiskAssessmentRequest, ReassessRiskAssessmentRequest } from '@safealert/contracts';
+import type {
+  CalculateRiskAssessmentRequest, CloseRiskAssessmentRequest, DeleteRiskAssessmentRequest,
+  ReassessRiskAssessmentRequest
+} from '@safealert/contracts';
 import { apiBaseUrl } from '../../../../services/api/client';
 import {
   calculateRiskAssessment, closeRiskAssessment, createRiskAssessment, getRiskAssessment, getRiskAssessmentForIncident,
-  getRiskAssessmentHistory, listVerifiedOfficerReports, reassessRiskAssessment
+  getRiskAssessmentHistory, listVerifiedOfficerReports, reassessRiskAssessment, softDeleteRiskAssessment
 } from './riskAssessmentApi';
 
 const factors: CalculateRiskAssessmentRequest = {
@@ -66,6 +69,20 @@ describe('risk assessment authenticated API adapter', () => {
 
     await expect(closeRiskAssessment('assessment/one', input, 'officer-token')).resolves.toEqual(response);
     expect(fetchMock).toHaveBeenCalledWith(`${apiBaseUrl}/risk-assessments/assessment%2Fone/close`, expect.objectContaining({
+      method: 'PATCH', headers: expect.objectContaining({ Authorization: 'Bearer officer-token' }),
+      body: JSON.stringify(input)
+    }));
+  });
+  it('submits a soft-delete request with PATCH using the encoded assessment ID', async () => {
+    const response = { assessment: { id: 'deleted', status: 'CLOSED', isDeleted: true } };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(response)));
+    vi.stubGlobal('fetch', fetchMock);
+    const input: DeleteRiskAssessmentRequest = {
+      deleteReason: 'OTHER', deleteNote: 'Created against the wrong incident.'
+    };
+
+    await expect(softDeleteRiskAssessment('assessment/one', input, 'officer-token')).resolves.toEqual(response);
+    expect(fetchMock).toHaveBeenCalledWith(`${apiBaseUrl}/risk-assessments/assessment%2Fone/delete`, expect.objectContaining({
       method: 'PATCH', headers: expect.objectContaining({ Authorization: 'Bearer officer-token' }),
       body: JSON.stringify(input)
     }));

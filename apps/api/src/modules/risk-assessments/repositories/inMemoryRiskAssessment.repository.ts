@@ -3,7 +3,8 @@ import type { SafeRiskAssessment } from '@safealert/contracts';
 import {
   ActiveRiskAssessmentExistsError, RiskAssessmentReassessmentConflictError,
   type CloseActiveRiskAssessmentInput, type CreateRiskAssessmentInput,
-  type ReassessRiskAssessmentRecordInput, type RiskAssessmentRepository
+  type ReassessRiskAssessmentRecordInput, type RiskAssessmentRepository,
+  type SoftDeleteClosedAssessmentInput, type SoftDeleteClosedAssessmentResult
 } from './riskAssessment.repository.js';
 
 export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepository {
@@ -15,7 +16,7 @@ export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepositor
     )) throw new ActiveRiskAssessmentExistsError();
     const now = new Date().toISOString();
     const assessment: SafeRiskAssessment = {
-      ...input, id: crypto.randomBytes(12).toString('hex'), createdAt: now, updatedAt: now
+      ...input, isDeleted: false, id: crypto.randomBytes(12).toString('hex'), createdAt: now, updatedAt: now
     };
     this.assessments.set(assessment.id, structuredClone(assessment));
     return structuredClone(assessment);
@@ -33,7 +34,7 @@ export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepositor
     const now = new Date().toISOString();
     const reassessed: SafeRiskAssessment = {
       ...input, id: crypto.randomBytes(12).toString('hex'), status: 'ACTIVE',
-      previousAssessmentId: activeAssessmentId, createdAt: now, updatedAt: now
+      previousAssessmentId: activeAssessmentId, isDeleted: false, createdAt: now, updatedAt: now
     };
     const closed: SafeRiskAssessment = {
       ...previous, status: 'CLOSED', closureReason: 'REASSESSED',
@@ -61,17 +62,37 @@ export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepositor
     this.assessments.set(assessmentId, structuredClone(closed));
     return structuredClone(closed);
   }
+  async softDeleteClosedAssessment(
+    assessmentId: string, input: SoftDeleteClosedAssessmentInput
+  ): Promise<SoftDeleteClosedAssessmentResult> {
+    const assessment = this.assessments.get(assessmentId);
+    if (!assessment) return { kind: 'not_found' };
+    if (assessment.isDeleted) return { kind: 'already_deleted' };
+    if (assessment.status !== 'CLOSED') return { kind: 'not_closed' };
+
+    // No await between the eligibility check and update, so concurrent calls have one winner.
+    const deleted: SafeRiskAssessment = {
+      ...assessment, isDeleted: true, deletedAt: input.deletedAt, deletedById: input.deletedById,
+      deleteReason: input.deleteReason,
+      ...(input.deleteNote === undefined ? {} : { deleteNote: input.deleteNote }),
+      updatedAt: new Date().toISOString()
+    };
+    this.assessments.set(assessmentId, structuredClone(deleted));
+    return { kind: 'deleted', assessment: structuredClone(deleted) };
+  }
   async findById(assessmentId: string) {
-    return structuredClone(this.assessments.get(assessmentId) ?? null);
+    const assessment = this.assessments.get(assessmentId);
+    return structuredClone(assessment && !assessment.isDeleted ? assessment : null);
   }
   async findActiveByIncidentId(incidentId: string) {
     return structuredClone([...this.assessments.values()].find(
-      (assessment) => assessment.incidentId === incidentId && assessment.status === 'ACTIVE'
+      (assessment) => assessment.incidentId === incidentId && assessment.status === 'ACTIVE' && !assessment.isDeleted
     ) ?? null);
   }
   async findHistoryByIncidentId(incidentId: string) {
     return [...this.assessments.values()]
       .filter((assessment) => assessment.incidentId === incidentId)
+      .filter((assessment) => !assessment.isDeleted)
       .sort((left, right) => right.assessedAt.localeCompare(left.assessedAt) || right.id.localeCompare(left.id))
       .map((assessment) => structuredClone(assessment));
   }

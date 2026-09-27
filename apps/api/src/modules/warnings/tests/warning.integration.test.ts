@@ -32,6 +32,25 @@ describe('LDFEW-112 create warning API', () => {
     expect(response.body.error.code).toBe('ASSESSMENT_NOT_ACTIVE');
     expect(warnings.warnings.size).toBe(0);
   });
+  it('can still create a warning for the current ACTIVE assessment after deleting an older closed record', async () => {
+    const { app, assessment, assessments, warnings, payload } = await warningContext('HIGH');
+    const previous = await assessments.create({
+      incidentId: assessment.incidentId, assessedById: officerId, hazardSeverity: 'HIGH',
+      peopleAffected: 80, vulnerablePeople: 12, roadAccessibility: 'PARTIALLY_BLOCKED',
+      infrastructureImpact: 'MODERATE', waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN',
+      calculatedScore: 23, systemSuggestedRisk: 'HIGH', finalRiskLevel: 'HIGH', status: 'CLOSED',
+      assessedAt: '2026-09-25T12:00:00.000Z'
+    });
+    await assessments.softDeleteClosedAssessment(previous.id, {
+      deletedAt: '2026-09-26T12:00:00.000Z', deletedById: officerId, deleteReason: 'DUPLICATE_RECORD'
+    });
+
+    const response = await request(app).post(path).auth(warningToken(), { type: 'bearer' }).send(payload);
+
+    expect(response.status).toBe(201);
+    expect(response.body.warning.assessmentId).toBe(assessment.id);
+    expect(warnings.warnings.get(response.body.warning.id)).toEqual(response.body.warning);
+  });
   it('requires authentication', async () => {
     const { app, payload, warnings } = await warningContext();
     expect((await request(app).post(path).send(payload)).status).toBe(401);

@@ -116,6 +116,7 @@ const response: RiskAssessmentResponse = {
     vulnerablePeople: 6, roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
     waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN', calculatedScore: 18,
     systemSuggestedRisk: 'HIGH', finalRiskLevel: 'HIGH', assessedById: 'officer-1', status: 'ACTIVE',
+    isDeleted: false,
     assessedAt: '2026-09-26T12:00:00.000Z', createdAt: '2026-09-26T12:00:00.000Z', updatedAt: '2026-09-26T12:00:00.000Z'
   },
   incident: {

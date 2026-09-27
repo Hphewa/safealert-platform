@@ -14,6 +14,7 @@ export function createRiskAssessmentRouter(service: RiskAssessmentService, confi
   router.post('/', controller.create);
   router.post('/:assessmentId/reassess', controller.reassess);
   router.patch('/:assessmentId/close', controller.close);
+  router.patch('/:assessmentId/delete', controller.softDelete);
   router.get('/incident/:incidentId/history', controller.getHistoryForIncident);
   router.get('/incident/:incidentId', controller.getForIncident);
   router.get('/:assessmentId', controller.getById);

@@ -178,3 +178,75 @@ describe('in-memory risk-assessment manual close repository', () => {
     expect(await repository.findHistoryByIncidentId(incidentId)).toHaveLength(1);
   });
 });
+
+describe('in-memory risk-assessment soft delete repository', () => {
+  const deleteInput = {
+    deletedAt: '2026-09-26T14:00:00.000Z',
+    deletedById: '523456789012345678901234',
+    deleteReason: 'CREATED_BY_MISTAKE' as const
+  };
+
+  it('soft deletes a CLOSED assessment with audit fields and removes it from normal reads', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const closed = await repository.create(input({ status: 'CLOSED' }));
+
+    const result = await repository.softDeleteClosedAssessment(closed.id, deleteInput);
+
+    expect(result).toMatchObject({
+      kind: 'deleted', assessment: {
+        id: closed.id, status: 'CLOSED', isDeleted: true,
+        deletedAt: deleteInput.deletedAt, deletedById: deleteInput.deletedById,
+        deleteReason: deleteInput.deleteReason
+      }
+    });
+    expect(await repository.findById(closed.id)).toBeNull();
+    expect(await repository.findHistoryByIncidentId(incidentId)).toEqual([]);
+  });
+
+  it.each(['ACTIVE', 'VOID'] as const)('refuses to delete %s assessments', async (status) => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const assessment = await repository.create(input({ status }));
+
+    await expect(repository.softDeleteClosedAssessment(assessment.id, deleteInput))
+      .resolves.toEqual({ kind: 'not_closed' });
+    expect(await repository.findById(assessment.id)).toMatchObject({ status, isDeleted: false });
+  });
+
+  it('distinguishes a missing record and a duplicate delete', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const closed = await repository.create(input({ status: 'CLOSED' }));
+
+    await expect(repository.softDeleteClosedAssessment('999999999999999999999999', deleteInput))
+      .resolves.toEqual({ kind: 'not_found' });
+    await expect(repository.softDeleteClosedAssessment(closed.id, deleteInput))
+      .resolves.toMatchObject({ kind: 'deleted' });
+    await expect(repository.softDeleteClosedAssessment(closed.id, deleteInput))
+      .resolves.toEqual({ kind: 'already_deleted' });
+  });
+
+  it('allows only one simultaneous delete transition', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const closed = await repository.create(input({ status: 'CLOSED' }));
+
+    const results = await Promise.all([
+      repository.softDeleteClosedAssessment(closed.id, deleteInput),
+      repository.softDeleteClosedAssessment(closed.id, { ...deleteInput, deleteReason: 'DUPLICATE_RECORD' })
+    ]);
+
+    expect(results.map(({ kind }) => kind).sort()).toEqual(['already_deleted', 'deleted']);
+    expect(await repository.findHistoryByIncidentId(incidentId)).toEqual([]);
+  });
+
+  it('keeps the ACTIVE reassessment and its predecessor reference when deleting the predecessor', async () => {
+    const repository = new InMemoryRiskAssessmentRepository();
+    const previous = await repository.create(input());
+    const current = await repository.reassess(previous.id, reassessmentInput());
+
+    await expect(repository.softDeleteClosedAssessment(previous.id, deleteInput))
+      .resolves.toMatchObject({ kind: 'deleted' });
+
+    expect(await repository.findActiveByIncidentId(incidentId)).toMatchObject({ id: current.id, status: 'ACTIVE' });
+    expect(await repository.findHistoryByIncidentId(incidentId)).toHaveLength(1);
+    expect(await repository.findHistoryByIncidentId(incidentId)).toMatchObject([{ id: current.id, previousAssessmentId: previous.id }]);
+  });
+});

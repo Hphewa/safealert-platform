@@ -88,7 +88,7 @@ function IncidentAssessmentCard({
       <PriorityBadge priority={row.assessment.finalRiskLevel} />
       <AssessmentButton label={row.assessment.status === 'ACTIVE' ? 'VIEW ASSESSMENT' : 'VIEW HISTORY'} onPress={onView} />
     </> : <>
-      <Text style={assessmentStyles.body}>Not assessed</Text>
+      <Text style={assessmentStyles.body}>No current assessment</Text>
       <AssessmentButton label="ASSESS INCIDENT" onPress={onAssess} />
     </>}
     <Text style={assessmentStyles.helper}>Risk preparation belongs to this Incident; its reports remain source evidence.</Text>

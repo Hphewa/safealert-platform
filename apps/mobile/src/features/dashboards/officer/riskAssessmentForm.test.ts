@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  buildReassessmentRiskAssessmentRequest, buildRiskAssessmentRequest, decisionReasonError,
+  buildDeleteRiskAssessmentRequest, buildReassessmentRiskAssessmentRequest, buildRiskAssessmentRequest, decisionReasonError,
   assessmentErrorMessage, buildCloseRiskAssessmentRequest, closureNoteError,
   initialRiskAssessmentForm, parseRiskAssessmentForm,
   riskAssessmentFormFromAssessment, validateRiskAssessmentForm
@@ -96,5 +96,28 @@ describe('assessment form validation', () => {
     expect(() => buildCloseRiskAssessmentRequest('MONITORING_COMPLETED', 'short')).toThrow();
     expect(closureNoteError('MONITORING_COMPLETED', 'x'.repeat(501))).not.toBeNull();
     expect(closureNoteError('MONITORING_COMPLETED', 'x'.repeat(500))).toBeNull();
+  });
+  it.each(['CREATED_BY_MISTAKE', 'DUPLICATE_RECORD', 'INCORRECT_INFORMATION'] as const)(
+    'allows predefined delete reason %s without a note', (deleteReason) => {
+      expect(buildDeleteRiskAssessmentRequest(deleteReason, '   ')).toEqual({ deleteReason });
+    }
+  );
+  it('trims optional delete notes and requires a meaningful note for OTHER', () => {
+    expect(buildDeleteRiskAssessmentRequest('DUPLICATE_RECORD', '  Duplicate field assessment.  ')).toEqual({
+      deleteReason: 'DUPLICATE_RECORD', deleteNote: 'Duplicate field assessment.'
+    });
+    for (const note of ['', '   ', '123456789']) {
+      expect(() => buildDeleteRiskAssessmentRequest('OTHER', note)).toThrow();
+    }
+    expect(buildDeleteRiskAssessmentRequest('OTHER', '  1234567890  ')).toEqual({
+      deleteReason: 'OTHER', deleteNote: '1234567890'
+    });
+    expect(() => buildDeleteRiskAssessmentRequest('OTHER', 'x'.repeat(501))).toThrow();
+    expect(buildDeleteRiskAssessmentRequest('OTHER', 'x'.repeat(500)).deleteNote).toHaveLength(500);
+  });
+  it('applies the note length bounds to optional predefined-reason notes', () => {
+    expect(() => buildDeleteRiskAssessmentRequest('INCORRECT_INFORMATION', 'short')).toThrow();
+    expect(() => buildDeleteRiskAssessmentRequest('INCORRECT_INFORMATION', 'x'.repeat(501))).toThrow();
+    expect(buildDeleteRiskAssessmentRequest('INCORRECT_INFORMATION', 'x'.repeat(500)).deleteNote).toHaveLength(500);
   });
 });

@@ -1,6 +1,6 @@
 import type {
   CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CloseRiskAssessmentRequest,
-  CloseRiskAssessmentResponse, CreateRiskAssessmentRequest,
+  CloseRiskAssessmentResponse, CreateRiskAssessmentRequest, DeleteRiskAssessmentRequest, DeleteRiskAssessmentResponse,
   GetVerifiedOfficerReportsResponse, ReassessRiskAssessmentRequest, RiskAssessmentForIncidentResponse, RiskAssessmentHistoryResponse,
   RiskAssessmentResponse
 } from '@safealert/contracts';
@@ -24,6 +24,13 @@ export function closeRiskAssessment(
   assessmentId: string, input: CloseRiskAssessmentRequest, accessToken: string
 ): Promise<CloseRiskAssessmentResponse> {
   return apiRequest<CloseRiskAssessmentResponse>(`/risk-assessments/${encodeURIComponent(assessmentId)}/close`, {
+    method: 'PATCH', body: input, accessToken
+  });
+}
+export function softDeleteRiskAssessment(
+  assessmentId: string, input: DeleteRiskAssessmentRequest, accessToken: string
+): Promise<DeleteRiskAssessmentResponse> {
+  return apiRequest<DeleteRiskAssessmentResponse>(`/risk-assessments/${encodeURIComponent(assessmentId)}/delete`, {
     method: 'PATCH', body: input, accessToken
   });
 }

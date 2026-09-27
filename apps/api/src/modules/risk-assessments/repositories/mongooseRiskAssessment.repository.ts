@@ -1,9 +1,11 @@
 import { RiskAssessmentModel, toSafeRiskAssessment } from '../models/riskAssessment.model.js';
 import { ApiError } from '../../../shared/apiError.js';
+import type { SafeRiskAssessment } from '@safealert/contracts';
 import {
   ActiveRiskAssessmentExistsError, RiskAssessmentReassessmentConflictError,
   type CloseActiveRiskAssessmentInput, type CreateRiskAssessmentInput,
-  type ReassessRiskAssessmentRecordInput, type RiskAssessmentRepository
+  type ReassessRiskAssessmentRecordInput, type RiskAssessmentRepository,
+  type SoftDeleteClosedAssessmentInput, type SoftDeleteClosedAssessmentResult
 } from './riskAssessment.repository.js';
 
 export class MongooseRiskAssessmentRepository implements RiskAssessmentRepository {
@@ -42,7 +44,7 @@ export class MongooseRiskAssessmentRepository implements RiskAssessmentRepositor
     }
 
     const session = await this.model.db.startSession();
-    let reassessed: Awaited<ReturnType<typeof toSafeRiskAssessment>> | null = null;
+    const reassessmentResult: { assessment: SafeRiskAssessment | null } = { assessment: null };
     try {
       // The conditional close and replacement insert must commit together under the ACTIVE unique index.
       await session.withTransaction(async () => {
@@ -61,7 +63,7 @@ export class MongooseRiskAssessmentRepository implements RiskAssessmentRepositor
           ...input, status: 'ACTIVE', previousAssessmentId: activeAssessmentId
         }], { session });
         if (!created) throw new Error('Reassessment insert returned no record.');
-        reassessed = toSafeRiskAssessment(created);
+        reassessmentResult.assessment = toSafeRiskAssessment(created);
       });
     } catch (error) {
       if (error instanceof RiskAssessmentReassessmentConflictError) throw error;
@@ -77,8 +79,8 @@ export class MongooseRiskAssessmentRepository implements RiskAssessmentRepositor
     } finally {
       await session.endSession();
     }
-    if (!reassessed) throw new Error('Reassessment transaction completed without a replacement record.');
-    return reassessed;
+    if (!reassessmentResult.assessment) throw new Error('Reassessment transaction completed without a replacement record.');
+    return reassessmentResult.assessment;
   }
   async closeActiveAssessment(assessmentId: string, input: CloseActiveRiskAssessmentInput) {
     try {
@@ -97,16 +99,36 @@ export class MongooseRiskAssessmentRepository implements RiskAssessmentRepositor
       throw error;
     }
   }
+  async softDeleteClosedAssessment(
+    assessmentId: string, input: SoftDeleteClosedAssessmentInput
+  ): Promise<SoftDeleteClosedAssessmentResult> {
+    const updated = await this.model.findOneAndUpdate(
+      { _id: assessmentId, status: 'CLOSED', isDeleted: { $ne: true } },
+      { $set: {
+        isDeleted: true, deletedAt: new Date(input.deletedAt), deletedById: input.deletedById,
+        deleteReason: input.deleteReason,
+        ...(input.deleteNote === undefined ? {} : { deleteNote: input.deleteNote })
+      } },
+      { new: true, runValidators: true }
+    ).exec();
+    if (updated) return { kind: 'deleted', assessment: toSafeRiskAssessment(updated) };
+
+    // Read the unfiltered state only to distinguish a missing record from a stale transition.
+    const current = await this.model.findById(assessmentId).select('status isDeleted').exec();
+    if (!current) return { kind: 'not_found' };
+    if (current.isDeleted === true) return { kind: 'already_deleted' };
+    return { kind: 'not_closed' };
+  }
   async findById(assessmentId: string) {
-    const assessment = await this.model.findById(assessmentId).exec();
+    const assessment = await this.model.findOne({ _id: assessmentId, isDeleted: { $ne: true } }).exec();
     return assessment ? toSafeRiskAssessment(assessment) : null;
   }
   async findActiveByIncidentId(incidentId: string) {
-    const assessment = await this.model.findOne({ incidentId, status: 'ACTIVE' }).exec();
+    const assessment = await this.model.findOne({ incidentId, status: 'ACTIVE', isDeleted: { $ne: true } }).exec();
     return assessment ? toSafeRiskAssessment(assessment) : null;
   }
   async findHistoryByIncidentId(incidentId: string) {
-    const assessments = await this.model.find({ incidentId })
+    const assessments = await this.model.find({ incidentId, isDeleted: { $ne: true } })
       .sort({ assessedAt: -1, _id: -1 }).exec();
     return assessments.map(toSafeRiskAssessment);
   }
