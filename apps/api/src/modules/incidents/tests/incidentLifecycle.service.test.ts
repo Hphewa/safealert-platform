@@ -87,4 +87,17 @@ describe('IncidentLifecycleService', () => {
     await expect(service.getMonitoringDetail('223456789012345678901234')).rejects.toMatchObject({ statusCode: 404 });
     await expect(service.getMonitoringDetail(row.id)).rejects.toMatchObject({ statusCode: 404 });
   });
+
+  it('uses a reassessment timestamp as the new evidence baseline without changing reports', async () => {
+    const { incidents, reports, assessments, service } = setup();
+    const row = incident('123456789012345678901234', 'ACTIVE', ['evidence']);
+    incidents.seedIncident(row);
+    const evidence = report('evidence', 'VERIFIED', '2026-09-26T12:30:00.000Z');
+    reports.seedReport(evidence);
+    const first = await assessments.create(assessmentInput(row.id, '2026-09-26T12:00:00.000Z'));
+    expect((await service.getMonitoringDetail(row.id)).monitoring.newVerifiedReportsSinceAssessment).toBe(1);
+    await assessments.reassess(first.id, { ...assessmentInput(row.id, '2026-09-26T12:45:00.000Z'), reassessmentReason: 'New rainfall changed the conditions.' });
+    expect((await service.getMonitoringDetail(row.id)).monitoring.newVerifiedReportsSinceAssessment).toBe(0);
+    expect(await reports.findReportById('evidence')).toEqual(evidence);
+  });
 });
