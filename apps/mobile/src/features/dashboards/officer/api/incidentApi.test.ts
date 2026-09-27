@@ -1,5 +1,7 @@
 import type {
   IncidentCandidatesResponse,
+  IncidentMonitoringDetailResponse,
+  IncidentMonitoringListResponse,
   InitialAssessmentQueueResponse,
   IncidentWithReportsResponse,
   SafeReport
@@ -12,6 +14,8 @@ import {
   createIncidentFromReport,
   getIncidentCandidates,
   getIncidentDetails,
+  getIncidentMonitoringDetail,
+  listIncidentMonitoring,
   listActiveIncidents,
   listInitialAssessmentQueue
 } from './incidentApi';
@@ -29,6 +33,26 @@ describe('Officer incident API', () => {
     await expect(listInitialAssessmentQueue('officer-token')).resolves.toEqual(body);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith(`${apiBaseUrl}/incidents/assessment-queue`, expect.objectContaining({
+      method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer officer-token' })
+    }));
+  });
+
+  it('loads monitoring summaries through one authenticated request', async () => {
+    const body: IncidentMonitoringListResponse = { incidents: [] };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(body));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(listIncidentMonitoring('officer-token')).resolves.toEqual(body);
+    expect(fetchMock).toHaveBeenCalledWith(`${apiBaseUrl}/incidents/monitoring`, expect.objectContaining({
+      method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer officer-token' })
+    }));
+  });
+
+  it('loads monitoring detail with an encoded incident ID and auth token', async () => {
+    const body: IncidentMonitoringDetailResponse = { monitoring: {} as IncidentMonitoringDetailResponse['monitoring'], recentVerifiedReports: [] };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse(body));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(getIncidentMonitoringDetail(incidentId, 'officer-token')).resolves.toEqual(body);
+    expect(fetchMock).toHaveBeenCalledWith(`${apiBaseUrl}/incidents/monitoring/incident%2Fone`, expect.objectContaining({
       method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer officer-token' })
     }));
   });

@@ -5,7 +5,9 @@ import type {
   IncidentResponse,
   IncidentWithReportsResponse,
   GetActiveIncidentsResponse,
-  InitialAssessmentQueueResponse
+  InitialAssessmentQueueResponse,
+  IncidentMonitoringListResponse,
+  IncidentMonitoringDetailResponse
 } from '@safealert/contracts';
 
 import { apiRequest } from '../../../../services/api/client';
@@ -16,6 +18,14 @@ export function listActiveIncidents(accessToken: string) {
 
 export function listInitialAssessmentQueue(accessToken: string) {
   return apiRequest<InitialAssessmentQueueResponse>('/incidents/assessment-queue', { accessToken });
+}
+
+export function listIncidentMonitoring(accessToken: string): Promise<IncidentMonitoringListResponse> {
+  return apiRequest<IncidentMonitoringListResponse>('/incidents/monitoring', { accessToken });
+}
+
+export function getIncidentMonitoringDetail(incidentId: string, accessToken: string): Promise<IncidentMonitoringDetailResponse> {
+  return apiRequest<IncidentMonitoringDetailResponse>(`/incidents/monitoring/${encodeURIComponent(incidentId)}`, { accessToken });
 }
 
 export function getIncidentCandidates(reportId: string, accessToken: string) {
