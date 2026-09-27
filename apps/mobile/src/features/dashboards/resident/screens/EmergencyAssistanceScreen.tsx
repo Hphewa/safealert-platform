@@ -302,6 +302,14 @@ export function EmergencyAssistanceScreen() {
         </Text>
       </View>
 
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push('/resident/my-emergency-requests')}
+        style={({ pressed }) => [styles.secondaryActionButton, pressed && styles.pressed]}
+      >
+        <Text style={styles.secondaryActionButtonText}>My Emergency Requests</Text>
+      </Pressable>
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Assistance Type</Text>
         <View accessibilityRole="radiogroup" style={styles.optionGrid}>
