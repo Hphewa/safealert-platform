@@ -120,6 +120,7 @@ describe('ResidentReportsScreen', () => {
     expect(text).toContain('Rejected');
     expect(text).toContain('Cancelled');
     expect(text).toContain('Resolved');
+    expect(screenButtons(render()).some((button) => screenText(button.children).trim() === 'Resolved')).toBe(false);
     expect(text).toContain('Location:');
     expect(text).toContain('6.9271, 79.8612');
     expect(text).toContain('Photo evidence');
@@ -181,11 +182,11 @@ describe('ResidentReportsScreen', () => {
   });
 
   it.each([
-    ['Pending', 'Waiting for verification'],
-    ['Verified', 'Verified by an officer'],
-    ['Rejected', 'Reviewed and rejected'],
-    ['Cancelled', 'Cancelled before verification'],
-    ['Resolved', 'Resolved']
+    ['Pending', 'Waiting for official verification'],
+    ['Verified', 'A disaster officer verified this report.'],
+    ['Rejected', 'A disaster officer reviewed this report and did not verify it.'],
+    ['Cancelled', 'You cancelled this report before official review.'],
+    ['Resolved', 'This report is no longer active.']
   ])('renders the %s card with resident-facing status wording', async (statusLabel, statusDescription) => {
     render();
     await lifecycle.focus();
@@ -205,7 +206,7 @@ describe('ResidentReportsScreen', () => {
     let text = screenText(render());
     expect(text).toContain('1 rejected report');
     expect(text).toContain('Rejected');
-    expect(text).not.toContain('Verified by an officer');
+    expect(text).not.toContain('A disaster officer verified this report.');
 
     const openReport = screenButtons(render()).find((item) => item.accessibilityLabel === 'Open Flood report details');
     expect(openReport).toBeDefined();

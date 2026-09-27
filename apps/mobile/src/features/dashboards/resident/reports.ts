@@ -4,7 +4,7 @@ import type { Href } from 'expo-router';
 
 import type { BadgeTone, DashboardIconName } from '../shared/types';
 
-export type ResidentReportFilterKey = 'all' | 'pending' | 'verified' | 'rejected' | 'cancelled' | 'resolved';
+export type ResidentReportFilterKey = 'all' | 'pending' | 'verified' | 'rejected' | 'cancelled';
 
 export const residentReportTabs: ReadonlyArray<{
   key: ResidentReportFilterKey;
@@ -14,8 +14,7 @@ export const residentReportTabs: ReadonlyArray<{
   { key: 'pending', label: 'Pending' },
   { key: 'verified', label: 'Verified' },
   { key: 'rejected', label: 'Rejected' },
-  { key: 'cancelled', label: 'Cancelled' },
-  { key: 'resolved', label: 'Resolved' }
+  { key: 'cancelled', label: 'Cancelled' }
 ];
 
 export function filterResidentReports(reports: SafeReport[], filter: ResidentReportFilterKey) {
@@ -30,8 +29,6 @@ export function filterResidentReports(reports: SafeReport[], filter: ResidentRep
       return reports.filter((report) => report.status === 'REJECTED');
     case 'cancelled':
       return reports.filter((report) => report.status === 'CANCELLED');
-    case 'resolved':
-      return reports.filter((report) => report.status === 'RESOLVED');
   }
 }
 
@@ -98,7 +95,7 @@ export function statusDescriptionForResident(status: ReportStatus) {
     case 'CANCELLED':
       return 'You cancelled this report before official review.';
     case 'RESOLVED':
-      return 'Resolved';
+      return 'This report is no longer active.';
   }
 }
 
@@ -113,7 +110,7 @@ export function officialReviewDetailForResident(status: ReportStatus) {
     case 'CANCELLED':
       return 'You cancelled this report before official review.';
     case 'RESOLVED':
-      return 'This report has been marked resolved.';
+      return 'This report is no longer active.';
   }
 }
 
@@ -159,8 +156,7 @@ export function formatResidentReportCount(count: number, filter: ResidentReportF
     pending: 'pending',
     verified: 'verified',
     rejected: 'rejected',
-    cancelled: 'cancelled',
-    resolved: 'resolved'
+    cancelled: 'cancelled'
   };
   const scope = scopeByFilter[filter];
 
@@ -219,7 +215,7 @@ export function residentReportStatusSummary(report: SafeReport) {
         ? `Cancelled ${formatResidentReportDateTime(report.cancelledAt)}`
         : 'You cancelled this report before official review.';
     case 'RESOLVED':
-      return 'Resolved';
+      return 'This report is no longer active.';
   }
 }
 
@@ -248,7 +244,7 @@ export function buildResidentReportTimeline(report: SafeReport): ResidentReportT
     return timeline;
   }
 
-  if (report.status === 'VERIFIED' || report.status === 'RESOLVED') {
+  if (report.status === 'VERIFIED' || (report.status === 'RESOLVED' && (report.verifiedAt || verificationEvent))) {
     const verifiedAt = report.verifiedAt ?? (verificationEvent?.action === 'VERIFY' ? verificationEvent.verifiedAt : undefined);
 
     timeline.push({
@@ -287,9 +283,8 @@ export function buildResidentReportTimeline(report: SafeReport): ResidentReportT
     timeline.push({
       id: 'resolved',
       title: 'Resolved',
-      detail: 'This report has been marked resolved.',
-      timeLabel: formatResidentReportDateTime(report.updatedAt),
-      tone: 'success'
+      detail: 'This report is no longer active.',
+      tone: 'neutral'
     });
   }
 

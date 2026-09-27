@@ -9,6 +9,7 @@
 } from '@safealert/contracts';
 import type { Href } from 'expo-router';
 
+import { canPreviewImageMedia, resolveMediaReferenceUri } from '../shared/media/mediaReference';
 import type { BadgeTone, DashboardIconName } from '../shared/types';
 
 export const officerReportHazardFilters = ['ALL', 'FLOOD', 'BLOCKED_ROAD', 'LANDSLIDE', 'OTHER'] as const;
@@ -223,7 +224,8 @@ export function mapSafeReportToOfficerReviewRecord(
   const summary = mapSafeReportToOfficerGroupedReportSummary(report, now);
   const hasPhotoEvidence = Boolean(report.mediaReference);
   const hasVoiceEvidence = Boolean(report.voiceEvidence);
-  const canDisplayPhoto = report.mediaReference ? isDisplayableMediaUri(report.mediaReference) : false;
+  const residentPhotoUri = resolveMediaReferenceUri(report.mediaReference);
+  const canDisplayPhoto = canPreviewImageMedia(residentPhotoUri);
   const timeline: OfficerReportTimelineEvent[] = [
     {
       id: `${report.id}-submitted`,
@@ -258,9 +260,9 @@ export function mapSafeReportToOfficerReviewRecord(
     ...summary,
     reportedTimeLabel: formatOfficerRelativeTime(report.createdAt, now),
     residentDescription: report.description,
-    ...(canDisplayPhoto && report.mediaReference
+    ...(canDisplayPhoto && residentPhotoUri
       ? {
-          residentPhotoUrl: report.mediaReference,
+          residentPhotoUrl: residentPhotoUri,
           residentPhotoLabel: 'Resident photo evidence'
         }
       : {}),
@@ -326,6 +328,3 @@ function iconForOfficerHazard(hazardType: HazardType): DashboardIconName {
   }
 }
 
-function isDisplayableMediaUri(mediaReference: string) {
-  return /^(https?:|data:image\/)/i.test(mediaReference);
-}

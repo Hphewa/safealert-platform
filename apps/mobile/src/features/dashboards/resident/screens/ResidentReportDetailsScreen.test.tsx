@@ -271,7 +271,7 @@ describe('ResidentReportDetailsScreen', () => {
     ['VERIFIED', 'Verified', 'A disaster officer verified this report.'],
     ['REJECTED', 'Rejected', 'A disaster officer reviewed this report and did not verify it.'],
     ['CANCELLED', 'Cancelled', 'You cancelled this report before official review.'],
-    ['RESOLVED', 'Resolved', 'This report has been marked resolved.']
+    ['RESOLVED', 'Resolved', 'This report is no longer active.']
   ] as const)('shows the %s official review section from Report.status only', async (status, label, detail) => {
     vi.mocked(getMyReportById).mockResolvedValue({
       report: {

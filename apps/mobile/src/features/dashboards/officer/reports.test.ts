@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SafeReport } from '@safealert/contracts';
+
+vi.mock('@/services/api/client', () => ({
+  apiBaseUrl: 'http://localhost:4000/api/v1'
+}));
 
 import {
   filterOfficerGroupedReports,
@@ -112,6 +116,19 @@ describe('real Officer report mapping', () => {
       })
     );
     expect(report.timeline.map((event) => event.title)).toEqual(['Report submitted', 'Photo added']);
+  });
+
+  it('resolves API-relative resident photo evidence for officer preview', () => {
+    const report = mapSafeReportToOfficerReviewRecord(
+      {
+        ...safePendingReport,
+        mediaReference: '/api/v1/media/report-evidence/resident-photo.jpg'
+      },
+      new Date('2026-08-24T10:00:00.000Z')
+    );
+
+    expect(report.residentPhotoUrl).toBe('http://localhost:4000/api/v1/media/report-evidence/resident-photo.jpg');
+    expect(report.residentMediaReference).toBe('/api/v1/media/report-evidence/resident-photo.jpg');
   });
 });
 

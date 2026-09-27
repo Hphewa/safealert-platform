@@ -326,18 +326,15 @@ function filterLabelForState(filter: ResidentReportFilterKey) {
       return 'Rejected';
     case 'cancelled':
       return 'Cancelled';
-    case 'resolved':
-      return 'Resolved';
   }
 }
 
 function emptyIconForFilter(filter: ResidentReportFilterKey) {
-  const statusIconByFilter: Partial<Record<ResidentReportFilterKey, ReportStatus>> = {
+  const statusIconByFilter: Partial<Record<ResidentReportFilterKey, Exclude<ReportStatus, 'RESOLVED'>>> = {
     pending: 'PENDING',
     verified: 'VERIFIED',
     rejected: 'REJECTED',
-    cancelled: 'CANCELLED',
-    resolved: 'RESOLVED'
+    cancelled: 'CANCELLED'
   };
   const status = statusIconByFilter[filter];
 
@@ -354,8 +351,6 @@ function emptyIconForFilter(filter: ResidentReportFilterKey) {
       return 'close-circle-outline';
     case 'CANCELLED':
       return 'remove-circle-outline';
-    case 'RESOLVED':
-      return 'checkmark-done-outline';
   }
 }
 
