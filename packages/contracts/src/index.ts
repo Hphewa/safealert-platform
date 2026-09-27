@@ -93,6 +93,30 @@ export type RiskAssessmentForIncidentResponse = { assessment: SafeRiskAssessment
 export type RiskAssessmentHistoryResponse = { incidentId: string; assessments: SafeRiskAssessment[] };
 export type GetVerifiedOfficerReportsResponse = { reports: SafeReport[] };
 
+export type InitialAssessmentQueueResponse = { incidents: IncidentWithReportsResponse[] };
+export type MonitoringAssessmentSummary = Pick<SafeRiskAssessment,
+  'id' | 'finalRiskLevel' | 'calculatedScore' | 'status' | 'assessedAt' | 'closureReason' | 'closedAt'
+>;
+export type MonitoringReportSummary = Pick<SafeReport, 'id' | 'description' | 'severity' | 'verifiedAt'>;
+export type MonitoringWarningSummary = Pick<SafeWarning,
+  'id' | 'assessmentId' | 'status' | 'createdAt' | 'publishedAt'
+>;
+export type IncidentMonitoringSummary = {
+  incident: SafeIncident;
+  currentAssessment: MonitoringAssessmentSummary | null;
+  latestAssessment: MonitoringAssessmentSummary | null;
+  totalVerifiedReports: number;
+  newVerifiedReportsSinceAssessment: number;
+  latestVerifiedReportAt: string | null;
+  hasNewVerifiedEvidence: boolean;
+  warnings: MonitoringWarningSummary[];
+};
+export type IncidentMonitoringListResponse = { incidents: IncidentMonitoringSummary[] };
+export type IncidentMonitoringDetailResponse = {
+  monitoring: IncidentMonitoringSummary;
+  recentVerifiedReports: MonitoringReportSummary[];
+};
+
 export const WARNING_RISK_LEVELS = ['HIGH', 'CRITICAL'] as const;
 export type WarningRiskLevel = (typeof WARNING_RISK_LEVELS)[number];
 export function canCreateWarning(riskLevel: RiskLevel): riskLevel is WarningRiskLevel {

@@ -1,6 +1,13 @@
 import type {
-  ManualRiskAssessmentClosureReason, RiskAssessmentDeleteReason, SafeRiskAssessment
+  ManualRiskAssessmentClosureReason, MonitoringAssessmentSummary, RiskAssessmentDeleteReason, SafeRiskAssessment
 } from '@safealert/contracts';
+
+export type AssessmentLifecycleForIncident = {
+  incidentId: string;
+  hasEverBeenAssessed: boolean;
+  currentAssessment: MonitoringAssessmentSummary | null;
+  latestAssessment: MonitoringAssessmentSummary | null;
+};
 
 // Only the service constructs this input, including server-owned audit fields.
 export type CreateRiskAssessmentInput = Omit<
@@ -36,6 +43,7 @@ export interface RiskAssessmentRepository {
   findById(assessmentId: string): Promise<SafeRiskAssessment | null>;
   findActiveByIncidentId(incidentId: string): Promise<SafeRiskAssessment | null>;
   findHistoryByIncidentId(incidentId: string): Promise<SafeRiskAssessment[]>;
+  findLifecycleByIncidentIds(incidentIds: string[]): Promise<AssessmentLifecycleForIncident[]>;
 }
 export class ActiveRiskAssessmentExistsError extends Error {
   constructor() {

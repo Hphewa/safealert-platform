@@ -5,7 +5,8 @@ import {
   ActiveRiskAssessmentExistsError, RiskAssessmentReassessmentConflictError,
   type CloseActiveRiskAssessmentInput, type CreateRiskAssessmentInput,
   type ReassessRiskAssessmentRecordInput, type RiskAssessmentRepository,
-  type SoftDeleteClosedAssessmentInput, type SoftDeleteClosedAssessmentResult
+  type SoftDeleteClosedAssessmentInput, type SoftDeleteClosedAssessmentResult,
+  type AssessmentLifecycleForIncident
 } from './riskAssessment.repository.js';
 
 export class MongooseRiskAssessmentRepository implements RiskAssessmentRepository {
@@ -131,5 +132,38 @@ export class MongooseRiskAssessmentRepository implements RiskAssessmentRepositor
     const assessments = await this.model.find({ incidentId, isDeleted: { $ne: true } })
       .sort({ assessedAt: -1, _id: -1 }).exec();
     return assessments.map(toSafeRiskAssessment);
+  }
+
+  async findLifecycleByIncidentIds(incidentIds: string[]): Promise<AssessmentLifecycleForIncident[]> {
+    if (incidentIds.length === 0) return [];
+    const assessments = await this.model.find({ incidentId: { $in: incidentIds } })
+      .select('_id incidentId status assessedAt finalRiskLevel calculatedScore closureReason closedAt isDeleted')
+      .sort({ assessedAt: -1, _id: -1 }).exec();
+    const grouped = new Map<string, typeof assessments>();
+    for (const assessment of assessments) {
+      const id = assessment.incidentId.toString();
+      const records = grouped.get(id) ?? [];
+      records.push(assessment);
+      grouped.set(id, records);
+    }
+
+    return incidentIds.map((incidentId) => {
+      const records = grouped.get(incidentId) ?? [];
+      // Deleted rows establish lifecycle history, but only visible rows can supply assessment details.
+      const visible = records.filter((assessment) => assessment.isDeleted !== true);
+      const project = (assessment: (typeof assessments)[number]) => ({
+        id: assessment._id.toString(), finalRiskLevel: assessment.finalRiskLevel,
+        calculatedScore: assessment.calculatedScore, status: assessment.status,
+        assessedAt: assessment.assessedAt.toISOString(),
+        ...(assessment.closureReason === undefined ? {} : { closureReason: assessment.closureReason }),
+        ...(assessment.closedAt === undefined ? {} : { closedAt: assessment.closedAt.toISOString() })
+      });
+      const active = visible.find((assessment) => assessment.status === 'ACTIVE');
+      return {
+        incidentId, hasEverBeenAssessed: records.length > 0,
+        currentAssessment: active ? project(active) : null,
+        latestAssessment: visible[0] ? project(visible[0]) : null
+      };
+    });
   }
 }

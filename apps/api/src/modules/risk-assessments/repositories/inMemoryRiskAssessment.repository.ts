@@ -4,7 +4,8 @@ import {
   ActiveRiskAssessmentExistsError, RiskAssessmentReassessmentConflictError,
   type CloseActiveRiskAssessmentInput, type CreateRiskAssessmentInput,
   type ReassessRiskAssessmentRecordInput, type RiskAssessmentRepository,
-  type SoftDeleteClosedAssessmentInput, type SoftDeleteClosedAssessmentResult
+  type SoftDeleteClosedAssessmentInput, type SoftDeleteClosedAssessmentResult,
+  type AssessmentLifecycleForIncident
 } from './riskAssessment.repository.js';
 
 export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepository {
@@ -95,5 +96,35 @@ export class InMemoryRiskAssessmentRepository implements RiskAssessmentRepositor
       .filter((assessment) => !assessment.isDeleted)
       .sort((left, right) => right.assessedAt.localeCompare(left.assessedAt) || right.id.localeCompare(left.id))
       .map((assessment) => structuredClone(assessment));
+  }
+
+  async findLifecycleByIncidentIds(incidentIds: string[]): Promise<AssessmentLifecycleForIncident[]> {
+    const requested = new Set(incidentIds);
+    const grouped = new Map<string, SafeRiskAssessment[]>();
+    for (const assessment of this.assessments.values()) {
+      if (!requested.has(assessment.incidentId)) continue;
+      const records = grouped.get(assessment.incidentId) ?? [];
+      records.push(assessment);
+      grouped.set(assessment.incidentId, records);
+    }
+
+    return incidentIds.map((incidentId) => {
+      const records = grouped.get(incidentId) ?? [];
+      const visible = records.filter((assessment) => !assessment.isDeleted)
+        .sort((left, right) => right.assessedAt.localeCompare(left.assessedAt) || right.id.localeCompare(left.id));
+      const summary = (assessment: SafeRiskAssessment) => ({
+        id: assessment.id, finalRiskLevel: assessment.finalRiskLevel,
+        calculatedScore: assessment.calculatedScore, status: assessment.status,
+        assessedAt: assessment.assessedAt,
+        ...(assessment.closureReason === undefined ? {} : { closureReason: assessment.closureReason }),
+        ...(assessment.closedAt === undefined ? {} : { closedAt: assessment.closedAt })
+      });
+      const active = visible.find((assessment) => assessment.status === 'ACTIVE');
+      return {
+        incidentId, hasEverBeenAssessed: records.length > 0,
+        currentAssessment: active ? summary(active) : null,
+        latestAssessment: visible[0] ? summary(visible[0]) : null
+      };
+    });
   }
 }

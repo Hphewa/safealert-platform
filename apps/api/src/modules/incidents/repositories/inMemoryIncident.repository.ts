@@ -28,6 +28,12 @@ export class InMemoryIncidentRepository implements IncidentRepository {
     return structuredClone(this.incidents.get(incidentId) ?? null);
   }
 
+  async findAll() {
+    return [...this.incidents.values()]
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+      .map((incident) => structuredClone(incident));
+  }
+
   async findActive() {
     return [...this.incidents.values()]
       .filter((incident) => incident.status === 'ACTIVE')
