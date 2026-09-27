@@ -160,10 +160,14 @@ describe('ResidentReportDetailsScreen', () => {
     const cancel = screenButtons(render()).find((button) => screenText(button.children).trim() === 'Cancel Report');
     cancel?.onPress();
 
+    expect(cancelMyPendingReport).not.toHaveBeenCalled();
     expect(alertMock.alert).toHaveBeenCalledWith(
       'Cancel this report?',
-      expect.any(String),
-      expect.arrayContaining([expect.objectContaining({ text: 'Cancel Report' })])
+      'Your report will no longer be considered active for review. This action cannot be undone.',
+      expect.arrayContaining([
+        expect.objectContaining({ text: 'Keep Report', style: 'cancel' }),
+        expect.objectContaining({ text: 'Cancel Report', style: 'destructive' })
+      ])
     );
 
     const destructive = alertMock.alert.mock.calls[0]?.[2]?.find((button: { text?: string }) => button.text === 'Cancel Report');
@@ -173,6 +177,54 @@ describe('ResidentReportDetailsScreen', () => {
     expect(screenText(render())).toContain('Cancelled report');
   });
 
+  it('shows a safe cancel failure message and retries without marking the report cancelled locally', async () => {
+    const cancelledReport: SafeReport = {
+      ...pendingReport,
+      status: 'CANCELLED',
+      cancelledById: 'resident-1',
+      cancelledAt: '2026-08-24T09:30:00.000Z'
+    };
+    vi.mocked(getMyReportById).mockResolvedValue({ report: pendingReport });
+    vi.mocked(cancelMyPendingReport)
+      .mockRejectedValueOnce(new Error('Network failure with private details'))
+      .mockResolvedValueOnce({ report: cancelledReport });
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Cancel Report'));
+    screenButtons(render()).find((button) => screenText(button.children).trim() === 'Cancel Report')?.onPress();
+    alertMock.alert.mock.calls[0]?.[2]?.find((button: { text?: string }) => button.text === 'Cancel Report')?.onPress();
+
+    await vi.waitFor(() => expect(screenText(render())).toContain('Your report could not be cancelled.'));
+    expect(screenText(render())).toContain('Try Again');
+    expect(screenText(render())).not.toContain('Cancelled report');
+
+    screenButtons(render()).find((button) => screenText(button.children).trim() === 'Try Again')?.onPress();
+
+    await vi.waitFor(() => expect(cancelMyPendingReport).toHaveBeenCalledTimes(2));
+    expect(screenText(render())).toContain('Cancelled report');
+  });
+
+  it('refreshes and explains when cancel loses the pending status race', async () => {
+    const { ApiClientError } = await import('@/services/api/client');
+    vi.mocked(getMyReportById)
+      .mockResolvedValueOnce({ report: pendingReport })
+      .mockResolvedValueOnce({ report: { ...pendingReport, status: 'VERIFIED' } });
+    vi.mocked(cancelMyPendingReport).mockRejectedValueOnce(
+      new ApiClientError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be cancelled.')
+    );
+
+    render();
+    await lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Cancel Report'));
+    screenButtons(render()).find((button) => screenText(button.children).trim() === 'Cancel Report')?.onPress();
+    alertMock.alert.mock.calls[0]?.[2]?.find((button: { text?: string }) => button.text === 'Cancel Report')?.onPress();
+
+    await vi.waitFor(() => expect(screenText(render())).toContain('This report can no longer be cancelled because its status has changed.'));
+    expect(screenText(render())).toContain('Verified');
+    expect(screenText(render())).not.toContain('Try Again');
+    expect(screenText(render())).not.toContain('Cancel Report');
+  });
   it('shows an API error and retries the same report id', async () => {
     vi.mocked(getMyReportById)
       .mockRejectedValueOnce(new Error('Report not found.'))

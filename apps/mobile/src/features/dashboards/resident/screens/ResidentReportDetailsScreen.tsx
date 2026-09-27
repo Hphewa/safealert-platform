@@ -54,6 +54,7 @@ export function ResidentReportDetailsScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionStatus, setActionStatus] = useState<'idle' | 'cancelling'>('idle');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [canRetryCancel, setCanRetryCancel] = useState(false);
   const inFlightRef = useRef(false);
   const cancelInFlightRef = useRef(false);
   const latestRequestIdRef = useRef(0);
@@ -140,19 +141,21 @@ export function ResidentReportDetailsScreen() {
     cancelInFlightRef.current = true;
     setActionStatus('cancelling');
     setActionMessage(null);
+    setCanRetryCancel(false);
 
     try {
       const response = await cancelMyPendingReport(reportId, accessToken);
       setReport(response.report);
       setActionMessage('Report cancelled. It remains in your submitted report history.');
     } catch (error) {
-      const message =
-        error instanceof ApiClientError && error.status === 409
-          ? 'This report can no longer be changed because its status has been updated.'
-          : 'Unable to cancel this report right now.';
-
-      setActionMessage(message);
-      await loadReport(true);
+      if (error instanceof ApiClientError && error.status === 409) {
+        setActionMessage('This report can no longer be cancelled because its status has changed.');
+        setCanRetryCancel(false);
+        await loadReport(true);
+      } else {
+        setActionMessage('Your report could not be cancelled.');
+        setCanRetryCancel(true);
+      }
     } finally {
       cancelInFlightRef.current = false;
       setActionStatus('idle');
@@ -162,7 +165,7 @@ export function ResidentReportDetailsScreen() {
   const confirmCancelReport = useCallback(() => {
     Alert.alert(
       'Cancel this report?',
-      'This report will no longer be sent through the verification process. You cannot edit it after cancellation.',
+      'Your report will no longer be considered active for review. This action cannot be undone.',
       [
         { text: 'Keep Report', style: 'cancel' },
         {
@@ -232,9 +235,11 @@ export function ResidentReportDetailsScreen() {
           ) : report ? (
             <ReportDetailContent
               actionMessage={actionMessage}
+              canRetryCancel={canRetryCancel}
               fieldConfirmations={fieldConfirmations}
               isCancelling={actionStatus === 'cancelling'}
               onCancelReport={confirmCancelReport}
+              onRetryCancel={cancelReport}
               onEditReport={() => router.push(residentReportEditHref(report.id))}
               report={report}
               refreshErrorMessage={errorMessage}
@@ -258,17 +263,21 @@ export function ResidentReportDetailsScreen() {
 
 function ReportDetailContent({
   actionMessage,
+  canRetryCancel,
   fieldConfirmations,
   isCancelling,
   onCancelReport,
+  onRetryCancel,
   onEditReport,
   report,
   refreshErrorMessage
 }: {
   actionMessage: string | null;
+  canRetryCancel: boolean;
   fieldConfirmations: ResidentFieldConfirmation[];
   isCancelling: boolean;
   onCancelReport: () => void;
+  onRetryCancel: () => void;
   onEditReport: () => void;
   report: SafeReport;
   refreshErrorMessage: string | null;
@@ -324,6 +333,22 @@ function ReportDetailContent({
                 {isCancelling ? 'Cancelling...' : 'Cancel Report'}
               </Text>
             </Pressable>
+            {canRetryCancel ? (
+              <Pressable
+                accessibilityLabel="Try cancelling report again"
+                accessibilityRole="button"
+                accessibilityState={{ disabled: isCancelling }}
+                disabled={isCancelling}
+                onPress={onRetryCancel}
+                style={({ pressed }) => [
+                  styles.secondaryActionButton,
+                  isCancelling && styles.buttonDisabled,
+                  pressed && !isCancelling && styles.pressed
+                ]}
+              >
+                <Text style={styles.secondaryActionButtonText}>Try Again</Text>
+              </Pressable>
+            ) : null}
           </View>
         ) : null}
       </View>
@@ -706,6 +731,21 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: dashboardTheme.colors.critical
+  },
+  secondaryActionButton: {
+    flexGrow: 1,
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.primary,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  secondaryActionButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
   },
   buttonDisabled: {
     opacity: 0.55
