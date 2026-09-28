@@ -15,6 +15,13 @@ export class InMemoryWarningRepository implements WarningRepository {
     const warning = [...this.warnings.values()].find(item => item.assessmentId === assessmentId);
     return structuredClone(warning ?? null);
   }
+  async findByAssessmentIds(assessmentIds: string[]) {
+    if (assessmentIds.length === 0) return [];
+    const requested = new Set(assessmentIds);
+    return [...this.warnings.values()]
+      .filter(({ assessmentId }) => requested.has(assessmentId))
+      .map((warning) => structuredClone(warning));
+  }
   async publish(id: string, publishedById: string, publishedAt: string, notificationTarget: WarningNotificationTarget) {
     const warning = this.warnings.get(id);
     if (!warning) return null;
@@ -23,3 +30,4 @@ export class InMemoryWarningRepository implements WarningRepository {
     return structuredClone(updated);
   }
 }
+

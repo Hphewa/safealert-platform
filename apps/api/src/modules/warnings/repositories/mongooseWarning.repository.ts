@@ -9,6 +9,11 @@ export class MongooseWarningRepository implements WarningRepository {
     const warning = await WarningModel.findById(id).exec();
     return warning ? toSafeWarning(warning) : null;
   }
+  async findByAssessmentIds(assessmentIds: string[]) {
+    if (assessmentIds.length === 0) return [];
+    const warnings = await WarningModel.find({ assessmentId: { $in: assessmentIds } }).exec();
+    return warnings.map(toSafeWarning);
+  }
   async findByAssessmentId(assessmentId: string) {
     const warning = await WarningModel.findOne({ assessmentId }).sort({ createdAt: -1 }).exec();
     return warning ? toSafeWarning(warning) : null;
@@ -23,3 +28,4 @@ export class MongooseWarningRepository implements WarningRepository {
     return warning ? toSafeWarning(warning) : null;
   }
 }
+
