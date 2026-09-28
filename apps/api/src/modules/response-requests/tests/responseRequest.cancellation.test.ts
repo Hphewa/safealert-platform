@@ -337,7 +337,7 @@ describe('Resident cancellation API foundation and ownership (LDFEW-318/319)', (
     expect(write).not.toHaveBeenCalled();
   });
 
-  it.each(['not-an-id', '123', 'abcdefghijkl', 'z'.repeat(24), ' ', '{"$ne":null}'])(
+  it.each(['not-an-id', '123', 'abcdefghijkl', 'z'.repeat(24), ' ', '{"$ne":null}', '../request', 'requests/cancel'])(
     'rejects malformed ID %j before the service or repository', async (id) => {
       const { app, token, repository } = createContext();
       const service = vi.spyOn(ResponseRequestService.prototype, 'cancelResidentResponseRequest');

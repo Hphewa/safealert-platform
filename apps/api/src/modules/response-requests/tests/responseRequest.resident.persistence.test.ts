@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
-import { RESPONSE_PROGRESS_SEQUENCE, type CreateResponseRequestRequest } from '@safealert/contracts';
+import { RESPONSE_PROGRESS_SEQUENCE, RESPONSE_STATUSES, type CreateResponseRequestRequest } from '@safealert/contracts';
 import mongoose from 'mongoose';
 import request from 'supertest';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from '../../../app.js';
 import { loadConfig } from '../../../config/env.js';
@@ -49,6 +49,11 @@ describe.skipIf(!mongodbUri)('Resident emergency tracking MongoDB persistence', 
   }
 
   beforeAll(connect);
+  beforeEach(async () => {
+    // Isolate fixtures so owner-list assertions never depend on test execution order.
+    if (mongoose.connection.name !== databaseName) throw new Error('Unexpected test database.');
+    await ResponseRequestModel.deleteMany({});
+  });
   afterAll(async () => {
     try {
       if (mongoose.connection.readyState === 1 && mongoose.connection.name === databaseName) {
@@ -121,6 +126,17 @@ describe.skipIf(!mongodbUri)('Resident emergency tracking MongoDB persistence', 
     expect(detail.status).toBe(200);
     expect(detail.body).toEqual(cancelled.body);
 
+    // Re-read history and active queues after reconnecting: cancellation retains the
+    // record for its Resident while excluding it from responder work.
+    const history = await request(app).get(`${basePath}/mine`).auth(residentToken, { type: 'bearer' });
+    expect(history.status).toBe(200);
+    expect(history.body.responseRequests).toEqual([detail.body.responseRequest]);
+    for (const queue of ['pending', 'assigned']) {
+      const active = await request(app).get(`${basePath}/responder/${queue}`).auth(responderToken, { type: 'bearer' });
+      expect(active.status).toBe(200);
+      expect(active.body).toEqual([]);
+    }
+
     const retry = await request(app).patch(`${basePath}/${id}/cancel`).auth(residentToken, { type: 'bearer' });
     expect(retry.status).toBe(409);
     expect(retry.body.error.code).toBe('INVALID_CANCELLATION_STATUS');
@@ -140,5 +156,51 @@ describe.skipIf(!mongodbUri)('Resident emergency tracking MongoDB persistence', 
     expect(stored).toEqual(cancelled ?? accepted);
     await expect(repository.cancelResponseRequest(created.id, residentId)).resolves.toBeNull();
     expect(await repository.findResponseRequestById(created.id, residentId)).toEqual(stored);
+  });
+
+  it('rejects unauthorized and invalid API cancellations without changing the MongoDB document', async () => {
+    const app = freshApp();
+    const created = await request(app).post(basePath).auth(residentToken, { type: 'bearer' }).send(input);
+    expect(created.status).toBe(201);
+    const id: string = created.body.responseRequest.id;
+    const filter = { _id: new mongoose.Types.ObjectId(id) };
+    const before = await ResponseRequestModel.collection.findOne(filter);
+    // Use verified authentication through the API rather than passing a trusted
+    // owner directly to the repository and bypassing the security boundary.
+    const denied = await request(app).patch(`${basePath}/${id}/cancel`).auth(otherToken, { type: 'bearer' });
+    expect(denied.status).toBe(403);
+    expect(denied.body.error.code).toBe('REQUEST_NOT_OWNED');
+    expect(JSON.stringify(denied.body)).not.toContain(residentId);
+    const anonymous = await request(app).patch(`${basePath}/${id}/cancel`);
+    expect(anonymous.status).toBe(401);
+    const wrongRole = await request(app).patch(`${basePath}/${id}/cancel`).auth(responderToken, { type: 'bearer' });
+    expect(wrongRole.status).toBe(403);
+    const malformed = await request(app).patch(`${basePath}/not-an-id/cancel`).auth(residentToken, { type: 'bearer' });
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.error.code).toBe('VALIDATION_ERROR');
+    const missing = await request(app).patch(`${basePath}/${new mongoose.Types.ObjectId()}/cancel`)
+      .auth(residentToken, { type: 'bearer' });
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe('REQUEST_NOT_FOUND');
+    expect(await ResponseRequestModel.collection.findOne(filter)).toEqual(before);
+    expect(await ResponseRequestModel.countDocuments()).toBe(1);
+  });
+
+  it('preserves every non-cancellable MongoDB lifecycle state when the owner calls the API', async () => {
+    const app = freshApp();
+    for (const status of RESPONSE_STATUSES.filter((value) => value !== 'NEW')) {
+      const created = await request(app).post(basePath).auth(residentToken, { type: 'bearer' }).send(input);
+      expect(created.status).toBe(201);
+      const id: string = created.body.responseRequest.id;
+      const filter = { _id: new mongoose.Types.ObjectId(id) };
+      // Seed terminal/progressed fixtures without inventing a cancellation path
+      // from an assigned request, which the business rules deliberately forbid.
+      await ResponseRequestModel.updateOne(filter, { $set: { status } });
+      const before = await ResponseRequestModel.collection.findOne(filter);
+      const rejected = await request(app).patch(`${basePath}/${id}/cancel`).auth(residentToken, { type: 'bearer' });
+      expect(rejected.status).toBe(409);
+      expect(rejected.body.error.code).toBe('INVALID_CANCELLATION_STATUS');
+      expect(await ResponseRequestModel.collection.findOne(filter)).toEqual(before);
+    }
   });
 });

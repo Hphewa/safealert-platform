@@ -1,4 +1,5 @@
 import * as React from 'react';
+import type {} from '../../../../../../api/src/types/express';
 import type { SafeResponseRequest, UserRole } from '@safealert/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -986,6 +987,157 @@ describe('Resident emergency request history (LDFEW-325)', () => {
     expect(press(render(), 'Retry')).toBe(true);
     await vi.waitFor(() => expect(screenText(render())).toContain('Status:  Cancelled'));
     expect(summaryCards(render())).toHaveLength(1);
+  });
+});
+
+describe('cancellation across mobile and authenticated backend (LDFEW-327)', () => {
+  async function connectWorkflow(loseCancellationResponse = false) {
+    const { createApp } = await import('../../../../../../api/src/app');
+    const { loadConfig } = await import('../../../../../../api/src/config/env');
+    const { InMemoryAuthRepository } = await import('../../../../../../api/src/modules/auth/repositories/inMemoryAuth.repository');
+    const { InMemoryResponseRequestRepository } = await import('../../../../../../api/src/modules/response-requests/repositories/inMemoryResponseRequest.repository');
+    const { signAccessToken } = await import('../../../../../../api/src/modules/auth/services/token.service');
+    const { default: http } = await import('supertest');
+    const api = await vi.importActual<typeof import('../api/responseRequestApi')>('../api/responseRequestApi');
+    const queues = await import('../../responder/api/responderRequestsApi');
+    const { getResponderQueueCounts } = await import('../../responder/queueState');
+    const config = { ...loadConfig(), nodeEnv: 'test', jwtAccessSecret: 'workflow-test-secret' };
+    const repository = new InMemoryResponseRequestRepository();
+    repository.seedResponseRequest(structuredClone(request));
+    const otherRequest = { ...request, id: '507f1f77bcf86cd799439012' };
+    repository.seedResponseRequest(otherRequest);
+    const responderId = 'responder-workflow';
+    repository.seedResponseRequest({ ...request, id: '507f1f77bcf86cd799439013', declinedByResponderIds: [responderId] });
+    const app = createApp({ config, authRepository: new InMemoryAuthRepository(), responseRequestRepository: repository });
+    auth.accessToken = signAccessToken(config, { id: request.residentId, role: 'RESIDENT' });
+    const responderToken = signAccessToken(config, { id: responderId, role: 'EMERGENCY_RESPONDER' });
+    const write = vi.spyOn(repository, 'cancelResponseRequest');
+    // Only bridge the transport: actual mobile adapters, JWT middleware, controllers,
+    // services and repository run together. Native rendering remains mocked.
+    const transport = vi.fn<typeof fetch>().mockImplementation(async (url, options) => {
+      const path = new URL(String(url)).pathname;
+      const method = options?.method ?? 'GET';
+      if (method !== 'GET' && method !== 'PATCH') throw new Error('Unexpected workflow test method');
+      const call = method === 'PATCH' ? http(app).patch(path) : http(app).get(path);
+      const authorization = new Headers(options?.headers).get('Authorization');
+      if (authorization) call.set('Authorization', authorization);
+      if (options?.body) call.send(JSON.parse(String(options.body)));
+      const result = await call;
+      if (loseCancellationResponse && method === 'PATCH' && path.endsWith('/cancel')) {
+        throw new Error('Simulated lost response after backend completion');
+      }
+      return Response.json(result.body, { status: result.status });
+    });
+    vi.stubGlobal('fetch', transport);
+    vi.mocked(getMyResponseRequestById).mockImplementation(api.getMyResponseRequestById);
+    vi.mocked(listMyResponseRequests).mockImplementation(api.listMyResponseRequests);
+    vi.mocked(cancelResidentResponseRequest).mockImplementation(api.cancelResidentResponseRequest);
+    const loadQueues = async () => {
+      const pending = await queues.listPendingResponderRequests(responderToken);
+      const assigned = await queues.listAssignedResponderRequests(responderToken);
+      return { pending, assigned, counts: getResponderQueueCounts({ pending, assigned }) };
+    };
+    return { repository, write, transport, loadQueues, otherRequest, accept: () => http(app)
+      .patch(`/api/v1/response-requests/responder/requests/${request.id}/accept`).auth(responderToken, { type: 'bearer' }) };
+  }
+
+  it('confirms once, retains the record through fresh history reads and removes only cancelled work from responder queues', async () => {
+    const { repository, write, transport, loadQueues, otherRequest } = await connectWorkflow();
+    expect((await loadQueues()).counts).toEqual({ PENDING: 2, ASSIGNED: 0 });
+    render();
+    const leaveList = lifecycle.effect();
+    await vi.waitFor(() => expect(summaryCards(render())).toHaveLength(3));
+    const card = EmergencyRequestSummaryCard(summaryCards(render()).find((item) => item.props.request.id === request.id)!.props);
+    press(card, card.props.accessibilityLabel);
+    expect(navigation.push).toHaveBeenCalledWith({ pathname: '/resident/emergency-request/[requestId]', params: { requestId: request.id } });
+    leaveList?.();
+    lifecycle.slots = [];
+    renderDetails();
+    const leaveDetails = lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
+    press(renderDetails(), 'Cancel Request');
+    cancellationDialog(renderDetails())!.onKeepRequest();
+    expect(write).not.toHaveBeenCalled();
+    expect(screenText(renderDetails())).not.toContain('cancelled successfully');
+    expect(await repository.findResponseRequestById(request.id, request.residentId)).toEqual(request);
+    press(renderDetails(), 'Cancel Request');
+    const dialog = cancellationDialog(renderDetails())!;
+    dialog.onConfirm();
+    dialog.onConfirm();
+    expect(screenText(renderDetails())).toContain('Cancelling...');
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Emergency request cancelled successfully.'));
+    expect(write).toHaveBeenCalledTimes(1);
+    expect(transport.mock.calls.filter(([, options]) => options?.method === 'PATCH')).toHaveLength(1);
+    const saved = await repository.findResponseRequestById(request.id, request.residentId);
+    expect(saved).toEqual({ ...request, status: 'CANCELLED', cancelledAt: expect.any(String), updatedAt: expect.any(String) });
+    expect(cancellationDialog(renderDetails())).toBeNull();
+    expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    press(renderDetails(), 'Refresh emergency request details');
+    await vi.waitFor(() => {
+      expect(screenText(renderDetails())).not.toContain('Loading');
+      expect(screenText(renderDetails())).toContain('Status:  Cancelled');
+    });
+    leaveDetails?.();
+    lifecycle.slots = [];
+    render();
+    const leaveHistory = lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Status:  Cancelled'));
+    press(render(), 'Refresh emergency requests');
+    await vi.waitFor(() => {
+      expect(screenText(render())).not.toContain('Loading');
+      expect(summaryCards(render())).toHaveLength(3);
+      expect(screenText(render())).toContain('Status:  Cancelled');
+    });
+    expect(summaryCards(render()).filter((item) => item.props.request.id === request.id)).toHaveLength(1);
+    leaveHistory?.();
+    lifecycle.slots = [];
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('This request is no longer active.'));
+    expect(screenText(renderDetails())).toContain(request.description);
+    expect(screenText(renderDetails())).toContain(request.contact.phoneNumber);
+    const queues = await loadQueues();
+    expect(queues.pending.map(({ id }) => id)).toEqual([otherRequest.id]);
+    expect(queues.counts).toEqual({ PENDING: 1, ASSIGNED: 0 });
+    expect(await repository.findResponseRequestById(request.id, request.residentId)).toEqual(saved);
+  });
+
+  it('reconciles a real backend rejection after responder acceptance while the confirmation is open', async () => {
+    const { repository, write, accept, loadQueues } = await connectWorkflow();
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
+    press(renderDetails(), 'Cancel Request');
+    const dialog = cancellationDialog(renderDetails())!;
+    const accepted = await accept();
+    expect(accepted.status).toBe(200);
+    dialog.onConfirm();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Assigned Current stage'));
+    expect(screenText(renderDetails())).toContain('response status has changed');
+    expect(screenText(renderDetails())).not.toMatch(/cancelled successfully|Cancelling\.\.\./);
+    expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    expect(write).not.toHaveBeenCalled();
+    expect(await repository.findResponseRequestById(request.id, request.residentId)).toEqual(accepted.body);
+    const queues = await loadQueues();
+    expect(queues.assigned.map(({ id }) => id)).toEqual([request.id]);
+    expect(queues.counts).toEqual({ PENDING: 1, ASSIGNED: 1 });
+  });
+
+  it('recovers a committed cancellation after a lost response by reading history, never resubmitting', async () => {
+    const { write, repository } = await connectWorkflow(true);
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
+    press(renderDetails(), 'Cancel Request');
+    cancellationDialog(renderDetails())!.onConfirm();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('check your connection'));
+    expect(screenText(renderDetails())).not.toContain('cancelled successfully');
+    expect(cancellationDialog(renderDetails())).toBeNull();
+    expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    expect(press(renderDetails(), 'Retry')).toBe(true);
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Status:  Cancelled'));
+    expect(write).toHaveBeenCalledTimes(1);
+    expect((await repository.findResponseRequestById(request.id, request.residentId))?.status).toBe('CANCELLED');
   });
 });
 
