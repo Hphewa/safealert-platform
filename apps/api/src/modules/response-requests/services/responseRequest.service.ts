@@ -4,6 +4,7 @@ import type {
   GetResidentResponseRequestResponse,
   GetResidentResponseRequestsResponse,
   ResponseStatus,
+  SafeUser,
   UserRole
 } from '@safealert/contracts';
 import { isValidResponseProgressTransition } from '@safealert/contracts';
@@ -73,6 +74,32 @@ export class ResponseRequestService {
     }
 
     return { responseRequest };
+  }
+
+  async cancelResidentResponseRequest(
+    responseRequestId: string,
+    actor: Pick<SafeUser, 'id' | 'role'> | null | undefined
+  ): Promise<never> {
+    if (!actor) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    if (actor.role !== 'RESIDENT') {
+      throw new ApiError(403, 'FORBIDDEN', 'Only Residents can cancel emergency requests.');
+    }
+
+    // Reuse the existing validated, owner-scoped read instead of introducing an
+    // unscoped lookup while cancellation-specific authorization awaits LDFEW-319.
+    await this.getResidentResponseRequestById(actor.id, responseRequestId);
+
+    // LDFEW-318 establishes the API flow only. Keep emergency history unchanged
+    // until LDFEW-319/320/323 supply authorization, lifecycle policy and an atomic
+    // CANCELLED status update. Never delete records or report an unpersisted success.
+    throw new ApiError(
+      501,
+      'CANCELLATION_NOT_AVAILABLE',
+      'Emergency request cancellation is not available yet. Your request has not been changed.'
+    );
   }
 
   private requireResidentIdentity(residentId: string) {

@@ -5,6 +5,17 @@ import {
 } from '@safealert/contracts';
 import { z } from 'zod';
 
+export const cancelResponseRequestSchema = z.object({
+  params: z.object({
+    // Reject malformed IDs before Mongoose can attempt to cast them.
+    requestId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'A valid response request id is required.')
+  }).strict(),
+  // Cancellation takes its identity from authentication and its target from the URL.
+  // Do not accept client-selected owners, statuses, or other mutation fields.
+  body: z.object({}).strict().optional(),
+  query: z.object({}).strict()
+});
+
 export const responseRequestProgressSchema = z
   .object({
     status: z.enum(RESPONSE_STATUSES).exclude(['NEW'])

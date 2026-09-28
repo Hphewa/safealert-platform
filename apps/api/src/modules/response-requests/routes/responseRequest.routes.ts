@@ -21,6 +21,12 @@ export function createResponseRequestRouter(
     authorizeRoles('RESIDENT'),
     controller.getMineById
   );
+  router.patch(
+    '/:requestId/cancel',
+    authenticate(config),
+    authorizeRoles('RESIDENT'),
+    controller.cancelForResident
+  );
   // Responder queue data is operational emergency information and is restricted
   // to authenticated Emergency Responders by the shared middleware.
   router.get(

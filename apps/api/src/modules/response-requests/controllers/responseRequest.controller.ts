@@ -5,6 +5,7 @@ import { ApiError } from '../../../shared/apiError.js';
 import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { ResponseRequestService } from '../services/responseRequest.service.js';
 import {
+  cancelResponseRequestSchema,
   createResponseRequestSchema,
   responseRequestProgressSchema
 } from '../validation/responseRequest.schemas.js';
@@ -57,6 +58,22 @@ export function createResponseRequestController(responseRequestService: Response
       request.auth.id,
       request.params.requestId ?? ''
     ));
+  });
+
+  const cancelForResident: RequestHandler = asyncHandler(async (request) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const { params } = cancelResponseRequestSchema.parse({
+      params: request.params,
+      body: request.body,
+      query: request.query
+    });
+
+    // Derive the actor from the verified session, never from client-supplied user IDs.
+    // asyncHandler forwards failures to the existing sanitized API error handler.
+    await responseRequestService.cancelResidentResponseRequest(params.requestId, request.auth);
   });
 
   const listPendingForResponder: RequestHandler = asyncHandler(async (request, response) => {
@@ -134,6 +151,7 @@ export function createResponseRequestController(responseRequestService: Response
     create,
     listMine,
     getMineById,
+    cancelForResident,
     listPendingForResponder,
     listAssignedForResponder,
     acceptForResponder,
