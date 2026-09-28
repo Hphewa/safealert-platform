@@ -108,10 +108,21 @@ export type SafeWarning = CreateWarningRequest & {
 export type CreateWarningResponse = { warning: SafeWarning };
 export type PublishWarningRequest = { notificationTarget: WarningNotificationTarget };
 export type PublishWarningResponse = { warning: SafeWarning };
-export type ResidentWarning = SafeWarning & { acknowledgedAt?: string };
+export type ResidentWarning = SafeWarning & { acknowledgedAt?: string; acknowledgementResponse?: WarningAcknowledgementResponse };
 export type ResidentWarningsResponse = { warnings: ResidentWarning[] };
 export type ResidentWarningResponse = { warning: ResidentWarning };
-export type AcknowledgeWarningResponse = { warningId: string; acknowledgedAt: string };
+export const WARNING_ACKNOWLEDGEMENT_RESPONSES = ['SAFE', 'EVACUATING', 'NEED_ASSISTANCE'] as const;
+export type WarningAcknowledgementResponse = (typeof WARNING_ACKNOWLEDGEMENT_RESPONSES)[number];
+export type AcknowledgeWarningRequest = { response: WarningAcknowledgementResponse };
+export type AcknowledgeWarningResponse = { warningId: string; response: WarningAcknowledgementResponse; acknowledgedAt: string };
+export type ResidentWarningAcknowledgement = {
+  warningId: string; residentId: string; response: WarningAcknowledgementResponse; acknowledgedAt: string;
+  resident: { name: string; phoneNumber?: string; area?: string; district?: string; country?: string };
+};
+export type WarningAcknowledgementsResponse = {
+  acknowledgements: ResidentWarningAcknowledgement[];
+  summary: { total: number; safe: number; evacuating: number; needAssistance: number };
+};
 export const WARNING_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const WARNING_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export type WarningImageMimeType = (typeof WARNING_IMAGE_MIME_TYPES)[number];

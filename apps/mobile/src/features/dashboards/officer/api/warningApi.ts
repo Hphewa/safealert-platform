@@ -1,4 +1,4 @@
-import type { CreateWarningRequest, CreateWarningResponse, PublishWarningRequest, PublishWarningResponse, SafeWarning, UploadWarningImageResponse } from '@safealert/contracts';
+import type { CreateWarningRequest, CreateWarningResponse, PublishWarningRequest, PublishWarningResponse, SafeWarning, UploadWarningImageResponse, WarningAcknowledgementsResponse } from '@safealert/contracts';
 import { apiRequest } from '../../../../services/api/client';
 import type { WarningPhoto } from '../warningImages';
 
@@ -10,6 +10,9 @@ export function getWarning(id: string, accessToken: string) {
 }
 export function publishWarning(id: string, input: PublishWarningRequest, accessToken: string) {
   return apiRequest<PublishWarningResponse>(`/warnings/${encodeURIComponent(id)}/publish`, { method: 'POST', body: input, accessToken });
+}
+export function getWarningAcknowledgements(id: string, accessToken: string) {
+  return apiRequest<WarningAcknowledgementsResponse>(`/warnings/${encodeURIComponent(id)}/acknowledgements`, { accessToken });
 }
 
 export async function saveWarningWithPhotos(input: CreateWarningRequest, photos: WarningPhoto[], accessToken: string,

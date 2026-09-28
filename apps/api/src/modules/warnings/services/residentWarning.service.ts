@@ -1,4 +1,4 @@
-import type { AcknowledgeWarningResponse, ResidentWarning, ResidentWarningResponse, ResidentWarningsResponse, SafeWarning } from '@safealert/contracts';
+import type { AcknowledgeWarningRequest, AcknowledgeWarningResponse, ResidentWarning, ResidentWarningResponse, ResidentWarningsResponse, SafeWarning } from '@safealert/contracts';
 import { normalizeNotificationLocation } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 import { UserModel } from '../../users/models/user.model.js';
@@ -21,7 +21,7 @@ export class ResidentWarningService {
 
   private async withAcknowledgement(warning: SafeWarning, residentId: string): Promise<ResidentWarning> {
     const record = await WarningAcknowledgementModel.findOne({ warningId: warning.id, residentId }).lean().exec();
-    return { ...warning, ...(record ? { acknowledgedAt: record.acknowledgedAt.toISOString() } : {}) };
+    return { ...warning, ...(record ? { acknowledgedAt: record.acknowledgedAt.toISOString(), ...(record.response ? { acknowledgementResponse: record.response } : {}) } : {}) };
   }
 
   async list(residentId: string): Promise<ResidentWarningsResponse> {
@@ -42,16 +42,16 @@ export class ResidentWarningService {
     return { warning: await this.withAcknowledgement(warning, residentId) };
   }
 
-  async acknowledge(residentId: string, warningId: string): Promise<AcknowledgeWarningResponse> {
+  async acknowledge(residentId: string, warningId: string, input: AcknowledgeWarningRequest): Promise<AcknowledgeWarningResponse> {
     const item = await WarningModel.findOne({ _id: warningId, status: 'PUBLISHED' }).exec();
     if (!item) throw new ApiError(404, 'WARNING_NOT_FOUND', 'Warning not found.');
     const warning = toSafeWarning(item);
     if (!(await this.isEligible(warning, residentId))) throw new ApiError(404, 'WARNING_NOT_FOUND', 'Warning not found.');
     const record = await WarningAcknowledgementModel.findOneAndUpdate(
       { warningId, residentId },
-      { $setOnInsert: { warningId, residentId, acknowledgedAt: new Date() } },
+      { $setOnInsert: { warningId, residentId, response: input.response, acknowledgedAt: new Date() } },
       { upsert: true, new: true }
     ).exec();
-    return { warningId, acknowledgedAt: record.acknowledgedAt.toISOString() };
+    return { warningId, response: record.response, acknowledgedAt: record.acknowledgedAt.toISOString() };
   }
 }

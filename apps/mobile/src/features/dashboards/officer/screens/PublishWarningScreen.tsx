@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -7,7 +7,8 @@ import {
   type WarningNotificationTarget
 } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { getWarning, publishWarning } from '../api/warningApi';
+import { getWarning, getWarningAcknowledgements, publishWarning } from '../api/warningApi';
+import type { WarningAcknowledgementsResponse, WarningAcknowledgementResponse } from '@safealert/contracts';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import {
   AssessmentButton, AssessmentDetail, AssessmentLoadState, assessmentStyles
@@ -68,6 +69,7 @@ export function PublishWarningScreen() {
   const [notificationTarget, setNotificationTarget] = useState<WarningNotificationTarget>({ scope: 'AFFECTED_AREA' });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [acknowledgements, setAcknowledgements] = useState<WarningAcknowledgementsResponse | null>(null);
 
   const goBack = () => {
     if (router.canGoBack()) {
@@ -84,6 +86,7 @@ export function PublishWarningScreen() {
   }, [accessToken, warningId]);
   const resource = useAssessmentResource(load);
   const warning = resource.data?.warning;
+  useEffect(() => { if (!accessToken || !warningId || (warning?.status !== 'PUBLISHED' && !publishedWarning)) return; void getWarningAcknowledgements(warningId, accessToken).then(setAcknowledgements).catch(() => setAcknowledgements(null)); }, [accessToken, warningId, warning?.status, publishedWarning]);
 
   const publish = async () => {
     if (!accessToken || !warningId || busy) return;
@@ -114,6 +117,7 @@ export function PublishWarningScreen() {
       <AssessmentDetail label="Notification Target" value={targetLabel(publishedWarning.notificationTarget, publishedWarning.affectedArea)} />
       <AssessmentDetail label="Published At" value={publishedWarning.publishedAt ? new Date(publishedWarning.publishedAt).toLocaleString() : 'Just now'} />
       <AssessmentButton label="View Warning" onPress={() => router.replace({ pathname: '/officer/warnings/[warningId]', params: { warningId } })} />
+      {acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
     </View> : <View style={assessmentStyles.card}>
       <Text style={assessmentStyles.heading}>Warning Details</Text>
       <AssessmentDetail label="Risk Level" value={displayedWarning.riskLevel} />
@@ -127,6 +131,7 @@ export function PublishWarningScreen() {
       <AssessmentDetail label="Current Status" value={displayedWarning.status} />
       <NotificationTargetSelector target={notificationTarget} onChange={setNotificationTarget} affectedArea={displayedWarning.affectedArea} />
       {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
+      {displayedWarning.status === 'PUBLISHED' && acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
       {displayedWarning.status === 'DRAFT' ? !displayedWarning.affectedArea.trim() ? <Text accessibilityRole="alert" style={assessmentStyles.error}>The saved warning has no affected area.</Text> : confirming ? <>
         <Text style={warningStyles.notice}>Review the saved warning details and confirm the selected notification target before publishing.</Text>
         <AssessmentButton label="Cancel" secondary disabled={busy} onPress={() => setConfirming(false)} />
@@ -134,6 +139,16 @@ export function PublishWarningScreen() {
       </> : <AssessmentButton label="Review & Publish" disabled={busy} onPress={() => setConfirming(true)} /> : <Text accessibilityRole="alert" style={assessmentStyles.error}>This warning has already been published.</Text>}
     </View>}
   </WarningPage>;
+}
+
+function responseLabel(response: WarningAcknowledgementResponse) {
+  if (response === 'SAFE') return 'I am Safe';
+  if (response === 'EVACUATING') return 'I am Evacuating';
+  return 'I Need Assistance';
+}
+
+function ResidentResponses({ data }: { data: WarningAcknowledgementsResponse }) {
+  return <View style={responseStyles.card}><Text style={assessmentStyles.heading}>Resident Responses</Text><View style={responseStyles.summary}><Text style={responseStyles.total}>Total acknowledged <Text style={responseStyles.count}>{data.summary.total}</Text></Text><Text style={responseStyles.line}>I am Safe <Text style={responseStyles.count}>{data.summary.safe}</Text></Text><Text style={responseStyles.line}>I am Evacuating <Text style={responseStyles.count}>{data.summary.evacuating}</Text></Text><Text style={responseStyles.line}>I Need Assistance <Text style={responseStyles.count}>{data.summary.needAssistance}</Text></Text></View>{data.acknowledgements.map(item => <View key={`${item.warningId}-${item.residentId}`} style={responseStyles.person}><Text style={responseStyles.name}>Resident: {item.resident.name}</Text>{item.resident.district ? <Text style={responseStyles.detail}>District: {item.resident.district}</Text> : null}{item.resident.area ? <Text style={responseStyles.detail}>Area: {item.resident.area}</Text> : null}<Text style={responseStyles.response}>Response: {responseLabel(item.response)}</Text><Text style={responseStyles.detail}>Submitted: {new Date(item.acknowledgedAt).toLocaleString()}</Text></View>)}</View>;
 }
 
 const publishStyles = {
@@ -150,3 +165,4 @@ const publishStyles = {
   districtText: { color: dashboardTheme.colors.text, fontSize: 13 } as const,
   districtTextSelected: { color: '#ffffff', fontWeight: '700' as const } as const
 };
+const responseStyles = { card: { gap: 12, marginTop: 16, padding: 16, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surfaceMuted } as const, summary: { gap: 6, padding: 12, borderRadius: 12, backgroundColor: dashboardTheme.colors.surface } as const, total: { color: dashboardTheme.colors.text, fontWeight: '800' as const }, line: { color: dashboardTheme.colors.muted }, count: { color: dashboardTheme.colors.text, fontWeight: '800' as const, marginLeft: 6 }, person: { gap: 5, padding: 13, borderRadius: 12, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border } as const, name: { color: dashboardTheme.colors.text, fontWeight: '800' as const }, detail: { color: dashboardTheme.colors.muted, fontSize: 13 }, response: { color: dashboardTheme.colors.primaryStrong, fontWeight: '800' as const } };
