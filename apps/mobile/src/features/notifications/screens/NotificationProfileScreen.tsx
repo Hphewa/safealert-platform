@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { getNotificationProfile, updateNotificationProfile } from '../api/notificationApi';
@@ -18,6 +19,7 @@ const fields = [
 ] as const;
 
 export function NotificationProfileScreen() {
+  const router = useRouter();
   const { accessToken } = useAuth();
   const [profile, setProfile] = useState<NotificationProfile>({});
   const [values, setValues] = useState<Record<string, string>>({});
@@ -108,6 +110,22 @@ export function NotificationProfileScreen() {
         <Text style={styles.label}>Country</Text>
         <Text>{NOTIFICATION_COUNTRY}</Text>
 
+        <View style={styles.warningsCard}>
+          <Text style={styles.label}>SAFETY ALERTS & WARNINGS</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Notifications & Warnings"
+            onPress={() => router.push('/resident/warnings')}
+            style={({ pressed }) => [styles.warningsButton, pressed && styles.pressed]}
+          >
+            <View style={styles.warningsContent}>
+              <Text style={styles.warningsTitle}>Notifications & Warnings</Text>
+              <Text style={styles.warningsSubtitle}>View active safety warnings and notifications.</Text>
+            </View>
+            <Text style={styles.arrowText}>›</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.pushStatus}>
           <Text style={styles.label}>Push notification status</Text>
           <Text style={styles.statusText}>{pushStatus || (profile.pushToken ? 'Registered on your account' : 'Not registered')}</Text>
@@ -129,6 +147,12 @@ const styles = StyleSheet.create({
   field: { gap: 7 },
   label: { fontSize: 14, fontWeight: '800', color: dashboardTheme.colors.text },
   input: { minHeight: 48, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: dashboardTheme.colors.border, color: dashboardTheme.colors.text, backgroundColor: dashboardTheme.colors.background, fontSize: 16 },
+  warningsCard: { gap: 8, padding: 14, borderRadius: 14, backgroundColor: dashboardTheme.colors.primarySoft, borderWidth: 1, borderColor: dashboardTheme.colors.border },
+  warningsButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 },
+  warningsContent: { gap: 4, flex: 1, paddingRight: 10 },
+  warningsTitle: { fontSize: 16, fontWeight: '800', color: dashboardTheme.colors.primaryStrong },
+  warningsSubtitle: { fontSize: 13, color: dashboardTheme.colors.text, lineHeight: 18 },
+  arrowText: { fontSize: 24, fontWeight: '700', color: dashboardTheme.colors.primaryStrong },
   pushStatus: { gap: 6, padding: 12, borderRadius: 12, backgroundColor: dashboardTheme.colors.surfaceMuted },
   statusText: { color: dashboardTheme.colors.muted, lineHeight: 20 },
   button: { minHeight: 50, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: dashboardTheme.colors.primary },
