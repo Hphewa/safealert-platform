@@ -26,7 +26,8 @@
         }
       ],
       "expo-secure-store",
-      "expo-notifications"
+      "expo-notifications",
+      "expo-audio"
     ],
     "extra": {
       "apiUrl": "http://localhost:4000/api/v1"
