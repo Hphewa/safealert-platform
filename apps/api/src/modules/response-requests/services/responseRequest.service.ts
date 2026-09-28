@@ -113,9 +113,21 @@ export class ResponseRequestService {
       );
     }
 
-    // LDFEW-318 establishes the API flow only. Keep emergency history unchanged
-    // until LDFEW-320/323 supply lifecycle policy and an atomic
-    // CANCELLED status update. Never delete records or report an unpersisted success.
+    // Use the freshly retrieved status: a responder may have progressed the
+    // request since the Resident viewed it. With no documented active-stage
+    // cancellation policy, allow only NEW until that policy is confirmed.
+    // An allowlist also keeps COMPLETED, future CANCELLED and unknown states terminal/blocked.
+    if (responseRequest.status !== 'NEW') {
+      throw new ApiError(
+        409,
+        'INVALID_CANCELLATION_STATUS',
+        'This emergency request cannot be cancelled in its current status. Refresh the request to see its latest progress.'
+      );
+    }
+
+    // LDFEW-323 must atomically recheck ownership and the eligible status when
+    // writing CANCELLED to cover changes after this read. Until then, preserve
+    // history and never report an unpersisted cancellation as successful.
     throw new ApiError(
       501,
       'CANCELLATION_NOT_AVAILABLE',
