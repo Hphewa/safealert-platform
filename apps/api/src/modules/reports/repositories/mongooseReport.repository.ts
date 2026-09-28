@@ -1,4 +1,4 @@
-import type { CommunityReportSummary } from '@safealert/contracts';
+import type { CommunityReportSummary, MonitoringReportSummary } from '@safealert/contracts';
 
 import { ReportModel, toSafeReport } from '../models/report.model.js';
 import type {
@@ -40,9 +40,19 @@ export class MongooseReportRepository implements ReportRepository {
     return reports.map(toSafeReport);
   }
 
+
   async findReportsByCommunityReportClusterId(communityReportClusterId: string) {
     const reports = await ReportModel.find({ communityReportClusterId }).sort({ createdAt: 1 }).exec();
     return reports.map(toSafeReport);
+  }
+  async findVerifiedSummariesByIds(reportIds: string[]): Promise<MonitoringReportSummary[]> {
+    if (reportIds.length === 0) return [];
+    const reports = await ReportModel.find({ _id: { $in: reportIds }, status: 'VERIFIED' })
+      .select('_id description severity verification.verifiedAt').exec();
+    return reports.map((report) => ({
+      id: report._id.toString(), description: report.description, severity: report.severity,
+      ...(report.verification?.verifiedAt ? { verifiedAt: report.verification.verifiedAt.toISOString() } : {})
+    }));
   }
 
   async findReportsByStatuses(statuses: CreateReportInput['status'][]) {

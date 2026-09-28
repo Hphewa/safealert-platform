@@ -1,23 +1,26 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   HAZARD_ASSESSMENT_SEVERITIES, INFRASTRUCTURE_IMPACT_LEVELS, ROAD_ACCESSIBILITY_OPTIONS,
-  WATER_LEVEL_TRENDS, WEATHER_CONDITIONS, type CalculateRiskAssessmentResponse,
-  type RiskAssessmentFactors, type RiskLevel
+  WATER_LEVEL_TRENDS, WEATHER_CONDITIONS, RISK_DECISION_REASON_MAX_LENGTH,
+  type CalculateRiskAssessmentResponse, type RiskAssessmentFactors, type RiskLevel
 } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
-import { calculateRiskAssessment, createRiskAssessment, getRiskAssessmentForIncident } from '../api/riskAssessmentApi';
+import {
+  calculateRiskAssessment, createRiskAssessment, getRiskAssessment,
+  getRiskAssessmentForIncident, reassessRiskAssessment
+} from '../api/riskAssessmentApi';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import {
   AssessmentButton, AssessmentLoadState, AssessmentOptions, AssessmentPage,
   IncidentAssessmentContext, assessmentStyles
 } from '../components/RiskAssessmentComponents';
 import {
-  assessmentErrorMessage, buildRiskAssessmentRequest, initialRiskAssessmentForm, parseRiskAssessmentForm,
-  validateRiskAssessmentForm,
-  type RiskAssessmentForm
+  assessmentErrorMessage, buildReassessmentRiskAssessmentRequest, buildRiskAssessmentRequest,
+  initialRiskAssessmentForm, parseRiskAssessmentForm, reassessmentReasonError,
+  riskAssessmentFormFromAssessment, validateRiskAssessmentForm, type RiskAssessmentForm
 } from '../riskAssessmentForm';
 import { RiskDecisionScreen } from './RiskDecisionScreen';
 
@@ -26,56 +29,122 @@ type Preview = { factors: RiskAssessmentFactors; result: CalculateRiskAssessment
 export function CreateRiskAssessmentScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ incidentId?: string | string[] }>();
-  const incidentId = Array.isArray(params.incidentId) ? params.incidentId[0] : params.incidentId;
+  const params = useLocalSearchParams<{ incidentId?: string | string[]; assessmentId?: string | string[] }>();
+  const incidentIdParam = Array.isArray(params.incidentId) ? params.incidentId[0] : params.incidentId;
+  const assessmentId = Array.isArray(params.assessmentId) ? params.assessmentId[0] : params.assessmentId;
+  const reassessmentMode = Boolean(assessmentId);
   const [form, setForm] = useState<RiskAssessmentForm>(initialRiskAssessmentForm);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [finalRisk, setFinalRisk] = useState<RiskLevel>('LOW');
   const [reason, setReason] = useState('');
+  const [reassessmentReason, setReassessmentReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [staleConflict, setStaleConflict] = useState(false);
   const [existingId, setExistingId] = useState<string | null>(null);
   const [touchedFields, setTouchedFields] = useState<Partial<Record<keyof RiskAssessmentForm, boolean>>>({});
   const inFlight = useRef(false);
   const generation = useRef(0);
+  const initializedAssessmentId = useRef<string | null>(null);
   const finalRiskRef = useRef<RiskLevel>('LOW');
+
   const load = useCallback(async () => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
-    if (!incidentId) throw new Error('An incident reference is required.');
-    return getRiskAssessmentForIncident(incidentId, accessToken);
-  }, [accessToken, incidentId]);
+    if (assessmentId) return getRiskAssessment(assessmentId, accessToken);
+    if (!incidentIdParam) throw new Error('An incident reference is required.');
+    return getRiskAssessmentForIncident(incidentIdParam, accessToken);
+  }, [accessToken, assessmentId, incidentIdParam]);
   const resource = useAssessmentResource(load);
+  const data = resource.data;
+  const currentAssessment = reassessmentMode ? data?.assessment : null;
+  const dataMatchesRoute = !assessmentId || currentAssessment?.id === assessmentId;
+  const incidentId = reassessmentMode ? currentAssessment?.incidentId : incidentIdParam;
 
   useFocusEffect(useCallback(() => {
     generation.current += 1;
     inFlight.current = false;
     setBusy(false);
-    setPreview(null);
-    setForm(initialRiskAssessmentForm);
-    setReason('');
-    setError(null);
-    setExistingId(null);
-    setTouchedFields({});
-    finalRiskRef.current = 'LOW';
+    if (!assessmentId) {
+      setPreview(null);
+      setForm(initialRiskAssessmentForm);
+      setReason('');
+      setReassessmentReason('');
+      setError(null);
+      setExistingId(null);
+      setTouchedFields({});
+      setStaleConflict(false);
+      finalRiskRef.current = 'LOW';
+      setFinalRisk('LOW');
+    }
     return () => { generation.current += 1; };
-  }, [accessToken, incidentId]));
+  }, [accessToken, assessmentId, incidentIdParam]));
+
+  useEffect(() => {
+    if (initializedAssessmentId.current === assessmentId) return;
+    setExistingId(null);
+    setPreview(null);
+    setStaleConflict(false);
+  }, [assessmentId]);
+
+  useEffect(() => {
+    if (!assessmentId || !data?.assessment || data.assessment.id !== assessmentId || initializedAssessmentId.current === assessmentId) return;
+    initializedAssessmentId.current = assessmentId;
+    setExistingId(null);
+    setForm(riskAssessmentFormFromAssessment(data.assessment));
+    setFinalRisk(data.assessment.finalRiskLevel);
+    finalRiskRef.current = data.assessment.finalRiskLevel;
+    setReason('');
+    setReassessmentReason('');
+    setPreview(null);
+    setTouchedFields({});
+    setError(null);
+    setStaleConflict(false);
+  }, [assessmentId, data]);
 
   const updateForm = <K extends keyof RiskAssessmentForm>(key: K, value: RiskAssessmentForm[K]) => {
     setForm((current) => ({ ...current, [key]: value }));
     setTouchedFields((current) => ({ ...current, [key]: true }));
     setPreview(null);
     setError(null);
+    setStaleConflict(false);
   };
   const updateFinalRisk = (value: RiskLevel) => {
     finalRiskRef.current = value;
     setFinalRisk(value);
   };
-  const showResult = (assessmentId: string) => router.replace({
-    pathname: '/officer/assessments/[assessmentId]', params: { assessmentId }
+  const showResult = (savedAssessmentId: string) => router.replace({
+    pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: savedAssessmentId }
+  });
+  const showMonitoring = (savedIncidentId: string) => router.replace({
+    pathname: '/officer/monitoring/[incidentId]', params: { incidentId: savedIncidentId, notice: 'assessment-saved' }
   });
 
+  const viewLatestAssessment = async () => {
+    if (!accessToken || !incidentId || busy) return;
+    const current = generation.current;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const latest = await getRiskAssessmentForIncident(incidentId, accessToken);
+      if (generation.current !== current) return;
+      if (latest.assessment) {
+        setExistingId(latest.assessment.id);
+        setStaleConflict(false);
+      } else {
+        setError('There is no active assessment for this incident. Return to Assessments to refresh the incident list.');
+      }
+    } catch (failure) {
+      if (generation.current === current) setError(assessmentErrorMessage(failure));
+    } finally {
+      if (generation.current === current) { inFlight.current = false; setBusy(false); }
+    }
+  };
+
   const calculate = async () => {
-    if (inFlight.current || !accessToken || !incidentId || !resource.data?.reports.some((report) => report.status === 'VERIFIED')) return;
+    if (inFlight.current || !accessToken || !incidentId || !data ||
+      (reassessmentMode && currentAssessment?.status !== 'ACTIVE') ||
+      !data.reports.some((report) => report.status === 'VERIFIED')) return;
     const current = generation.current;
     inFlight.current = true;
     setBusy(true);
@@ -101,9 +170,37 @@ export function CreateRiskAssessmentScreen() {
   const save = async () => {
     if (inFlight.current || !preview || !accessToken || !incidentId) return;
     const selectedFinalRisk = finalRiskRef.current;
-    let request: ReturnType<typeof buildRiskAssessmentRequest>;
+    if (assessmentId) {
+      let reassessmentRequest: ReturnType<typeof buildReassessmentRiskAssessmentRequest>;
+      try {
+        reassessmentRequest = buildReassessmentRiskAssessmentRequest(
+          preview.factors, selectedFinalRisk, preview.result.systemSuggestedRisk, reason, reassessmentReason
+        );
+      } catch (failure) {
+        setError(assessmentErrorMessage(failure));
+        return;
+      }
+      const current = generation.current;
+      inFlight.current = true;
+      setBusy(true);
+      setError(null);
+      setStaleConflict(false);
+      try {
+        const result = await reassessRiskAssessment(assessmentId, reassessmentRequest, accessToken);
+        if (generation.current === current) showResult(result.assessment.id);
+      } catch (failure) {
+        if (generation.current === current) {
+          setError(assessmentErrorMessage(failure));
+          setStaleConflict(failure instanceof ApiClientError && failure.code === 'ASSESSMENT_NOT_ACTIVE');
+        }
+      } finally {
+        if (generation.current === current) { inFlight.current = false; setBusy(false); }
+      }
+      return;
+    }
+    let createRequest: ReturnType<typeof buildRiskAssessmentRequest>;
     try {
-      request = buildRiskAssessmentRequest(
+      createRequest = buildRiskAssessmentRequest(
         incidentId, preview.factors, selectedFinalRisk, preview.result.systemSuggestedRisk, reason
       );
     } catch (failure) {
@@ -116,13 +213,12 @@ export function CreateRiskAssessmentScreen() {
     setError(null);
     try {
       // Submit factors and decision only; authoritative scoring/audit fields never leave the client.
-      const result = await createRiskAssessment(request, accessToken);
-      if (generation.current === current) showResult(result.assessment.id);
+      const result = await createRiskAssessment(createRequest, accessToken);
+      if (generation.current === current) showMonitoring(result.incident.id);
     } catch (failure) {
       if (generation.current !== current) return;
       setError(assessmentErrorMessage(failure));
       if (failure instanceof ApiClientError && failure.code === 'ACTIVE_ASSESSMENT_EXISTS') {
-        // Handles another officer's save, and retry after a successful save whose response was lost.
         try {
           const saved = await getRiskAssessmentForIncident(incidentId, accessToken);
           if (generation.current === current) setExistingId(saved.assessment?.id ?? null);
@@ -135,44 +231,70 @@ export function CreateRiskAssessmentScreen() {
     }
   };
 
-  const data = resource.data;
-  const assessmentId = existingId ?? data?.assessment?.id;
-  // Remount the scroll container at each step so the suggested risk is not skipped below the old scroll offset.
-  return <AssessmentPage key={preview ? 'decision' : 'factors'} title={preview ? 'Risk Decision' : 'Assess Risk'}>
-    {!data ? <AssessmentLoadState loading={resource.loading} error={resource.error} retry={() => void resource.reload()} /> : <>
-      {!preview ? <IncidentAssessmentContext key={data.incident.id} incident={data.incident} reports={data.reports} /> : null}
-      {assessmentId ? <View style={assessmentStyles.card}>
+  const reassessmentError = reassessmentReasonError(reassessmentReason);
+  const activeAssessmentId = existingId ?? (!reassessmentMode ? data?.assessment?.id ?? null : null);
+  const assessmentUnavailable = reassessmentMode && currentAssessment?.status !== 'ACTIVE';
+  const incidentIneligible = !data || data.incident.status !== 'ACTIVE' ||
+    !data.reports.some((report) => report.status === 'VERIFIED');
+
+  return <AssessmentPage key={preview ? 'decision' : 'factors'} title={preview ? 'Risk Decision' : reassessmentMode ? 'Reassess Risk' : 'Assess Risk'}>
+    {!data || !dataMatchesRoute ? <AssessmentLoadState loading={resource.loading || Boolean(data)} error={resource.error} retry={() => void resource.reload()} /> : <>
+      {!preview && !reassessmentMode ? <IncidentAssessmentContext key={data.incident.id} incident={data.incident} reports={data.reports} /> : null}
+      {activeAssessmentId ? <View style={assessmentStyles.card}>
         <Text style={assessmentStyles.body}>An active assessment already exists for this incident.</Text>
-        <AssessmentButton label="View Risk Assessment" onPress={() => showResult(assessmentId)} />
-      </View> : data.incident.status !== 'ACTIVE' || !data.reports.some((report) => report.status === 'VERIFIED') ? <Text style={assessmentStyles.error}>Only active incidents with at least one VERIFIED report can be assessed.</Text>
-        : preview ? <>
-          {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
-          <Text style={assessmentStyles.helper}>Calculation preview only. This Incident remains Not assessed until you save the assessment.</Text>
-          <RiskDecisionScreen factors={preview.factors} calculation={preview.result} finalRisk={finalRisk}
+        <AssessmentButton label="View Risk Assessment" onPress={() => showResult(activeAssessmentId)} />
+      </View> : assessmentUnavailable ? <View>
+        <Text accessibilityRole="alert" style={assessmentStyles.error}>This assessment is no longer active. View the latest assessment for this incident.</Text>
+        {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
+        <AssessmentButton label="View latest assessment" disabled={busy} onPress={() => void viewLatestAssessment()} />
+      </View> : incidentIneligible ? <Text accessibilityRole="alert" style={assessmentStyles.error}>
+        Only active incidents with at least one VERIFIED report can be assessed.
+      </Text> : preview ? <>
+        {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
+        {staleConflict ? <AssessmentButton label="View latest assessment" disabled={busy} onPress={() => void viewLatestAssessment()} /> : null}
+        <Text style={assessmentStyles.helper}>{reassessmentMode
+          ? 'The current assessment remains active until the replacement is saved.'
+          : 'Calculation preview only. This Incident remains Not assessed until you save the assessment.'}</Text>
+        <RiskDecisionScreen factors={preview.factors} calculation={preview.result} finalRisk={finalRisk}
           reason={reason} saving={busy} onFinalRisk={updateFinalRisk} onReason={setReason}
-          onEdit={() => { setPreview(null); setError(null); }} onSave={() => void save()} />
-          <IncidentAssessmentContext incident={data.incident} reports={data.reports} />
-        </>
-          : <View style={assessmentStyles.card}>
-            <Text style={assessmentStyles.heading}>Officer assessment factors</Text>
-            <AssessmentOptions label="Hazard Severity" options={HAZARD_ASSESSMENT_SEVERITIES} value={form.hazardSeverity} onChange={(value) => updateForm('hazardSeverity', value)} disabled={busy} />
-            <Text style={assessmentStyles.label}>People Affected</Text>
-            <TextInput accessibilityLabel="People Affected" keyboardType="number-pad" editable={!busy} value={form.peopleAffected}
-              onChangeText={(value) => updateForm('peopleAffected', value)} style={[assessmentStyles.input, showFieldError('peopleAffected') && formErrors.peopleAffected ? assessmentStyles.inputError : null]} placeholder="Enter total people affected" />
-            {showFieldError('peopleAffected') && formErrors.peopleAffected ? <Text style={assessmentStyles.error}>{formErrors.peopleAffected}</Text> : null}
-            <Text style={assessmentStyles.label}>Vulnerable People</Text>
-            <TextInput accessibilityLabel="Vulnerable People" keyboardType="number-pad" editable={!busy} value={form.vulnerablePeople}
-              onChangeText={(value) => updateForm('vulnerablePeople', value)} style={[assessmentStyles.input, showFieldError('vulnerablePeople') && formErrors.vulnerablePeople ? assessmentStyles.inputError : null]} placeholder="Enter vulnerable people affected" />
-            {showFieldError('vulnerablePeople') && formErrors.vulnerablePeople ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{formErrors.vulnerablePeople}</Text> : null}
-            <AssessmentOptions label="Road Accessibility" options={ROAD_ACCESSIBILITY_OPTIONS} value={form.roadAccessibility} onChange={(value) => updateForm('roadAccessibility', value)} disabled={busy} />
-            <AssessmentOptions label="Infrastructure Impact" options={INFRASTRUCTURE_IMPACT_LEVELS} value={form.infrastructureImpact} onChange={(value) => updateForm('infrastructureImpact', value)} disabled={busy} />
-            <AssessmentOptions label="Water Level Trend" options={WATER_LEVEL_TRENDS} value={form.waterLevelTrend} onChange={(value) => updateForm('waterLevelTrend', value)} disabled={busy} />
-            {data.incident.hazardType !== 'FLOOD' ? <Text style={assessmentStyles.helper}>Water trend is recorded for context; it contributes to scoring only for flood incidents.</Text> : null}
-            <AssessmentOptions label="Weather Condition" options={WEATHER_CONDITIONS} value={form.weatherCondition} onChange={(value) => updateForm('weatherCondition', value)} disabled={busy} />
-            {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
-            {!formValid ? <Text style={assessmentStyles.helper}>Enter valid people counts before calculating risk.</Text> : null}
-            <AssessmentButton label={busy ? 'Calculating…' : 'CALCULATE RISK'} disabled={busy || !formValid} onPress={() => void calculate()} />
-          </View>}
+          onEdit={() => { setPreview(null); setError(null); }} onSave={() => void save()}
+          previousAssessment={reassessmentMode && currentAssessment?.status === 'ACTIVE' ? currentAssessment : undefined}
+          saveLabel={reassessmentMode ? 'SAVE REASSESSMENT' : 'SAVE ASSESSMENT'} />
+        <IncidentAssessmentContext incident={data.incident} reports={data.reports} />
+      </> : <View style={assessmentStyles.card}>
+        {reassessmentMode && currentAssessment ? <>
+          <Text style={assessmentStyles.heading}>Current Assessment</Text>
+          <Text style={assessmentStyles.body}>Risk: {currentAssessment.finalRiskLevel}</Text>
+          <Text style={assessmentStyles.body}>Score: {currentAssessment.calculatedScore}</Text>
+          <Text style={assessmentStyles.helper}>Assessed: {new Date(currentAssessment.assessedAt).toLocaleString()}</Text>
+          <Text style={assessmentStyles.label}>Reason for Reassessment *</Text>
+          <TextInput accessibilityLabel="Reason for Reassessment" multiline textAlignVertical="top" editable={!busy}
+            value={reassessmentReason} onChangeText={(value) => { setReassessmentReason(value); setError(null); }}
+            maxLength={RISK_DECISION_REASON_MAX_LENGTH} placeholder="Describe what has changed"
+            style={[assessmentStyles.input, { minHeight: 90 }]} />
+          {reassessmentError ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{reassessmentError}</Text> : null}
+        </> : null}
+        <Text style={assessmentStyles.heading}>Officer assessment factors</Text>
+        <AssessmentOptions label="Hazard Severity" options={HAZARD_ASSESSMENT_SEVERITIES} value={form.hazardSeverity} onChange={(value) => updateForm('hazardSeverity', value)} disabled={busy} />
+        <Text style={assessmentStyles.label}>People Affected</Text>
+        <TextInput accessibilityLabel="People Affected" keyboardType="number-pad" editable={!busy} value={form.peopleAffected}
+          onChangeText={(value) => updateForm('peopleAffected', value)} style={[assessmentStyles.input, showFieldError('peopleAffected') && formErrors.peopleAffected ? assessmentStyles.inputError : null]} placeholder="Enter total people affected" />
+        {showFieldError('peopleAffected') && formErrors.peopleAffected ? <Text style={assessmentStyles.error}>{formErrors.peopleAffected}</Text> : null}
+        <Text style={assessmentStyles.label}>Vulnerable People</Text>
+        <TextInput accessibilityLabel="Vulnerable People" keyboardType="number-pad" editable={!busy} value={form.vulnerablePeople}
+          onChangeText={(value) => updateForm('vulnerablePeople', value)} style={[assessmentStyles.input, showFieldError('vulnerablePeople') && formErrors.vulnerablePeople ? assessmentStyles.inputError : null]} placeholder="Enter vulnerable people affected" />
+        {showFieldError('vulnerablePeople') && formErrors.vulnerablePeople ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{formErrors.vulnerablePeople}</Text> : null}
+        <AssessmentOptions label="Road Accessibility" options={ROAD_ACCESSIBILITY_OPTIONS} value={form.roadAccessibility} onChange={(value) => updateForm('roadAccessibility', value)} disabled={busy} />
+        <AssessmentOptions label="Infrastructure Impact" options={INFRASTRUCTURE_IMPACT_LEVELS} value={form.infrastructureImpact} onChange={(value) => updateForm('infrastructureImpact', value)} disabled={busy} />
+        <AssessmentOptions label="Water Level Trend" options={WATER_LEVEL_TRENDS} value={form.waterLevelTrend} onChange={(value) => updateForm('waterLevelTrend', value)} disabled={busy} />
+        {data.incident.hazardType !== 'FLOOD' ? <Text style={assessmentStyles.helper}>Water trend is recorded for context; it contributes to scoring only for flood incidents.</Text> : null}
+        <AssessmentOptions label="Weather Condition" options={WEATHER_CONDITIONS} value={form.weatherCondition} onChange={(value) => updateForm('weatherCondition', value)} disabled={busy} />
+        {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
+        {staleConflict ? <AssessmentButton label="View latest assessment" disabled={busy} onPress={() => void viewLatestAssessment()} /> : null}
+        {!formValid ? <Text style={assessmentStyles.helper}>Enter valid people counts before calculating risk.</Text> : null}
+        {reassessmentMode && reassessmentError ? <Text style={assessmentStyles.helper}>Enter a reassessment reason before calculating risk.</Text> : null}
+        <AssessmentButton label={busy ? 'Calculating…' : 'CALCULATE RISK'} disabled={busy || !formValid || (reassessmentMode && Boolean(reassessmentError))} onPress={() => void calculate()} />
+      </View>}
     </>}
   </AssessmentPage>;
 }

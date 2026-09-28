@@ -9,6 +9,11 @@ export class MongooseWarningRepository implements WarningRepository {
     const warning = await WarningModel.findById(id).exec();
     return warning ? toSafeWarning(warning) : null;
   }
+  async findByAssessmentIds(assessmentIds: string[]) {
+    if (assessmentIds.length === 0) return [];
+    const warnings = await WarningModel.find({ assessmentId: { $in: assessmentIds } }).exec();
+    return warnings.map(toSafeWarning);
+  }
   async publish(id: string, publishedById: string, publishedAt: string) {
     const warning = await WarningModel.findOneAndUpdate(
       { _id: id, status: 'DRAFT', affectedArea: { $type: 'string', $ne: '' } },

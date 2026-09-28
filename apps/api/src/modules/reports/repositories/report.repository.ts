@@ -3,6 +3,7 @@ import type {
   CreateReportRequest,
   ReportReviewRequest,
   ReportStatus,
+  MonitoringReportSummary,
   SafeReport,
   UpdateResidentReportRequest
 } from '@safealert/contracts';
@@ -49,6 +50,7 @@ export interface ReportRepository {
   findReportByIdAndResidentId(reportId: string, residentId: string): Promise<SafeReport | null>;
   findReportsByIds(reportIds: string[]): Promise<SafeReport[]>;
   findReportsByCommunityReportClusterId(communityReportClusterId: string): Promise<SafeReport[]>;
+  findVerifiedSummariesByIds(reportIds: string[]): Promise<MonitoringReportSummary[]>;
 
   findReportsByStatuses(statuses: ReportStatus[]): Promise<SafeReport[]>;
   findNearbyCommunityReports(query: NearbyCommunityReportsQuery): Promise<CommunityReportSummary[]>;

@@ -6,6 +6,8 @@ import { createApp } from '../../../app.js';
 import { loadConfig } from '../../../config/env.js';
 import { InMemoryReportRepository } from '../../reports/repositories/inMemoryReport.repository.js';
 import { InMemoryIncidentRepository } from '../repositories/inMemoryIncident.repository.js';
+import { InMemoryRiskAssessmentRepository } from '../../risk-assessments/repositories/inMemoryRiskAssessment.repository.js';
+import { InMemoryWarningRepository } from '../../warnings/repositories/inMemoryWarning.repository.js';
 
 const reportId = 'abcdef123456789012345601';
 const secondId = 'abcdef123456789012345602';
@@ -29,11 +31,14 @@ function context(overrides: Partial<SafeReport> = {}) {
   const reports = new InMemoryReportRepository();
   reports.seedReport(structuredClone({ ...originalReport, ...overrides }));
   const incidents = new InMemoryIncidentRepository();
-  const app = createApp({ config: loadConfig(), reportRepository: reports, incidentRepository: incidents });
+  const assessments = new InMemoryRiskAssessmentRepository();
+  const warnings = new InMemoryWarningRepository();
+  const app = createApp({ config: loadConfig(), reportRepository: reports, incidentRepository: incidents,
+    riskAssessmentRepository: assessments, warningRepository: warnings });
   const create = (body: object = { reportIds: [reportId] }) =>
     request(app).post(base).auth(token(), { type: 'bearer' }).send(body);
   const get = (id: string) => request(app).get(`${base}/${id}`).auth(token(), { type: 'bearer' });
-  return { app, reports, incidents, create, get };
+  return { app, reports, incidents, assessments, warnings, create, get };
 }
 
 beforeEach(() => {
@@ -43,6 +48,72 @@ beforeEach(() => {
 });
 
 describe('incident API', () => {
+  it('serves officer-only lifecycle queue and monitoring endpoints with validated detail IDs', async () => {
+    const { app, create } = context();
+    expect((await request(app).get(`${base}/assessment-queue`)).status).toBe(401);
+    expect((await request(app).get(`${base}/monitoring`).auth(token('RESIDENT'), { type: 'bearer' })).status).toBe(403);
+    const saved = await create();
+    const queue = await request(app).get(`${base}/assessment-queue`).auth(token(), { type: 'bearer' });
+    expect(queue.status).toBe(200);
+    expect(queue.body).toMatchObject({ incidents: [{ incident: { id: saved.body.incident.id }, reports: [{ id: reportId }] }] });
+    expect((await request(app).get(`${base}/monitoring`).auth(token(), { type: 'bearer' })).body).toEqual({ incidents: [] });
+    expect((await request(app).get(`${base}/monitoring/not-an-id`).auth(token(), { type: 'bearer' })).status).toBe(400);
+  });
+
+  it('keeps an assessed incident in Monitoring through close and soft delete without exposing deleted details', async () => {
+    const { app, create, assessments } = context();
+    const saved = await create();
+    const incidentId = saved.body.incident.id as string;
+    const active = await assessments.create({
+      incidentId, assessedById: officerId, hazardSeverity: 'HIGH', peopleAffected: 8, vulnerablePeople: 2,
+      roadAccessibility: 'ACCESSIBLE', infrastructureImpact: 'LOW', waterLevelTrend: 'RISING',
+      weatherCondition: 'HEAVY_RAIN', calculatedScore: 18, systemSuggestedRisk: 'HIGH', finalRiskLevel: 'HIGH',
+      status: 'ACTIVE', assessedAt: '2026-09-26T12:00:00.000Z'
+    });
+    expect((await request(app).get(`${base}/assessment-queue`).auth(token(), { type: 'bearer' })).body.incidents).toEqual([]);
+    expect((await request(app).get(`${base}/monitoring/${incidentId}`).auth(token(), { type: 'bearer' })).body.monitoring)
+      .toMatchObject({ currentAssessment: { id: active.id, status: 'ACTIVE' }, newVerifiedReportsSinceAssessment: 0 });
+
+    await assessments.closeActiveAssessment(active.id, {
+      closureReason: 'INCIDENT_RESOLVED', closedAt: '2026-09-26T13:00:00.000Z', closedById: officerId
+    });
+    expect((await request(app).get(`${base}/monitoring`).auth(token(), { type: 'bearer' })).body.incidents[0])
+      .toMatchObject({ currentAssessment: null, latestAssessment: { id: active.id, status: 'CLOSED' } });
+    await assessments.softDeleteClosedAssessment(active.id, {
+      deletedAt: '2026-09-26T14:00:00.000Z', deletedById: officerId, deleteReason: 'CREATED_BY_MISTAKE'
+    });
+    const detail = await request(app).get(`${base}/monitoring/${incidentId}`).auth(token(), { type: 'bearer' });
+    expect(detail.body.monitoring).toMatchObject({ incident: { id: incidentId }, currentAssessment: null, latestAssessment: null });
+    expect(JSON.stringify(detail.body)).not.toMatch(/isDeleted|deletedAt|deletedById|deleteReason/);
+    expect((await request(app).get(`${base}/assessment-queue`).auth(token(), { type: 'bearer' })).body.incidents).toEqual([]);
+  });
+
+  it('returns RESOLVED and CLOSED assessed incidents from the Monitoring endpoint', async () => {
+    const { app, incidents, assessments } = context();
+    const resolvedId = '523456789012345678901234';
+    const closedId = '623456789012345678901234';
+    incidents.seedIncident({
+      id: resolvedId, hazardType: 'FLOOD', location: originalReport.location, reportIds: [], status: 'RESOLVED',
+      createdById: officerId, createdAt: '2026-09-26T10:00:00.000Z', updatedAt: '2026-09-26T10:00:00.000Z'
+    });
+    incidents.seedIncident({
+      id: closedId, hazardType: 'FLOOD', location: originalReport.location, reportIds: [], status: 'CLOSED',
+      createdById: officerId, createdAt: '2026-09-26T10:00:00.000Z', updatedAt: '2026-09-26T10:00:00.000Z'
+    });
+    await assessments.create({
+      incidentId: resolvedId, assessedById: officerId, hazardSeverity: 'HIGH', peopleAffected: 8, vulnerablePeople: 2,
+      roadAccessibility: 'ACCESSIBLE', infrastructureImpact: 'LOW', waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN',
+      calculatedScore: 18, systemSuggestedRisk: 'HIGH', finalRiskLevel: 'HIGH', status: 'ACTIVE', assessedAt: '2026-09-26T12:00:00.000Z'
+    });
+    await assessments.create({
+      incidentId: closedId, assessedById: officerId, hazardSeverity: 'HIGH', peopleAffected: 8, vulnerablePeople: 2,
+      roadAccessibility: 'ACCESSIBLE', infrastructureImpact: 'LOW', waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN',
+      calculatedScore: 18, systemSuggestedRisk: 'HIGH', finalRiskLevel: 'HIGH', status: 'CLOSED', assessedAt: '2026-09-26T12:00:00.000Z'
+    });
+    const response = await request(app).get(`${base}/monitoring`).auth(token(), { type: 'bearer' });
+    expect(response.body.incidents.map(({ incident: row }: { incident: { id: string; status: string } }) => [row.id, row.status]))
+      .toEqual([[closedId, 'CLOSED'], [resolvedId, 'RESOLVED']]);
+  });
   it('creates and retrieves an incident from a verified report without changing source evidence', async () => {
     const { create, get, reports, incidents } = context();
     const response = await create();

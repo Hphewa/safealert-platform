@@ -25,6 +25,16 @@ export const WEATHER_CONDITIONS = ['CLEAR', 'LIGHT_RAIN', 'MODERATE_RAIN', 'HEAV
 export type WeatherCondition = (typeof WEATHER_CONDITIONS)[number];
 export const RISK_ASSESSMENT_STATUSES = ['ACTIVE', 'CLOSED', 'VOID'] as const;
 export type RiskAssessmentStatus = (typeof RISK_ASSESSMENT_STATUSES)[number];
+export const RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS = [
+  'INCIDENT_RESOLVED', 'HAZARD_NO_LONGER_ACTIVE', 'MONITORING_COMPLETED', 'OTHER'
+] as const;
+export type ManualRiskAssessmentClosureReason = (typeof RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS)[number];
+export const RISK_ASSESSMENT_CLOSURE_REASONS = ['REASSESSED', ...RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS] as const;
+export type RiskAssessmentClosureReason = (typeof RISK_ASSESSMENT_CLOSURE_REASONS)[number];
+export const RISK_ASSESSMENT_DELETE_REASONS = [
+  'CREATED_BY_MISTAKE', 'DUPLICATE_RECORD', 'INCORRECT_INFORMATION', 'OTHER'
+] as const;
+export type RiskAssessmentDeleteReason = (typeof RISK_ASSESSMENT_DELETE_REASONS)[number];
 export const RISK_DECISION_REASON_MIN_LENGTH = 10;
 export const RISK_DECISION_REASON_MAX_LENGTH = 500;
 
@@ -43,18 +53,69 @@ export type CreateRiskAssessmentRequest = CalculateRiskAssessmentRequest & {
   finalRiskLevel: RiskLevel;
   decisionReason?: string;
 };
+export type ReassessRiskAssessmentRequest = RiskAssessmentFactors & {
+  finalRiskLevel: RiskLevel;
+  decisionReason?: string;
+  reassessmentReason: string;
+};
+export type CloseRiskAssessmentRequest = {
+  closureReason: ManualRiskAssessmentClosureReason;
+  closureNote?: string;
+};
+export type DeleteRiskAssessmentRequest = {
+  deleteReason: RiskAssessmentDeleteReason;
+  deleteNote?: string;
+};
 export type SafeRiskAssessment = CreateRiskAssessmentRequest & CalculateRiskAssessmentResponse & {
   id: string;
   assessedById: string;
   status: RiskAssessmentStatus;
   assessedAt: string;
+  previousAssessmentId?: string;
+  reassessmentReason?: string;
+  closureReason?: RiskAssessmentClosureReason;
+  closureNote?: string;
+  closedAt?: string;
+  closedById?: string;
+  isDeleted: boolean;
+  deletedAt?: string;
+  deletedById?: string;
+  deleteReason?: RiskAssessmentDeleteReason;
+  deleteNote?: string;
   createdAt: string;
   updatedAt: string;
 };
+export type CloseRiskAssessmentResponse = { assessment: SafeRiskAssessment };
+export type DeleteRiskAssessmentResponse = { assessment: SafeRiskAssessment };
 // Report context is joined at read time, never copied into the stored assessment.
 export type RiskAssessmentResponse = { assessment: SafeRiskAssessment; incident: SafeIncident; reports: SafeReport[] };
 export type RiskAssessmentForIncidentResponse = { assessment: SafeRiskAssessment | null; incident: SafeIncident; reports: SafeReport[] };
+export type RiskAssessmentHistoryResponse = { incidentId: string; assessments: SafeRiskAssessment[] };
 export type GetVerifiedOfficerReportsResponse = { reports: SafeReport[] };
+
+export type InitialAssessmentQueueResponse = { incidents: IncidentWithReportsResponse[] };
+export type MonitoringAssessmentSummary = Pick<SafeRiskAssessment,
+  'id' | 'finalRiskLevel' | 'calculatedScore' | 'status' | 'assessedAt' | 'closureReason' | 'closedAt'
+>;
+export type MonitoringReportSummary = Pick<SafeReport, 'id' | 'description' | 'severity' | 'verifiedAt'>;
+export type MonitoringWarningSummary = Pick<SafeWarning,
+  'id' | 'assessmentId' | 'status' | 'createdAt' | 'publishedAt'
+>;
+export type IncidentMonitoringSummary = {
+  incident: SafeIncident;
+  currentAssessment: MonitoringAssessmentSummary | null;
+  latestAssessment: MonitoringAssessmentSummary | null;
+  totalVerifiedReports: number;
+  newVerifiedReportsSinceAssessment: number;
+  latestVerifiedReportAt: string | null;
+  hasNewVerifiedEvidence: boolean;
+  warnings: MonitoringWarningSummary[];
+};
+export type IncidentMonitoringListResponse = { incidents: IncidentMonitoringSummary[] };
+export type IncidentMonitoringDetailResponse = {
+  monitoring: IncidentMonitoringSummary;
+  recentVerifiedReports: MonitoringReportSummary[];
+};
 
 export const WARNING_RISK_LEVELS = ['HIGH', 'CRITICAL'] as const;
 export type WarningRiskLevel = (typeof WARNING_RISK_LEVELS)[number];

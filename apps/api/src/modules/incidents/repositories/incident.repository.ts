@@ -15,6 +15,7 @@ export type ActiveIncidentCandidate = {
 export interface IncidentRepository {
   create(input: CreateIncidentInput): Promise<SafeIncident>;
   findById(incidentId: string): Promise<SafeIncident | null>;
+  findAll(): Promise<SafeIncident[]>;
   findActive(): Promise<SafeIncident[]>;
   findActiveByReportIds(reportIds: string[]): Promise<SafeIncident | null>;
   addReportToActiveIncident(incidentId: string, reportId: string): Promise<SafeIncident | null>;

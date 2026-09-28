@@ -44,6 +44,7 @@ import type { CommunityReportClusterRepository } from './modules/report-clusters
 import { MongooseCommunityReportClusterRepository } from './modules/report-clusters/repositories/mongooseCommunityReportCluster.repository.js';
 import { CommunityReportGroupingService } from './modules/report-clusters/services/communityReportGrouping.service.js';
 import { createCommunityReportClusterRouter } from './modules/report-clusters/routes/communityReportCluster.routes.js';
+import { IncidentLifecycleService } from './modules/incidents/services/incidentLifecycle.service.js';
 
 type CreateAppOptions = {
   config: ApiConfig;
@@ -92,7 +93,11 @@ export function createApp({
   const resolvedAssessmentRepository = riskAssessmentRepository ?? new MongooseRiskAssessmentRepository();
   const riskAssessmentService = new RiskAssessmentService(resolvedAssessmentRepository, resolvedIncidentRepository, resolvedReportRepository);
   const resolvedImages = warningAttachmentRepository ?? new GridFsWarningAttachmentRepository();
-  const warningService = new WarningService(warningRepository ?? new MongooseWarningRepository(), resolvedAssessmentRepository, resolvedImages, resolvedIncidentRepository);
+  const resolvedWarningRepository = warningRepository ?? new MongooseWarningRepository();
+  const warningService = new WarningService(resolvedWarningRepository, resolvedAssessmentRepository, resolvedImages, resolvedIncidentRepository);
+  const incidentLifecycleService = new IncidentLifecycleService(
+    resolvedIncidentRepository, resolvedReportRepository, resolvedAssessmentRepository, resolvedWarningRepository
+  );
   const warningAttachmentService = new WarningAttachmentService(resolvedImages, resolvedAssessmentRepository);
   const responseRequestService = new ResponseRequestService(
     responseRequestRepository ?? new MongooseResponseRequestRepository()
@@ -114,7 +119,7 @@ export function createApp({
   app.use('/api/v1/auth', createAuthRouter(authService, config));
   app.use('/api/v1/reports', createReportRouter(reportService, config));
   app.use('/api/v1/report-clusters', createCommunityReportClusterRouter(communityReportGroupingService, config));
-  app.use('/api/v1/incidents', createIncidentRouter(incidentService, config));
+  app.use('/api/v1/incidents', createIncidentRouter(incidentService, incidentLifecycleService, config));
   app.use('/api/v1/media', createMediaRouter(mediaStorage, config));
   app.use('/api/v1/field-confirmations', createFieldConfirmationRouter(
     new FieldConfirmationService(confirmations, reportService), config

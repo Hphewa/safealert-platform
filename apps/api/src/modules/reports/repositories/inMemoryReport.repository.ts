@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import type { CommunityReportSummary, ReportStatus, SafeReport } from '@safealert/contracts';
+import type { CommunityReportSummary, MonitoringReportSummary, ReportStatus, SafeReport } from '@safealert/contracts';
 
 import type {
   CancelPendingResidentReportInput,
@@ -62,11 +62,22 @@ export class InMemoryReportRepository implements ReportRepository {
     return [...this.reports.values()].filter((report) => selectedIds.has(report.id.toLowerCase()));
   }
 
+
   async findReportsByCommunityReportClusterId(communityReportClusterId: string) {
     return [...this.reports.values()]
       .filter((report) => report.communityReportClusterId === communityReportClusterId)
       .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
       .map((report) => structuredClone(report));
+  }
+  async findVerifiedSummariesByIds(ids: string[]): Promise<MonitoringReportSummary[]> {
+    if (ids.length === 0) return [];
+    const selectedIds = new Set(ids.map((id) => id.toLowerCase()));
+    return [...this.reports.values()]
+      .filter((report) => selectedIds.has(report.id.toLowerCase()) && report.status === 'VERIFIED')
+      .map(({ id, description, severity, verifiedAt }) => ({
+        id, description, severity, ...(verifiedAt === undefined ? {} : { verifiedAt })
+      }));
+
   }
 
   async findReportsByStatuses(statuses: ReportStatus[]) {

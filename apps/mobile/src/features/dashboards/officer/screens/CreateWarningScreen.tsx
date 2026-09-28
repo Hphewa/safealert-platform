@@ -55,12 +55,14 @@ export function CreateWarningScreen() {
   const startReview = () => {
     const validation = validateWarningForm(form);
     setErrors(validation);
-    if (Object.keys(validation).length || !resource.data || !canCreateWarning(resource.data.assessment.finalRiskLevel)) return;
+    if (Object.keys(validation).length || !resource.data || resource.data.assessment.status !== 'ACTIVE'
+      || !canCreateWarning(resource.data.assessment.finalRiskLevel)) return;
     setReview(parseWarningForm(resource.data.assessment.id, form));
     setError(null);
   };
   const save = async () => {
-    if (inFlight.current || saved || !review || !accessToken || !resource.data || !canCreateWarning(resource.data.assessment.finalRiskLevel)) return;
+    if (inFlight.current || saved || !review || !accessToken || !resource.data
+      || resource.data.assessment.status !== 'ACTIVE' || !canCreateWarning(resource.data.assessment.finalRiskLevel)) return;
     const current = generation.current;
     inFlight.current = true; setBusy(true); setError(null);
     try {
@@ -96,7 +98,10 @@ export function CreateWarningScreen() {
     title={saved ? 'Warning Saved' : review ? 'Review Warning' : 'Create Early Warning'}
     reviewing={!!review} busy={busy} onBack={back}>
     {!assessment ? <AssessmentLoadState loading={resource.loading} error={resource.error} retry={() => void resource.reload()} />
-      : !canCreateWarning(assessment.finalRiskLevel) ? <View style={assessmentStyles.card}>
+      : assessment.status !== 'ACTIVE' ? <View style={assessmentStyles.card}>
+        <Text accessibilityRole="alert" style={assessmentStyles.error}>Only ACTIVE assessments can be used to create a warning.</Text>
+        <PriorityBadge priority={assessment.finalRiskLevel} />
+      </View> : !canCreateWarning(assessment.finalRiskLevel) ? <View style={assessmentStyles.card}>
         <Text accessibilityRole="alert" style={assessmentStyles.error}>Only saved HIGH or CRITICAL assessments can be used to create a warning.</Text>
         <PriorityBadge priority={assessment.finalRiskLevel} />
       </View> : saved ? <View style={warningStyles.success}>
@@ -113,7 +118,9 @@ export function CreateWarningScreen() {
         <AssessmentButton label="Return to Assessment" secondary onPress={back} />
       </View> : <>
         {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
-        {review ? <ReviewWarningScreen warning={review} riskLevel={assessment.finalRiskLevel} busy={busy} photos={photos}
+        {review ? <ReviewWarningScreen warning={review} riskLevel={assessment.finalRiskLevel} busy={busy}
+          photos={photos.map((photo) => ({ uri: photo.uri, base64: photo.base64 ?? '',
+            mimeType: (photo.mimeType ?? 'image/jpeg') as 'image/jpeg' }))}
           onEdit={() => { setReview(null); setError(null); }} onSave={() => void save()} /> : <>
           <View style={assessmentStyles.card}>
             <Text style={assessmentStyles.heading}>Warning information</Text>

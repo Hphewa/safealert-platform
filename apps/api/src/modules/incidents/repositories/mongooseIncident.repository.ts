@@ -22,6 +22,11 @@ export class MongooseIncidentRepository implements IncidentRepository {
     return incident ? toSafeIncident(incident) : null;
   }
 
+  async findAll() {
+    const incidents = await IncidentModel.find({}).sort({ updatedAt: -1, _id: -1 }).exec();
+    return incidents.map(toSafeIncident);
+  }
+
   async findActive() {
     const incidents = await IncidentModel.find({ status: 'ACTIVE' }).sort({ updatedAt: -1 }).exec();
     return incidents.map(toSafeIncident);

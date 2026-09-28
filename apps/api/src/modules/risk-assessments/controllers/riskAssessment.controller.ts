@@ -2,7 +2,10 @@ import type { RequestHandler } from 'express';
 import { ApiError } from '../../../shared/apiError.js';
 import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { RiskAssessmentService } from '../services/riskAssessment.service.js';
-import { calculateRiskAssessmentSchema, createRiskAssessmentSchema, riskAssessmentIdSchema } from '../validation/riskAssessment.schemas.js';
+import {
+  calculateRiskAssessmentSchema, closeRiskAssessmentSchema, createRiskAssessmentSchema, reassessRiskAssessmentSchema,
+  deleteRiskAssessmentSchema, riskAssessmentIdSchema
+} from '../validation/riskAssessment.schemas.js';
 
 export function createRiskAssessmentController(service: RiskAssessmentService) {
   const calculate: RequestHandler = asyncHandler(async (request, response) => {
@@ -22,5 +25,32 @@ export function createRiskAssessmentController(service: RiskAssessmentService) {
   const getForIncident: RequestHandler = asyncHandler(async (request, response) => {
     response.json(await service.getForIncident(riskAssessmentIdSchema.parse(request.params.incidentId)));
   });
-  return { calculate, create, getById, getForIncident };
+  const reassess: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    const { decisionReason, ...input } = reassessRiskAssessmentSchema.parse(request.body);
+    response.status(201).json(await service.reassess(
+      request.auth.id, riskAssessmentIdSchema.parse(request.params.assessmentId),
+      { ...input, ...(decisionReason ? { decisionReason } : {}) }
+    ));
+  });
+  const close: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    const assessmentId = riskAssessmentIdSchema.parse(request.params.assessmentId);
+    const { closureNote, ...input } = closeRiskAssessmentSchema.parse(request.body);
+    response.json(await service.close(request.auth.id, assessmentId, {
+      ...input, ...(closureNote === undefined ? {} : { closureNote })
+    }));
+  });
+  const softDelete: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    const assessmentId = riskAssessmentIdSchema.parse(request.params.assessmentId);
+    const { deleteNote, ...input } = deleteRiskAssessmentSchema.parse(request.body);
+    response.json(await service.softDelete(request.auth.id, assessmentId, {
+      ...input, ...(deleteNote === undefined ? {} : { deleteNote })
+    }));
+  });
+  const getHistoryForIncident: RequestHandler = asyncHandler(async (request, response) => {
+    response.json(await service.getHistoryForIncident(riskAssessmentIdSchema.parse(request.params.incidentId)));
+  });
+  return { calculate, create, reassess, close, softDelete, getById, getForIncident, getHistoryForIncident };
 }
