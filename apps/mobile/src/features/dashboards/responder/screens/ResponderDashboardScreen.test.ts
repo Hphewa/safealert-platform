@@ -169,6 +169,50 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('cancelled requests in active responder queues (LDFEW-324)', () => {
+  it('excludes terminal records from both tabs and their counts defensively', async () => {
+    const cancelled = { ...assigned, id: 'cancelled', status: 'CANCELLED' as const };
+    const completed = { ...assigned, id: 'completed', status: 'COMPLETED' as const };
+    vi.mocked(listPendingResponderRequests).mockResolvedValue([pending, cancelled, completed]);
+    vi.mocked(listAssignedResponderRequests).mockResolvedValue([assigned, cancelled, completed]);
+
+    render();
+    lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).not.toContain('Loading requests...'));
+    expect(visibleStatuses()).toEqual(['NEW']);
+    expect(tabButton('Pending').props.count).toBe(1);
+    selectTab('Assigned');
+    expect(visibleStatuses()).toEqual(['ASSIGNED']);
+    expect(tabButton('Assigned').props.count).toBe(1);
+  });
+
+  it('clears cancelled work and cached details on manual refresh, leaving an empty Pending queue', async () => {
+    render();
+    lifecycle.focus();
+    await vi.waitFor(() => expect(getCachedResponderRequest(pending.id)).toEqual(pending));
+    expect(visibleStatuses()).toEqual(['NEW']);
+    expect(tabButton('Pending').props.count).toBe(1);
+
+    // After Resident cancellation the next server response excludes the persisted record.
+    const refresh = deferred<SafeResponseRequest[]>();
+    vi.mocked(listPendingResponderRequests).mockReturnValueOnce(refresh.promise);
+    render().props.children[0].props.onTrailingPress();
+    expect(screenText(render())).toContain('Loading requests...');
+    refresh.resolve([]);
+    await vi.waitFor(() => expect(screenText(render())).not.toContain('Loading requests...'));
+
+    expect(listPendingResponderRequests).toHaveBeenCalledTimes(2);
+    expect(listPendingResponderRequests).toHaveBeenLastCalledWith('token');
+    expect(visibleStatuses()).toEqual([]);
+    expect(tabButton('Pending').props.count).toBe(0);
+    expect(screenText(render())).toContain('No pending requests');
+    expect(getCachedResponderRequest(pending.id)).toBeNull();
+    selectTab('Assigned');
+    expect(visibleStatuses()).toEqual(['ASSIGNED']);
+    expect(tabButton('Assigned').props.count).toBe(1);
+  });
+});
+
 describe('responder progress screen lifecycle and errors', () => {
   beforeEach(async () => {
     // Use the real API response validation and error mapping while controlling only the transport.

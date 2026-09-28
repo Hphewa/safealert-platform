@@ -5,6 +5,7 @@ import { ApiError } from '../../../shared/apiError.js';
 import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { ResponseRequestService } from '../services/responseRequest.service.js';
 import {
+  cancelResponseRequestSchema,
   createResponseRequestSchema,
   responseRequestProgressSchema
 } from '../validation/responseRequest.schemas.js';
@@ -37,6 +38,43 @@ export function createResponseRequestController(responseRequestService: Response
     const result = await responseRequestService.createResidentResponseRequest(request.auth.id, input);
 
     response.status(201).json(result);
+  });
+
+  const listMine: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    // Client-supplied resident IDs must never determine the ownership scope.
+    response.status(200).json(await responseRequestService.listResidentResponseRequests(request.auth.id));
+  });
+
+  const getMineById: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    response.status(200).json(await responseRequestService.getResidentResponseRequestById(
+      request.auth.id,
+      request.params.requestId ?? ''
+    ));
+  });
+
+  const cancelForResident: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const { params } = cancelResponseRequestSchema.parse({
+      params: request.params,
+      body: request.body,
+      query: request.query
+    });
+
+    // Derive the actor from the verified session, never from client-supplied user IDs.
+    // asyncHandler forwards failures to the existing sanitized API error handler.
+    const result = await responseRequestService.cancelResidentResponseRequest(params.requestId, request.auth);
+    response.status(200).json(result);
   });
 
   const listPendingForResponder: RequestHandler = asyncHandler(async (request, response) => {
@@ -112,6 +150,9 @@ export function createResponseRequestController(responseRequestService: Response
 
   return {
     create,
+    listMine,
+    getMineById,
+    cancelForResident,
     listPendingForResponder,
     listAssignedForResponder,
     acceptForResponder,

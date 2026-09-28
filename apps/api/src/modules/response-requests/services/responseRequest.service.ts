@@ -1,10 +1,14 @@
 import type {
+  CancelResponseRequestResponse,
   CreateResponseRequestRequest,
   CreateResponseRequestResponse,
+  GetResidentResponseRequestResponse,
+  GetResidentResponseRequestsResponse,
   ResponseStatus,
+  SafeUser,
   UserRole
 } from '@safealert/contracts';
-import { isValidResponseProgressTransition } from '@safealert/contracts';
+import { isValidResponseProgressTransition, RESPONSE_CANCELLABLE_STATUS } from '@safealert/contracts';
 import mongoose from 'mongoose';
 
 import { ApiError } from '../../../shared/apiError.js';
@@ -38,6 +42,111 @@ export class ResponseRequestService {
     });
 
     return { responseRequest };
+  }
+
+  async listResidentResponseRequests(residentId: string): Promise<GetResidentResponseRequestsResponse> {
+    this.requireResidentIdentity(residentId);
+
+    return {
+      responseRequests: await this.repository.findResponseRequestsByResidentId(residentId)
+    };
+  }
+
+  async getResidentResponseRequestById(
+    residentId: string,
+    responseRequestId: string
+  ): Promise<GetResidentResponseRequestResponse> {
+    this.requireResidentIdentity(residentId);
+
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    // Reuse the owner-scoped lookup without a status filter so tracking reads
+    // the same persisted lifecycle and timestamps as responder operations.
+    const responseRequest = await this.repository.findResponseRequestById(
+      responseRequestId.toLowerCase(),
+      residentId
+    );
+
+    if (!responseRequest) {
+      // Do not reveal whether an inaccessible request belongs to another resident.
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+
+    return { responseRequest };
+  }
+
+  async cancelResidentResponseRequest(
+    responseRequestId: string,
+    actor: Pick<SafeUser, 'id' | 'role'> | null | undefined
+  ): Promise<CancelResponseRequestResponse> {
+    if (!actor) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    if (actor.role !== 'RESIDENT') {
+      throw new ApiError(403, 'FORBIDDEN', 'Only Residents can cancel emergency requests.');
+    }
+
+    this.requireResidentIdentity(actor.id);
+
+    // Validate before querying so direct service callers also avoid database cast errors.
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    const responseRequest = await this.repository.findResponseRequestForCancellation(
+      responseRequestId.toLowerCase()
+    );
+
+    if (!responseRequest) {
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+
+    // The repository exposes residentId as a string. Compare it only with the
+    // verified session identity and stop before any cancellation work for non-owners.
+    if (responseRequest.residentId !== actor.id) {
+      throw new ApiError(
+        403,
+        'REQUEST_NOT_OWNED',
+        'You are not authorized to cancel this emergency request.'
+      );
+    }
+
+    // Use the freshly retrieved status: a responder may have progressed the
+    // request since the Resident viewed it. Only NEW is eligible; terminal and
+    // progressed states must never be changed by Resident cancellation.
+    if (responseRequest.status !== RESPONSE_CANCELLABLE_STATUS) {
+      throw new ApiError(
+        409,
+        'INVALID_CANCELLATION_STATUS',
+        'This emergency request cannot be cancelled in its current status. Refresh the request to see its latest progress.'
+      );
+    }
+
+    const cancelledRequest = await this.repository.cancelResponseRequest(
+      responseRequestId.toLowerCase(),
+      actor.id
+    );
+
+    if (!cancelledRequest) {
+      // Do not retry a stale mutation or reveal which ownership/status condition changed.
+      throw new ApiError(
+        409,
+        'REQUEST_CANCELLATION_CONFLICT',
+        'This emergency request changed before it could be cancelled. Refresh it and try again.'
+      );
+    }
+
+    return { responseRequest: cancelledRequest };
+  }
+
+  private requireResidentIdentity(residentId: string) {
+    // Fail closed if an internal caller omits the authenticated ownership scope.
+    if (typeof residentId !== 'string' || !residentId.trim()) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
   }
 
   async listPendingResponseRequests(responderId: string) {

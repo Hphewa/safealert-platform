@@ -1,4 +1,4 @@
-import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, type ResponseStatus } from '@safealert/contracts';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_CANCELLABLE_STATUS, type ResponseStatus } from '@safealert/contracts';
 import mongoose from 'mongoose';
 
 import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
@@ -14,6 +14,15 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return toSafeResponseRequest(responseRequest);
   }
 
+  async findResponseRequestsByResidentId(residentId: string) {
+    // Ownership is part of the database query; completed requests remain trackable too.
+    const responseRequests = await ResponseRequestModel.find({ residentId })
+      .sort({ createdAt: -1, _id: -1 })
+      .exec();
+
+    return responseRequests.map(toSafeResponseRequest);
+  }
+
   async findPendingResponseRequests(responderId: string) {
     if (!mongoose.isValidObjectId(responderId)) {
       return [];
@@ -22,6 +31,7 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     // Exclude only requests declined by this responder. Other responders must
     // still see NEW requests so they can assist with the emergency.
     const responseRequests = await ResponseRequestModel.find({
+      // Cancelled records remain stored for history; only NEW work belongs in Pending.
       status: 'NEW',
       declinedByResponderIds: {
         $nin: [responderId]
@@ -39,7 +49,8 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     // Scope assigned requests to the current responder so one responder
     // cannot view another responder's active workload.
     const responseRequests = await ResponseRequestModel.find({
-      // Assigned work stays active through dispatch, arrival and assistance, until completion.
+      // An explicit active list excludes CANCELLED, COMPLETED and unknown statuses
+      // without removing the records needed for Resident tracking and history.
       status: { $in: RESPONSE_ACTIVE_ASSIGNED_STATUSES },
       assignedResponderId: responderId
     })
@@ -92,6 +103,27 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
         }
       },
       { new: true }
+    ).exec();
+
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
+  async findResponseRequestForCancellation(responseRequestId: string) {
+    // The service must distinguish missing requests from ownership failures;
+    // this internal lookup must never be returned before authorization.
+    const responseRequest = await ResponseRequestModel.findById(responseRequestId).exec();
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
+  async cancelResponseRequest(responseRequestId: string, residentId: string) {
+    // Recheck ownership and eligibility in the write so concurrent responder
+    // acceptance cannot be overwritten after the service's initial read.
+    const responseRequest = await ResponseRequestModel.findOneAndUpdate(
+      { _id: responseRequestId, residentId, status: RESPONSE_CANCELLABLE_STATUS },
+      // Preserve the original record for tracking/audit. The server owns lifecycle
+      // time; Mongoose maintains updatedAt without changing the submission time.
+      { $set: { status: 'CANCELLED', cancelledAt: new Date() } },
+      { new: true, runValidators: true }
     ).exec();
 
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;

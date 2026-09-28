@@ -138,6 +138,9 @@ const responseRequestSchema = new mongoose.Schema(
     completedAt: {
       type: Date
     },
+    cancelledAt: {
+      type: Date
+    },
     assistanceType: {
       type: String,
       required: true,
@@ -270,6 +273,10 @@ export function toSafeResponseRequest(responseRequest: ResponseRequestDocument):
 
   if (responseRequest.completedAt) {
     safeResponseRequest.completedAt = responseRequest.completedAt.toISOString();
+  }
+
+  if (responseRequest.cancelledAt) {
+    safeResponseRequest.cancelledAt = responseRequest.cancelledAt.toISOString();
   }
 
   if (responseRequest.specialRequirements) {

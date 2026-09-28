@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_CANCELLABLE_STATUS, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
 import { responseProgressTimestampFields } from './responseRequest.repository.js';
 
 import type {
@@ -37,6 +37,14 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
 
     this.responseRequests.set(responseRequest.id, responseRequest);
     return responseRequest;
+  }
+
+  async findResponseRequestsByResidentId(residentId: string) {
+    return [...this.responseRequests.values()]
+      .filter((responseRequest) => responseRequest.residentId === residentId)
+      .sort((left, right) =>
+        right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      );
   }
 
   async findPendingResponseRequests(responderId: string) {
@@ -103,6 +111,28 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     this.responseRequests.set(responseRequestId, updatedResponseRequest);
 
     return updatedResponseRequest;
+  }
+
+  async findResponseRequestForCancellation(responseRequestId: string) {
+    return this.responseRequests.get(responseRequestId) ?? null;
+  }
+
+  async cancelResponseRequest(responseRequestId: string, residentId: string) {
+    const responseRequest = this.responseRequests.get(responseRequestId);
+    if (!responseRequest || responseRequest.residentId !== residentId || responseRequest.status !== RESPONSE_CANCELLABLE_STATUS) {
+      return null;
+    }
+
+    // No await between checking and replacing: mirror the conditional MongoDB write.
+    const cancelledAt = new Date().toISOString();
+    const updatedRequest: SafeResponseRequest = {
+      ...responseRequest,
+      status: 'CANCELLED',
+      cancelledAt,
+      updatedAt: cancelledAt
+    };
+    this.responseRequests.set(responseRequestId, updatedRequest);
+    return updatedRequest;
   }
 
   async findResponseRequestForProgress(responseRequestId: string) {
