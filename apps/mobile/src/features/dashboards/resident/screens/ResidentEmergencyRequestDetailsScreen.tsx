@@ -1,4 +1,6 @@
+import { RESPONSE_CANCELLABLE_STATUS } from '@safealert/contracts';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
@@ -15,6 +17,18 @@ export function ResidentEmergencyRequestDetailsScreen() {
   const { requestId } = useLocalSearchParams<{ requestId?: string | string[] }>();
   const { request, error, refetch, isRefreshing, canRefetch } = useMyEmergencyRequestDetails(requestId);
   const details = request ? presentResidentEmergencyRequestDetails(request) : null;
+  const [cancelNoticeRequestId, setCancelNoticeRequestId] = useState<string | null>(null);
+  // Mirror the backend's eligibility rule for visibility only. Missing/unknown
+  // statuses fail closed; the backend still authorizes any future cancellation.
+  const canOfferCancellation = canRefetch && !isRefreshing && !error
+    && request?.status === RESPONSE_CANCELLABLE_STATUS;
+
+  const handleCancelPress = () => {
+    if (!canOfferCancellation || !request) return;
+    // LDFEW-322 will open confirmation here before any API call. Until then,
+    // acknowledge the tap without changing the request or implying cancellation.
+    setCancelNoticeRequestId(request.id);
+  };
 
   const goBack = () => {
     // A direct link may have no previous screen in the Resident stack.
@@ -62,6 +76,24 @@ export function ResidentEmergencyRequestDetailsScreen() {
               ))}
             </View>
           ))}
+          {canOfferCancellation ? (
+            <View style={styles.cancelAction}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Cancel Request"
+                accessibilityHint="Does not cancel your request immediately."
+                onPress={handleCancelPress}
+                style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.cancelButtonText}>Cancel Request</Text>
+              </Pressable>
+              {cancelNoticeRequestId === request?.id ? (
+                <Text accessibilityLiveRegion="polite" style={styles.value}>
+                  Cancellation is not available yet. Your request is still active.
+                </Text>
+              ) : null}
+            </View>
+          ) : null}
         </>
       ) : (
         <EmergencyRequestStatePanel
@@ -76,6 +108,19 @@ export function ResidentEmergencyRequestDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
+  cancelAction: { gap: 12 },
+  cancelButton: {
+    minHeight: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.critical,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  cancelButtonText: { fontSize: 16, lineHeight: 24, fontWeight: '800', color: dashboardTheme.colors.critical },
   refreshButton: {
     minHeight: 44,
     justifyContent: 'center',

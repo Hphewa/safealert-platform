@@ -759,3 +759,97 @@ describe('Resident Emergency Request Details', () => {
     expect(screenText(renderDetails())).not.toContain(detailedRequest.description);
   });
 });
+
+describe('Resident details Cancel Request action (LDFEW-321)', () => {
+  it('offers NEW requests a non-mutating action prepared for confirmation', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: request });
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
+
+    expect(press(renderDetails(), 'Cancel Request')).toBe(true);
+    expect(press(renderDetails(), 'Cancel Request')).toBe(true);
+    const text = screenText(renderDetails());
+    expect(text).toContain('Cancellation is not available yet. Your request is still active.');
+    expect(text.match(/Cancel Request/g)).toHaveLength(1);
+    expect(text.match(/Your request is still active/g)).toHaveLength(1);
+    expect(text).toContain('Status:  Submitted');
+    expect(text).toContain('Submitted Current stage');
+    expect(text).toContain(request.description);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getMyResponseRequestById).toHaveBeenCalledExactlyOnceWith(request.id, 'resident-token');
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  it.each(['ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'UNKNOWN', undefined, null, ''])(
+    'hides the action safely for a non-cancellable or missing status: %j', async (status) => {
+      // Model malformed runtime data as well as valid lifecycle stages.
+      vi.mocked(getMyResponseRequestById).mockResolvedValue({
+        responseRequest: { ...request, status } as SafeResponseRequest
+      });
+      renderDetails();
+      lifecycle.effect();
+      await vi.waitFor(() => expect(screenText(renderDetails())).toContain(request.description));
+      expect(screenText(renderDetails())).not.toContain('Cancel Request');
+      expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+      if (!status || status === 'UNKNOWN') expect(screenText(renderDetails())).toContain('Status unavailable');
+    }
+  );
+
+  it('does not offer cancellation before the request has loaded or when request data is missing', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: null as unknown as SafeResponseRequest });
+    expect(screenText(renderDetails())).not.toContain('Cancel Request');
+    lifecycle.effect();
+    expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    await Promise.resolve();
+    expect(screenText(renderDetails())).not.toContain('Cancel Request');
+  });
+
+  it('hides stale NEW data during refresh and keeps the action hidden after responder assignment', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: request });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
+
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...request, status: 'ASSIGNED' } });
+    expect(press(renderDetails(), 'Refresh emergency request details')).toBe(true);
+    expect(screenText(renderDetails())).toContain('Loading your emergency request details');
+    expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Assigned Current stage'));
+    expect(screenText(renderDetails())).not.toContain('Cancel Request');
+    expect(getMyResponseRequestById).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps cancellation hidden after a failed refresh and preserves Retry recovery', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: request });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
+    vi.mocked(getMyResponseRequestById).mockRejectedValueOnce(new Error('Private database details'));
+    press(renderDetails(), 'Refresh emergency request details');
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Unable to load request details'));
+    expect(screenText(renderDetails())).not.toContain('Cancel Request');
+    expect(screenText(renderDetails())).not.toContain('Private');
+    expect(press(renderDetails(), 'Retry')).toBe(true);
+    expect(screenText(renderDetails())).not.toContain('Cancel Request');
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
+  });
+
+  it('hides the action and notice when the selected request or authenticated session changes', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: request });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
+    press(renderDetails(), 'Cancel Request');
+    lifecycle.params = { requestId: '507f1f77bcf86cd799439012' };
+    expect(screenText(renderDetails())).not.toContain('Cancel Request');
+    expect(screenText(renderDetails())).not.toContain('Your request is still active');
+    lifecycle.params = { requestId: request.id };
+    auth.accessToken = null;
+    expect(screenText(renderDetails())).not.toContain('Cancel Request');
+    expect(screenText(renderDetails())).toContain('Please log in again.');
+  });
+});
