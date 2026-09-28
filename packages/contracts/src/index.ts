@@ -123,6 +123,24 @@ export function canCreateWarning(riskLevel: RiskLevel): riskLevel is WarningRisk
   return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
 }
 export const WARNING_STATUSES = ['DRAFT', 'PUBLISHED'] as const;
+export const WARNING_NOTIFICATION_SCOPES = ['AFFECTED_AREA', 'DISTRICT', 'WHOLE_COUNTRY'] as const;
+export const NOTIFICATION_COUNTRY = 'Sri Lanka' as const;
+export function normalizeNotificationLocation(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  return value.trim().normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '') || null;
+}
+export type WarningNotificationScope = (typeof WARNING_NOTIFICATION_SCOPES)[number];
+export const WARNING_DISTRICTS = [
+  'Ampara', 'Anuradhapura', 'Badulla', 'Batticaloa', 'Colombo', 'Galle', 'Gampaha',
+  'Hambantota', 'Jaffna', 'Kalutara', 'Kandy', 'Kegalle', 'Kilinochchi', 'Kurunegala',
+  'Mannar', 'Matale', 'Matara', 'Monaragala', 'Mullaitivu', 'Nuwara Eliya', 'Polonnaruwa',
+  'Puttalam', 'Ratnapura', 'Trincomalee', 'Vavuniya'
+] as const;
+export type WarningDistrict = (typeof WARNING_DISTRICTS)[number];
+export type WarningNotificationTarget =
+  | { scope: 'AFFECTED_AREA' }
+  | { scope: 'DISTRICT'; district: WarningDistrict }
+  | { scope: 'WHOLE_COUNTRY'; country?: typeof NOTIFICATION_COUNTRY };
 export const WARNING_FIELD_LIMITS = {
   affectedArea: 300, requiredAction: 2000, unsafeRoads: 2000,
   safeRoutes: 2000, message: 4000, attachmentUrl: 500, attachments: 5
@@ -142,13 +160,30 @@ export type SafeWarning = CreateWarningRequest & {
   createdById: string;
   riskLevel: WarningRiskLevel;
   status: (typeof WARNING_STATUSES)[number];
+  notificationTarget?: WarningNotificationTarget;
   publishedAt?: string;
   publishedById?: string;
   createdAt: string;
   updatedAt: string;
 };
 export type CreateWarningResponse = { warning: SafeWarning };
+export type PublishWarningRequest = { notificationTarget: WarningNotificationTarget };
 export type PublishWarningResponse = { warning: SafeWarning };
+export type ResidentWarning = SafeWarning & { acknowledgedAt?: string; acknowledgementResponse?: WarningAcknowledgementResponse };
+export type ResidentWarningsResponse = { warnings: ResidentWarning[] };
+export type ResidentWarningResponse = { warning: ResidentWarning };
+export const WARNING_ACKNOWLEDGEMENT_RESPONSES = ['SAFE', 'EVACUATING', 'NEED_ASSISTANCE'] as const;
+export type WarningAcknowledgementResponse = (typeof WARNING_ACKNOWLEDGEMENT_RESPONSES)[number];
+export type AcknowledgeWarningRequest = { response: WarningAcknowledgementResponse };
+export type AcknowledgeWarningResponse = { warningId: string; response: WarningAcknowledgementResponse; acknowledgedAt: string };
+export type ResidentWarningAcknowledgement = {
+  warningId: string; residentId: string; response: WarningAcknowledgementResponse; acknowledgedAt: string;
+  resident: { name: string; phoneNumber?: string; area?: string; district?: string; country?: string };
+};
+export type WarningAcknowledgementsResponse = {
+  acknowledgements: ResidentWarningAcknowledgement[];
+  summary: { total: number; safe: number; evacuating: number; needAssistance: number };
+};
 export const WARNING_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const WARNING_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export type WarningImageMimeType = (typeof WARNING_IMAGE_MIME_TYPES)[number];
@@ -695,3 +730,91 @@ export type ResidentFieldConfirmation = FieldConfirmation extends infer T
     : never
   : never;
 export type GetResidentFieldConfirmationsResponse = { confirmations: ResidentFieldConfirmation[] };
+
+// LDFEW-127: targeted SMS (Notify.lk) and push (Firebase Cloud Messaging) delivery for
+// published HIGH/CRITICAL warnings. Channels are independent; each attempt is recorded
+// separately so one provider failure never affects the other.
+export const NOTIFICATION_CHANNELS = ['SMS', 'PUSH'] as const;
+export type NotificationChannel = (typeof NOTIFICATION_CHANNELS)[number];
+
+export const NOTIFICATION_DELIVERY_STATUSES = ['SENT', 'FAILED', 'SKIPPED'] as const;
+export type NotificationDeliveryStatus = (typeof NOTIFICATION_DELIVERY_STATUSES)[number];
+
+export const NOTIFICATION_PROVIDERS = ['NOTIFY_LK', 'FCM', 'MOCK'] as const;
+export type NotificationProvider = (typeof NOTIFICATION_PROVIDERS)[number];
+
+export const NOTIFICATION_SKIP_REASONS = [
+  'INVALID_OR_MISSING_PHONE',
+  'MISSING_PUSH_TOKEN',
+  'PROVIDER_NOT_CONFIGURED'
+] as const;
+export type NotificationSkipReason = (typeof NOTIFICATION_SKIP_REASONS)[number];
+
+// Notification delivery is only attempted for these persisted warning risk levels.
+export const NOTIFIABLE_WARNING_RISK_LEVELS = WARNING_RISK_LEVELS;
+export type NotifiableWarningRiskLevel = (typeof NOTIFIABLE_WARNING_RISK_LEVELS)[number];
+
+export type SafeWarningNotificationDelivery = {
+  id: string;
+  warningId: string;
+  recipientId: string;
+  channel: NotificationChannel;
+  status: NotificationDeliveryStatus;
+  provider?: NotificationProvider;
+  providerMessageId?: string;
+  providerStatus?: string;
+  skipReason?: NotificationSkipReason;
+  errorCode?: string;
+  errorMessage?: string;
+  sentAt?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WarningNotificationChannelSummary = {
+  sent: number;
+  failed: number;
+  skipped: number;
+};
+
+export type WarningNotificationSummary = {
+  warningId: string;
+  riskLevel: WarningRiskLevel;
+  scope: WarningNotificationScope;
+  recipientCount: number;
+  sms: WarningNotificationChannelSummary;
+  push: WarningNotificationChannelSummary;
+};
+
+// Notify.lk accepts up to 621 characters; SafeAlert keeps emergency SMS shorter than that.
+export const NOTIFICATION_SMS_MAX_LENGTH = 621;
+
+export const NOTIFICATION_PROFILE_FIELD_LIMITS = {
+  area: 300,
+  district: 120,
+  country: 120,
+  phoneNumber: 24,
+  pushToken: 4096
+} as const;
+
+// Own-profile notification contact details. Location values are stored normalized by the
+// backend (trimmed, lowercased, punctuation removed) so scope targeting can match them.
+export type NotificationProfile = {
+  area?: string;
+  district?: string;
+  country?: string;
+  phoneNumber?: string;
+  pushToken?: string;
+};
+
+// Undefined is included explicitly so parsed request bodies can be passed straight through
+// with `exactOptionalPropertyTypes` enabled.
+export type UpdateNotificationProfileRequest = {
+  area?: string | null | undefined;
+  district?: string | null | undefined;
+  country?: string | null | undefined;
+  phoneNumber?: string | null | undefined;
+  pushToken?: string | null | undefined;
+};
+
+export type NotificationProfileResponse = { profile: NotificationProfile };

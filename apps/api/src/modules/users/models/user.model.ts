@@ -30,6 +30,35 @@ const userSchema = new mongoose.Schema(
       enum: USER_ROLES,
       default: 'RESIDENT'
     },
+    // LDFEW-127 notification profile. Location values are stored normalized (trimmed,
+    // lowercased, punctuation removed) so warning scope targeting can match them exactly.
+    area: {
+      type: String,
+      trim: true,
+      maxlength: 300
+    },
+    district: {
+      type: String,
+      trim: true,
+      maxlength: 120
+    },
+    country: {
+      type: String,
+      trim: true,
+      maxlength: 120
+    },
+    phoneNumber: {
+      type: String,
+      trim: true,
+      maxlength: 24
+    },
+    // Reused for Firebase Cloud Messaging device registration tokens.
+    pushToken: {
+      type: String,
+      trim: true,
+      select: false,
+      maxlength: 4096
+    },
     isActive: {
       type: Boolean,
       required: true,
@@ -40,6 +69,11 @@ const userSchema = new mongoose.Schema(
     timestamps: true
   }
 );
+
+// Scope targeting always filters on role and active state plus one normalized location.
+userSchema.index({ role: 1, isActive: 1, area: 1 });
+userSchema.index({ role: 1, isActive: 1, district: 1 });
+userSchema.index({ role: 1, isActive: 1, country: 1 });
 
 export type UserDocument = InferSchemaType<typeof userSchema> & {
   _id: { toString(): string };

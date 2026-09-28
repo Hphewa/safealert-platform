@@ -5,6 +5,10 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "scheme": "safealert",
+    "android": {
+      "package": "com.safealert.app",
+      "googleServicesFile": "./google-services.json"
+    },
     "userInterfaceStyle": "automatic",
     "plugins": [
       "expo-router",
@@ -22,14 +26,7 @@
         }
       ],
       "expo-secure-store",
-      [
-        "expo-audio",
-        {
-          "microphonePermission": "Allow SafeAlert to record an optional voice note as hazard evidence.",
-          "recordAudioAndroid": true,
-          "enableBackgroundRecording": false
-        }
-      ]
+      "expo-notifications"
     ],
     "extra": {
       "apiUrl": "http://localhost:4000/api/v1"

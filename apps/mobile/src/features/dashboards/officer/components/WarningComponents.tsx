@@ -1,18 +1,20 @@
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
 import { AssessmentButton, assessmentStyles } from './RiskAssessmentComponents';
 
-export function WarningPage({ title, reviewing = false, busy = false, onBack, children }: {
-  title: string; reviewing?: boolean; busy?: boolean; onBack: () => void; children: ReactNode;
+export function WarningPage({ title, reviewing = false, published = false, busy = false, onBack, children, contentContainerStyle }: {
+  title: string; reviewing?: boolean; published?: boolean; busy?: boolean; onBack: () => void; children: ReactNode;
+  contentContainerStyle?: StyleProp<ViewStyle>;
 }) {
   return <KeyboardAvoidingView style={warningStyles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    <DashboardScreen bottomNavItems={officerBottomNavItems}>
-      <AssessmentButton label="Back to Assessment" secondary disabled={busy} onPress={onBack} />
+    <DashboardScreen bottomNavItems={officerBottomNavItems} contentContainerStyle={contentContainerStyle}>
+      <AssessmentButton label={published ? 'Back to Assessments' : reviewing ? 'Back to Warning Details' : 'Back to Assessment'} secondary disabled={busy} onPress={onBack} />
       <View style={warningStyles.header}>
-        <Text style={warningStyles.eyebrow}>EARLY WARNING · DRAFT</Text>
+        <Text style={warningStyles.eyebrow}>EARLY WARNING · {published ? 'PUBLISHED' : 'DRAFT'}</Text>
         <Text accessibilityRole="header" style={assessmentStyles.title}>{title}</Text>
         <Text style={assessmentStyles.helper}>Prepare clear safety information from the saved risk assessment.</Text>
       </View>
