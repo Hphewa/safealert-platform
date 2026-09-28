@@ -106,6 +106,13 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 
+  async findResponseRequestForCancellation(responseRequestId: string) {
+    // The service must distinguish missing requests from ownership failures;
+    // this internal lookup must never be returned before authorization.
+    const responseRequest = await ResponseRequestModel.findById(responseRequestId).exec();
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
   async findResponseRequestForProgress(responseRequestId: string) {
     const responseRequest = await ResponseRequestModel.findById(responseRequestId).exec();
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;

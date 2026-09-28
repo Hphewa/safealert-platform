@@ -88,12 +88,33 @@ export class ResponseRequestService {
       throw new ApiError(403, 'FORBIDDEN', 'Only Residents can cancel emergency requests.');
     }
 
-    // Reuse the existing validated, owner-scoped read instead of introducing an
-    // unscoped lookup while cancellation-specific authorization awaits LDFEW-319.
-    await this.getResidentResponseRequestById(actor.id, responseRequestId);
+    this.requireResidentIdentity(actor.id);
+
+    // Validate before querying so direct service callers also avoid database cast errors.
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    const responseRequest = await this.repository.findResponseRequestForCancellation(
+      responseRequestId.toLowerCase()
+    );
+
+    if (!responseRequest) {
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+
+    // The repository exposes residentId as a string. Compare it only with the
+    // verified session identity and stop before any cancellation work for non-owners.
+    if (responseRequest.residentId !== actor.id) {
+      throw new ApiError(
+        403,
+        'REQUEST_NOT_OWNED',
+        'You are not authorized to cancel this emergency request.'
+      );
+    }
 
     // LDFEW-318 establishes the API flow only. Keep emergency history unchanged
-    // until LDFEW-319/320/323 supply authorization, lifecycle policy and an atomic
+    // until LDFEW-320/323 supply lifecycle policy and an atomic
     // CANCELLED status update. Never delete records or report an unpersisted success.
     throw new ApiError(
       501,

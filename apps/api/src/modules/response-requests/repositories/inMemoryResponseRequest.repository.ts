@@ -113,6 +113,10 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return updatedResponseRequest;
   }
 
+  async findResponseRequestForCancellation(responseRequestId: string) {
+    return this.responseRequests.get(responseRequestId) ?? null;
+  }
+
   async findResponseRequestForProgress(responseRequestId: string) {
     return this.responseRequests.get(responseRequestId) ?? null;
   }

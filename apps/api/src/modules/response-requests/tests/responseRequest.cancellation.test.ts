@@ -6,7 +6,9 @@ import { createApp } from '../../../app.js';
 import { loadConfig } from '../../../config/env.js';
 import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
 import { signAccessToken } from '../../auth/services/token.service.js';
+import { ResponseRequestModel } from '../models/responseRequest.model.js';
 import { InMemoryResponseRequestRepository } from '../repositories/inMemoryResponseRequest.repository.js';
+import { MongooseResponseRequestRepository } from '../repositories/mongooseResponseRequest.repository.js';
 import { ResponseRequestService } from '../services/responseRequest.service.js';
 import { cancelResponseRequestSchema } from '../validation/responseRequest.schemas.js';
 
@@ -52,28 +54,28 @@ function createContext() {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('Resident cancellation API foundation (LDFEW-318)', () => {
+describe('Resident cancellation API foundation and ownership (LDFEW-318/319)', () => {
   it('passes the authenticated actor through the service to the existing repository lookup', async () => {
     const { app, token, actor, repository } = createContext();
     const service = vi.spyOn(ResponseRequestService.prototype, 'cancelResidentResponseRequest');
-    const lookup = vi.spyOn(repository, 'findResponseRequestById');
+    const lookup = vi.spyOn(repository, 'findResponseRequestForCancellation');
 
     const response = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
 
     expect(service).toHaveBeenCalledExactlyOnceWith(requestId, actor);
-    expect(lookup).toHaveBeenCalledExactlyOnceWith(requestId, residentId);
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(requestId);
     expect(response.status).toBe(501);
     expect(response.body).toEqual(unavailableResponse);
   });
 
   it('accepts an empty body and normalizes uppercase identifiers using the existing service', async () => {
     const { app, token, repository } = createContext();
-    const lookup = vi.spyOn(repository, 'findResponseRequestById');
+    const lookup = vi.spyOn(repository, 'findResponseRequestForCancellation');
     const response = await request(app).patch(`${basePath}/${requestId.toUpperCase()}/cancel`)
       .auth(token, { type: 'bearer' }).send({});
     expect(response.status).toBe(501);
     expect(response.body).toEqual(unavailableResponse);
-    expect(lookup).toHaveBeenCalledExactlyOnceWith(requestId, residentId);
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(requestId);
   });
 
   it('leaves the record and queue unchanged on repeated attempts without claiming success', async () => {
@@ -92,7 +94,7 @@ describe('Resident cancellation API foundation (LDFEW-318)', () => {
     'rejects malformed ID %j before the service or repository', async (id) => {
       const { app, token, repository } = createContext();
       const service = vi.spyOn(ResponseRequestService.prototype, 'cancelResidentResponseRequest');
-      const lookup = vi.spyOn(repository, 'findResponseRequestById');
+      const lookup = vi.spyOn(repository, 'findResponseRequestForCancellation');
       const response = await request(app).patch(`${basePath}/${encodeURIComponent(id)}/cancel`)
         .auth(token, { type: 'bearer' });
       expect(response.status).toBe(400);
@@ -106,7 +108,7 @@ describe('Resident cancellation API foundation (LDFEW-318)', () => {
 
   it('handles a missing path ID through the existing route-not-found convention', async () => {
     const { app, token, repository } = createContext();
-    const lookup = vi.spyOn(repository, 'findResponseRequestById');
+    const lookup = vi.spyOn(repository, 'findResponseRequestForCancellation');
     const response = await request(app).patch(`${basePath}/cancel`).auth(token, { type: 'bearer' });
     expect(response.status).toBe(404);
     expect(response.body.error.code).toBe('NOT_FOUND');
@@ -143,14 +145,76 @@ describe('Resident cancellation API foundation (LDFEW-318)', () => {
     expect(response.body).toEqual({ error: { code: 'REQUEST_NOT_FOUND', message: 'Emergency request not found.' } });
   });
 
-  it('preserves the existing private lookup without exposing another resident request', async () => {
-    const { app, config, repository } = createContext();
+  it('rejects a different Resident without exposing owner details or changing the request', async () => {
+    const { app, config, repository, storedRequest } = createContext();
+    const before = structuredClone(storedRequest);
     const token = signAccessToken(config, { id: '507f1f77bcf86cd799439098', role: 'RESIDENT' });
-    const lookup = vi.spyOn(repository, 'findResponseRequestById');
+    const lookup = vi.spyOn(repository, 'findResponseRequestForCancellation');
     const response = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
-    expect(response.status).toBe(404);
-    expect(response.body).toEqual({ error: { code: 'REQUEST_NOT_FOUND', message: 'Emergency request not found.' } });
-    expect(lookup).toHaveBeenCalledExactlyOnceWith(requestId, '507f1f77bcf86cd799439098');
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ error: {
+      code: 'REQUEST_NOT_OWNED', message: 'You are not authorized to cancel this emergency request.'
+    } });
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(requestId);
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(before);
+    expect(await repository.findPendingResponseRequests('responder')).toEqual([before]);
+  });
+
+  it.each(['residentId', 'userId', 'ownerId'])('does not trust a spoofed %s in the body or query', async (field) => {
+    const { app, config, repository, storedRequest } = createContext();
+    const before = structuredClone(storedRequest);
+    const token = signAccessToken(config, { id: '507f1f77bcf86cd799439098', role: 'RESIDENT' });
+    const lookup = vi.spyOn(repository, 'findResponseRequestForCancellation');
+    for (const location of ['body', 'query']) {
+      const attempt = request(app).patch(cancelPath).auth(token, { type: 'bearer' });
+      const response = await (location === 'body'
+        ? attempt.send({ [field]: residentId })
+        : attempt.query({ [field]: residentId }));
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    }
+    expect(lookup).not.toHaveBeenCalled();
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(before);
+  });
+
+  it('rejects missing or blank authenticated identity before looking up the request', async () => {
+    const { app, config, repository } = createContext();
+    const lookup = vi.spyOn(repository, 'findResponseRequestForCancellation');
+    for (const id of ['', ' ']) {
+      const token = signAccessToken(config, { id, role: 'RESIDENT' });
+      const response = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
+      expect(response.status).toBe(401);
+      expect(['INVALID_TOKEN', 'UNAUTHORIZED']).toContain(response.body.error.code);
+    }
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it('enforces ownership for direct service callers as well as HTTP callers', async () => {
+    const { actor, repository, storedRequest } = createContext();
+    const before = structuredClone(storedRequest);
+    const service = new ResponseRequestService(repository);
+    await expect(service.cancelResidentResponseRequest(requestId, { ...actor, id: 'another-resident' }))
+      .rejects.toMatchObject({ statusCode: 403, code: 'REQUEST_NOT_OWNED' });
+    await expect(service.cancelResidentResponseRequest(requestId, actor))
+      .rejects.toMatchObject({ statusCode: 501, code: 'CANCELLATION_NOT_AVAILABLE' });
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(before);
+  });
+
+  it('uses the stored MongoDB owner as a string for ownership authorization', async () => {
+    const { actor, storedRequest } = createContext();
+    const document = new ResponseRequestModel({ ...storedRequest, _id: requestId });
+    const query = ResponseRequestModel.findById(requestId);
+    vi.spyOn(query, 'exec').mockResolvedValue(document);
+    const find = vi.spyOn(ResponseRequestModel, 'findById').mockReturnValue(query);
+    const service = new ResponseRequestService(new MongooseResponseRequestRepository());
+
+    await expect(service.cancelResidentResponseRequest(requestId, actor))
+      .rejects.toMatchObject({ statusCode: 501, code: 'CANCELLATION_NOT_AVAILABLE' });
+    await expect(service.cancelResidentResponseRequest(requestId, { ...actor, id: 'another-resident' }))
+      .rejects.toMatchObject({ statusCode: 403, code: 'REQUEST_NOT_OWNED' });
+    expect(find).toHaveBeenCalledWith(requestId);
+    expect(document.residentId.toString()).toBe(residentId);
+    expect(document.status).toBe('NEW');
   });
 
   it('rejects missing, invalid and expired credentials before service access', async () => {
@@ -183,7 +247,7 @@ describe('Resident cancellation API foundation (LDFEW-318)', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const failure = new Error('MongoServerError: internal database details');
     const failedCall = source === 'repository'
-      ? vi.spyOn(repository, 'findResponseRequestById').mockRejectedValueOnce(failure)
+      ? vi.spyOn(repository, 'findResponseRequestForCancellation').mockRejectedValueOnce(failure)
       : vi.spyOn(ResponseRequestService.prototype, 'cancelResidentResponseRequest').mockRejectedValueOnce(failure);
     const response = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
     expect(failedCall).toHaveBeenCalledOnce();
@@ -199,8 +263,9 @@ describe('Resident cancellation API foundation (LDFEW-318)', () => {
   it('validates service callers before repository access', async () => {
     const { actor, repository } = createContext();
     const service = new ResponseRequestService(repository);
-    const lookup = vi.spyOn(repository, 'findResponseRequestById');
+    const lookup = vi.spyOn(repository, 'findResponseRequestForCancellation');
     await expect(service.cancelResidentResponseRequest(requestId, undefined)).rejects.toMatchObject({ statusCode: 401 });
+    await expect(service.cancelResidentResponseRequest(requestId, null)).rejects.toMatchObject({ statusCode: 401 });
     await expect(service.cancelResidentResponseRequest(requestId, { ...actor, role: 'EMERGENCY_RESPONDER' }))
       .rejects.toMatchObject({ statusCode: 403 });
     await expect(service.cancelResidentResponseRequest(requestId, { ...actor, id: '' }))
