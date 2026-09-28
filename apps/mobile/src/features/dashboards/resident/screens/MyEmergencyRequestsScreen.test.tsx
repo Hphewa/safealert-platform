@@ -902,6 +902,8 @@ describe('Resident emergency cancellation confirmation (LDFEW-322)', () => {
     expect(getMyResponseRequestById).toHaveBeenCalledTimes(1);
     resolve({ responseRequest: { ...request, status: 'CANCELLED', cancelledAt: '2026-09-28T10:00:00.000Z' } });
     await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Status:  Cancelled'));
+    expect(screenText(renderDetails())).toContain('Emergency request cancelled successfully.');
+    expect(screenText(renderDetails())).not.toContain('Cancelling...');
     expect(cancellationDialog(renderDetails())).toBeNull();
     expect(screenText(renderDetails())).toContain(request.description);
     expect(press(renderDetails(), 'Cancel Request')).toBe(false);
@@ -976,17 +978,21 @@ describe('Resident emergency cancellation confirmation (LDFEW-322)', () => {
 
   it.each([409, 403, 404, 401, 500, 0])('handles backend rejection/failure (%s) without exposing internals or automatically retrying', async (status) => {
     const dialog = await openConfirmation();
+    if (status === 409) {
+      // LDFEW-326 reconciles conflicts automatically; the mutation must still run only once.
+      vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...request, status: 'ASSIGNED' } });
+    }
     vi.mocked(cancelResidentResponseRequest).mockRejectedValueOnce(new ApiClientError(status, 'ERROR', 'Private database details'));
     dialog.onConfirm();
-    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Unable to load request details'));
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain(status === 409 ? 'Assigned Current stage' : 'Unable to load request details'));
     expect(screenText(renderDetails())).not.toContain('Private');
     expect(screenText(renderDetails())).not.toContain('Cancel Request');
     expect(cancellationDialog(renderDetails())).toBeNull();
-    if (status === 409) expect(screenText(renderDetails())).toContain('This request has changed');
+    if (status === 409) expect(screenText(renderDetails())).toContain('response status has changed');
     expect(cancelResidentResponseRequest).toHaveBeenCalledTimes(1);
     // Reload current backend state before making any new cancellation decision.
     vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...request, status: 'ASSIGNED' } });
-    press(renderDetails(), 'Retry');
+    if (status !== 409) expect(press(renderDetails(), 'Retry')).toBe(true);
     await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Assigned Current stage'));
     expect(press(renderDetails(), 'Cancel Request')).toBe(false);
     expect(cancelResidentResponseRequest).toHaveBeenCalledTimes(1);
@@ -1012,5 +1018,112 @@ describe('Resident emergency cancellation confirmation (LDFEW-322)', () => {
     await Promise.resolve();
     expect(screenText(renderDetails())).toContain('Please log in again.');
     expect(screenText(renderDetails())).not.toContain('Status:  Cancelled');
+  });
+
+  it.each(['INVALID_CANCELLATION_STATUS', 'REQUEST_CANCELLATION_CONFLICT'])(
+    'refreshes stale status after %s while ending cancellation loading immediately', async (code) => {
+      const dialog = await openConfirmation();
+      let resolve!: (response: { responseRequest: SafeResponseRequest }) => void;
+      vi.mocked(getMyResponseRequestById).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+      vi.mocked(cancelResidentResponseRequest).mockRejectedValueOnce(new ApiClientError(409, code, 'Mongoose private details'));
+      dialog.onConfirm();
+      await vi.waitFor(() => expect(getMyResponseRequestById).toHaveBeenCalledTimes(2));
+      expect(screenText(renderDetails())).toContain('This request can no longer be cancelled because its response status has changed.');
+      expect(screenText(renderDetails())).not.toContain('Cancelling...');
+      expect(cancellationDialog(renderDetails())).toBeNull();
+      dialog.onConfirm();
+      expect(cancelResidentResponseRequest).toHaveBeenCalledTimes(1);
+      resolve({ responseRequest: { ...request, status: 'IN_PROGRESS' } });
+      await vi.waitFor(() => expect(screenText(renderDetails())).toContain('In Progress Current stage'));
+      expect(screenText(renderDetails())).toContain('response status has changed');
+      expect(screenText(renderDetails())).not.toContain('Mongoose');
+      expect(screenText(renderDetails())).not.toContain('cancelled successfully');
+      expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    }
+  );
+
+  it('offers safe read-only recovery when the conflict refresh also fails', async () => {
+    const dialog = await openConfirmation();
+    vi.mocked(cancelResidentResponseRequest).mockRejectedValueOnce(new ApiClientError(409, 'INVALID_CANCELLATION_STATUS', 'Internal conflict'));
+    vi.mocked(getMyResponseRequestById).mockRejectedValueOnce(new Error('Private network details'));
+    dialog.onConfirm();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Unable to load request details'));
+    expect(screenText(renderDetails())).toContain('response status has changed');
+    expect(screenText(renderDetails())).not.toMatch(/Cancelling\.\.\.|Private|Internal/);
+    expect(cancellationDialog(renderDetails())).toBeNull();
+    expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: { ...request, status: 'ASSIGNED' } });
+    expect(press(renderDetails(), 'Retry')).toBe(true);
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Assigned Current stage'));
+    expect(cancelResidentResponseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['UNAUTHORIZED', 401, 'Your session is no longer valid. Please sign in again.'],
+    ['REQUEST_NOT_OWNED', 403, 'You are not allowed to cancel this emergency request.'],
+    ['REQUEST_NOT_FOUND', 404, 'This emergency request could not be found. Please refresh your requests.'],
+    ['INVALID_REQUEST_ID', 400, 'This emergency request is unavailable. Please refresh your requests.'],
+    ['NETWORK_ERROR', 0, 'Please check your connection'],
+    ['INTERNAL_SERVER_ERROR', 500, 'Unable to cancel this request right now. Please refresh and try again.'],
+    ['UNKNOWN', 400, 'Unable to confirm cancellation. Please refresh the request before trying again.']
+  ] as const)('shows friendly %s feedback and releases submission controls', async (code, status, message) => {
+    const dialog = await openConfirmation();
+    vi.mocked(cancelResidentResponseRequest).mockRejectedValueOnce(new ApiClientError(status, code, 'Raw database stack trace'));
+    dialog.onConfirm();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain(message));
+    expect(cancellationDialog(renderDetails())).toBeNull();
+    expect(screenText(renderDetails())).not.toMatch(/Cancelling\.\.\.|Raw|stack trace|cancelled successfully/);
+    expect(press(renderDetails(), 'Retry')).toBe(true);
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
+    expect(cancelResidentResponseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('permits a new confirmed attempt after a network failure only after reloading eligible server state', async () => {
+    const dialog = await openConfirmation();
+    vi.mocked(cancelResidentResponseRequest).mockRejectedValueOnce(new ApiClientError(0, 'NETWORK_ERROR', 'Internal address'));
+    dialog.onConfirm();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('check your connection'));
+    expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    expect(press(renderDetails(), 'Retry')).toBe(true);
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Submitted Current stage'));
+    expect(press(renderDetails(), 'Cancel Request')).toBe(true);
+    expect(cancelResidentResponseRequest).toHaveBeenCalledTimes(1);
+    const retryDialog = cancellationDialog(renderDetails())!;
+    retryDialog.onConfirm();
+    retryDialog.onConfirm();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Emergency request cancelled successfully.'));
+    expect(cancelResidentResponseRequest).toHaveBeenCalledTimes(2);
+    expect(screenText(renderDetails())).toContain('Status:  Cancelled');
+    expect(screenText(renderDetails())).toContain(request.contact.phoneNumber);
+    expect(screenText(renderDetails())).toContain(request.description);
+    expect(screenText(renderDetails())).not.toContain('check your connection');
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  it.each([null, { responseRequest: { id: request.id, status: 'CANCELLED' } }])(
+    'does not show success for an invalid or incomplete API response: %j', async (response) => {
+      const api = await vi.importActual<typeof import('../api/responseRequestApi')>('../api/responseRequestApi');
+      const dialog = await openConfirmation();
+      vi.mocked(cancelResidentResponseRequest).mockImplementationOnce(api.cancelResidentResponseRequest);
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(response));
+      vi.stubGlobal('fetch', fetchMock);
+      dialog.onConfirm();
+      await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Unable to confirm cancellation.'));
+      expect(screenText(renderDetails())).not.toContain('cancelled successfully');
+      expect(screenText(renderDetails())).not.toContain('Status:  Cancelled');
+      expect(cancellationDialog(renderDetails())).toBeNull();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it('does not leak success feedback into another request or session', async () => {
+    const dialog = await openConfirmation();
+    dialog.onConfirm();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Emergency request cancelled successfully.'));
+    lifecycle.params = { requestId: '507f1f77bcf86cd799439012' };
+    expect(screenText(renderDetails())).not.toContain('cancelled successfully');
+    lifecycle.params = { requestId: request.id };
+    auth.accessToken = 'different-session';
+    expect(screenText(renderDetails())).not.toContain('cancelled successfully');
   });
 });

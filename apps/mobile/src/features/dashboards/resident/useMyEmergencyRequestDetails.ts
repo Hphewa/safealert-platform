@@ -7,12 +7,16 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '../../../services/api/client';
 import { cancelResidentResponseRequest, getMyResponseRequestById } from './api/responseRequestApi';
 import { parseResidentEmergencyRequestId } from './emergencyRequestNavigation';
+import { getCancellationErrorFeedback } from './cancellationFeedback';
+
+type CancellationFeedback = { kind: 'success' | 'error'; message: string };
 
 type DetailsState = {
   requestId: string;
   accessToken: string;
   request: SafeResponseRequest | null;
   error: string | null;
+  cancellationFeedback?: CancellationFeedback;
 };
 
 type CancellationConfirmation = { requestId: string; accessToken: string; readId: number };
@@ -36,7 +40,7 @@ export function useMyEmergencyRequestDetails(routeId: string | string[] | undefi
     setConfirmation(null);
   };
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (cancellationFeedback?: CancellationFeedback) => {
     if (!requestId || !accessToken?.trim()) return;
     // Retry and header Refresh share one in-flight read, including taps before the next render.
     const pendingCancellation = cancelInFlight.current;
@@ -46,13 +50,13 @@ export function useMyEmergencyRequestDetails(routeId: string | string[] | undefi
     setConfirmation(null);
     const readId = ++latestRead.current;
     inFlightRead.current = readId;
-    setState({ requestId, accessToken, request: null, error: null });
+    setState({ requestId, accessToken, request: null, error: null, cancellationFeedback });
 
     try {
       const { responseRequest } = await getMyResponseRequestById(requestId, accessToken);
-      if (readId === latestRead.current) setState({ requestId, accessToken, request: responseRequest, error: null });
+      if (readId === latestRead.current) setState({ requestId, accessToken, request: responseRequest, error: null, cancellationFeedback });
     } catch (error) {
-      if (readId === latestRead.current) setState({ requestId, accessToken, request: null, error: detailsErrorMessage(error) });
+      if (readId === latestRead.current) setState({ requestId, accessToken, request: null, error: detailsErrorMessage(error), cancellationFeedback });
     } finally {
       if (inFlightRead.current === readId) inFlightRead.current = null;
     }
@@ -97,28 +101,40 @@ export function useMyEmergencyRequestDetails(routeId: string | string[] | undefi
     setIsCancelling(true);
     const isCurrent = () => pending.readId === latestRead.current
       && pending.requestId === context.current.requestId && pending.accessToken === context.current.accessToken;
+    let conflictFeedback: CancellationFeedback | undefined;
     try {
       // Local NEW data can be stale; backend ownership/status checks remain authoritative.
       const { responseRequest } = await cancelResidentResponseRequest(pending.requestId, pending.accessToken);
-      if (isCurrent()) setState({ requestId: pending.requestId, accessToken: pending.accessToken, request: responseRequest, error: null });
-    } catch (error) {
-      // An uncertain write must be reread via Retry before offering another cancellation.
-      // Never display raw transport/database messages or automatically repeat the mutation.
       if (isCurrent()) setState({
-        requestId: pending.requestId, accessToken: pending.accessToken, request: null,
-        error: error instanceof ApiClientError && error.status === 409
-          ? 'This request has changed and can no longer be cancelled. Refresh its details.'
-          : 'Unable to confirm cancellation. Reload the request details before trying again.'
+        requestId: pending.requestId, accessToken: pending.accessToken, request: responseRequest, error: null,
+        cancellationFeedback: { kind: 'success', message: 'Emergency request cancelled successfully.' }
       });
+    } catch (error) {
+      // An uncertain write must be reread before offering another cancellation;
+      // never automatically repeat the mutation after a lost/invalid response.
+      if (isCurrent()) {
+        const feedback = getCancellationErrorFeedback(error);
+        const cancellationFeedback: CancellationFeedback = { kind: 'error', message: feedback.message };
+        if (feedback.refreshStatus) conflictFeedback = cancellationFeedback;
+        setState({
+          requestId: pending.requestId, accessToken: pending.accessToken, request: null,
+          error: feedback.message, cancellationFeedback
+        });
+      }
     } finally {
       cancelInFlight.current = null;
       confirmationRef.current = null;
       setConfirmation(null);
       setIsCancelling(false);
     }
+    // A responder may have progressed the request while the dialog was open.
+    // End submission first, then reread server status while retaining the explanation.
+    if (conflictFeedback && isCurrent()) await refetch(conflictFeedback);
   };
   const cancellation = {
     openCancellationConfirmation, keepRequest, confirmCancellation, isCancelling,
+    cancellationFeedback: state?.requestId === requestId && state.accessToken === accessToken
+      ? state.cancellationFeedback : undefined,
     canCancelRequest: canCancel && !isCancelling,
     isConfirmationOpen: canCancel && confirmation !== null && confirmation === confirmationRef.current
       && confirmation.requestId === requestId && confirmation.accessToken === accessToken

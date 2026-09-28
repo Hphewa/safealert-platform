@@ -15,7 +15,7 @@ export function ResidentEmergencyRequestDetailsScreen() {
   const router = useRouter();
   const { requestId } = useLocalSearchParams<{ requestId?: string | string[] }>();
   const {
-    request, error, refetch, isRefreshing, canRefetch, canCancelRequest,
+    request, error, refetch, isRefreshing, canRefetch, canCancelRequest, cancellationFeedback,
     isConfirmationOpen, isCancelling, openCancellationConfirmation, keepRequest, confirmCancellation
   } = useMyEmergencyRequestDetails(requestId);
   const details = request ? presentResidentEmergencyRequestDetails(request) : null;
@@ -66,6 +66,15 @@ export function ResidentEmergencyRequestDetailsScreen() {
               ))}
             </View>
           ))}
+          {cancellationFeedback ? (
+            <Text
+              accessible
+              accessibilityLiveRegion="polite"
+              style={[styles.feedback, cancellationFeedback.kind === 'success' ? styles.successFeedback : styles.errorFeedback]}
+            >
+              {cancellationFeedback.message}
+            </Text>
+          ) : null}
           {canCancelRequest ? (
             <View style={styles.cancelAction}>
               <Pressable
@@ -85,7 +94,7 @@ export function ResidentEmergencyRequestDetailsScreen() {
       ) : (
         <EmergencyRequestStatePanel
           title={error ? 'Unable to load request details' : 'Loading your emergency request details...'}
-          message={error ?? undefined}
+          message={cancellationFeedback?.message ?? error ?? undefined}
           loading={isRefreshing}
           onRetry={error && canRefetch ? () => void refetch() : undefined}
         />
@@ -102,6 +111,9 @@ export function ResidentEmergencyRequestDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
+  feedback: { padding: 16, borderRadius: dashboardTheme.radius.sm, fontSize: 16, lineHeight: 24, fontWeight: '700' },
+  successFeedback: { backgroundColor: dashboardTheme.colors.successSoft, color: dashboardTheme.colors.text },
+  errorFeedback: { backgroundColor: dashboardTheme.colors.criticalSoft, color: dashboardTheme.colors.text },
   cancelAction: { gap: 12 },
   cancelButton: {
     minHeight: 48,

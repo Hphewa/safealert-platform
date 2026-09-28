@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { SafeResponseRequest } from '@safealert/contracts';
 
 import { apiBaseUrl } from '../../../../services/api/client';
 import { cancelResidentResponseRequest, getMyResponseRequestById, listMyResponseRequests } from './responseRequestApi';
@@ -7,9 +8,17 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe('confirmed Resident emergency request cancellation API', () => {
   const requestId = '507f1f77bcf86cd799439011';
+  const cancelledRequest: SafeResponseRequest = {
+    id: requestId, residentId: 'resident-1', status: 'CANCELLED', assistanceType: 'MEDICAL_ASSISTANCE',
+    location: { type: 'Point', coordinates: [79.8612, 6.9271] },
+    affectedPeople: 1, injuredPeople: 0, medicalNeeds: true,
+    vulnerablePeople: { children: 0, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 },
+    roadAccessibility: 'ACCESSIBLE', contact: { name: 'Resident', phoneNumber: '+94-77-555-1234' },
+    description: 'Assistance needed.', createdAt: '2026-09-24T10:00:00.000Z', updatedAt: '2026-09-28T10:00:00.000Z'
+  };
 
   it('PATCHes only the normalized request ID with the existing bearer token', async () => {
-    const response = { responseRequest: { id: requestId, status: 'CANCELLED' } };
+    const response = { responseRequest: cancelledRequest };
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(response));
     vi.stubGlobal('fetch', fetchMock);
     await expect(cancelResidentResponseRequest(requestId.toUpperCase(), 'resident-token')).resolves.toEqual(response);
@@ -48,6 +57,16 @@ describe('confirmed Resident emergency request cancellation API', () => {
     await expect(cancelResidentResponseRequest(requestId, 'resident-token')).rejects.toMatchObject({ status });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['residentId', 'assistanceType', 'location', 'affectedPeople', 'injuredPeople', 'medicalNeeds',
+    'vulnerablePeople', 'roadAccessibility', 'contact', 'description', 'createdAt', 'updatedAt'] as const)(
+    'rejects cancellation success missing required %s data', async (field) => {
+      vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json({
+        responseRequest: { ...cancelledRequest, [field]: undefined }
+      })));
+      await expect(cancelResidentResponseRequest(requestId, 'resident-token')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
+  );
 });
 
 describe('resident emergency request API', () => {

@@ -5,6 +5,7 @@ import type {
   GetResidentResponseRequestResponse,
   GetResidentResponseRequestsResponse
 } from '@safealert/contracts';
+import { EMERGENCY_ASSISTANCE_TYPES, ROAD_ACCESSIBILITIES } from '@safealert/contracts';
 
 import { ApiClientError, apiRequest } from '../../../../services/api/client';
 import { parseResidentEmergencyRequestId } from '../emergencyRequestNavigation';
@@ -21,8 +22,23 @@ export async function cancelResidentResponseRequest(requestId: string, accessTok
   const response = await apiRequest<CancelResponseRequestResponse>(
     `/response-requests/${normalizedId}/cancel`, { method: 'PATCH', accessToken }
   );
-  if (parseResidentEmergencyRequestId(response?.responseRequest?.id) !== normalizedId
-    || response?.responseRequest?.status !== 'CANCELLED') {
+  const cancelled = response?.responseRequest;
+  // A status-only response must not replace the details with an incomplete record
+  // or claim success. Keep the existing request contract as the single source of data.
+  if (parseResidentEmergencyRequestId(cancelled?.id) !== normalizedId
+    || cancelled?.status !== 'CANCELLED'
+    || typeof cancelled.residentId !== 'string' || !cancelled.residentId.trim()
+    || !EMERGENCY_ASSISTANCE_TYPES.includes(cancelled.assistanceType)
+    || !ROAD_ACCESSIBILITIES.includes(cancelled.roadAccessibility)
+    || cancelled.location?.type !== 'Point' || !Array.isArray(cancelled.location.coordinates)
+    || cancelled.location.coordinates.length !== 2 || !cancelled.location.coordinates.every(Number.isFinite)
+    || ![cancelled.affectedPeople, cancelled.injuredPeople, cancelled.vulnerablePeople?.children,
+      cancelled.vulnerablePeople?.elderlyPeople, cancelled.vulnerablePeople?.personsWithDisabilities,
+      cancelled.vulnerablePeople?.pregnantPersons].every((count) => Number.isInteger(count) && count >= 0)
+    || typeof cancelled.medicalNeeds !== 'boolean' || typeof cancelled.description !== 'string'
+    || typeof cancelled.contact?.name !== 'string' || typeof cancelled.contact?.phoneNumber !== 'string'
+    || typeof cancelled.createdAt !== 'string' || !Number.isFinite(Date.parse(cancelled.createdAt))
+    || typeof cancelled.updatedAt !== 'string' || !Number.isFinite(Date.parse(cancelled.updatedAt))) {
     throw new ApiClientError(502, 'INVALID_RESPONSE', 'Unable to confirm emergency request cancellation.');
   }
   return response;
