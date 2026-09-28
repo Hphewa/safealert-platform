@@ -10,7 +10,7 @@ import { InMemoryResponseRequestRepository } from '../repositories/inMemoryRespo
 import { MongooseResponseRequestRepository } from '../repositories/mongooseResponseRequest.repository.js';
 import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
 import { ResponseRequestService } from '../services/responseRequest.service.js';
-import type { SafeResponseRequest } from '@safealert/contracts';
+import { RESPONSE_STATUSES, type SafeResponseRequest } from '@safealert/contracts';
 
 function createTestContext(overrides: Partial<ApiConfig> = {}) {
   process.env.NODE_ENV = 'test';
@@ -624,6 +624,99 @@ describe('response request progress API', () => {
     } finally {
       updateSpy.mockRestore();
     }
+  });
+});
+
+describe('active responder queues after cancellation (LDFEW-324)', () => {
+  it('queries persisted NEW status and responder-specific declines in MongoDB', async () => {
+    const responderId = '507f1f77bcf86cd799439013';
+    const query = ResponseRequestModel.find();
+    vi.spyOn(query, 'exec').mockResolvedValue([]);
+    const findSpy = vi.spyOn(ResponseRequestModel, 'find').mockReturnValueOnce(query);
+    try {
+      await expect(new MongooseResponseRequestRepository().findPendingResponseRequests(responderId))
+        .resolves.toEqual([]);
+      expect(findSpy).toHaveBeenCalledExactlyOnceWith({
+        status: 'NEW', declinedByResponderIds: { $nin: [responderId] }
+      });
+      expect(query.getOptions().sort).toEqual({ createdAt: -1 });
+    } finally {
+      findSpy.mockRestore();
+    }
+  });
+
+  it('returns only eligible NEW and own active assignments from mixed persisted statuses', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    const email = 'queue-responder@example.com';
+    const token = await createAccessToken(authRepository, 'EMERGENCY_RESPONDER', email);
+    const responder = (await authRepository.findUserByEmailWithPassword(email))!;
+    // Include legacy/unsupported data to prove the queue fails closed for unknown statuses.
+    const statuses = [...RESPONSE_STATUSES, 'UNKNOWN' as SafeResponseRequest['status']];
+    for (const status of statuses) {
+      responseRequestRepository.seedResponseRequest(createStoredResponseRequest({
+        id: status, status, assignedResponderId: responder.id
+      }));
+    }
+    for (const status of ['ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS'] as const) {
+      responseRequestRepository.seedResponseRequest(createStoredResponseRequest({
+        id: `other-${status}`, status, assignedResponderId: 'another-responder'
+      }));
+    }
+    responseRequestRepository.seedResponseRequest(createStoredResponseRequest({
+      id: 'declined-by-self', declinedByResponderIds: [responder.id]
+    }));
+    responseRequestRepository.seedResponseRequest(createStoredResponseRequest({
+      id: 'declined-by-other', declinedByResponderIds: ['another-responder'],
+      createdAt: '2026-09-23T11:00:00.000Z'
+    }));
+
+    const pending = await request(app).get('/api/v1/response-requests/responder/pending')
+      .auth(token, { type: 'bearer' });
+    const assigned = await request(app).get('/api/v1/response-requests/responder/assigned')
+      .auth(token, { type: 'bearer' });
+
+    expect(pending.status).toBe(200);
+    expect(assigned.status).toBe(200);
+    expect(pending.body.map(({ id }: SafeResponseRequest) => id)).toEqual(['declined-by-other', 'NEW']);
+    expect(assigned.body.map(({ id }: SafeResponseRequest) => id))
+      .toEqual(['ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS']);
+    for (const status of ['CANCELLED', 'COMPLETED'] as const) {
+      await expect(responseRequestRepository.findResponseRequestById(status, 'resident-1'))
+        .resolves.toEqual(createStoredResponseRequest({ id: status, status, assignedResponderId: responder.id }));
+    }
+  });
+
+  it('removes a newly cancelled request on the next queue fetch while preserving Resident tracking', async () => {
+    const { app, authRepository, responseRequestRepository } = createTestContext();
+    const responderToken = await createAccessToken(authRepository, 'EMERGENCY_RESPONDER', 'refresh-responder@example.com');
+    const residentToken = await createAccessToken(authRepository, 'RESIDENT', 'refresh-resident@example.com');
+    const resident = (await authRepository.findUserByEmailWithPassword('refresh-resident@example.com'))!;
+    const original = createStoredResponseRequest({ id: '507f1f77bcf86cd799439011', residentId: resident.id });
+    responseRequestRepository.seedResponseRequest(original);
+
+    const before = await request(app).get('/api/v1/response-requests/responder/pending')
+      .auth(responderToken, { type: 'bearer' });
+    expect(before.status).toBe(200);
+    expect(before.body).toEqual([original]);
+
+    const cancelled = await request(app).patch(`/api/v1/response-requests/${original.id}/cancel`)
+      .auth(residentToken, { type: 'bearer' });
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.responseRequest).toEqual({
+      ...original, status: 'CANCELLED', cancelledAt: expect.any(String), updatedAt: expect.any(String)
+    });
+    for (const queue of ['pending', 'assigned']) {
+      const refreshed = await request(app).get(`/api/v1/response-requests/responder/${queue}`)
+        .auth(responderToken, { type: 'bearer' });
+      expect(refreshed.status).toBe(200);
+      expect(refreshed.body).toEqual([]);
+    }
+    const tracked = await request(app).get(`/api/v1/response-requests/mine/${original.id}`)
+      .auth(residentToken, { type: 'bearer' });
+    expect(tracked.status).toBe(200);
+    expect(tracked.body.responseRequest).toEqual(cancelled.body.responseRequest);
+    await expect(responseRequestRepository.findResponseRequestById(original.id, resident.id))
+      .resolves.toEqual(cancelled.body.responseRequest);
   });
 });
 

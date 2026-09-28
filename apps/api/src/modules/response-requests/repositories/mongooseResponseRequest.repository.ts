@@ -31,6 +31,7 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     // Exclude only requests declined by this responder. Other responders must
     // still see NEW requests so they can assist with the emergency.
     const responseRequests = await ResponseRequestModel.find({
+      // Cancelled records remain stored for history; only NEW work belongs in Pending.
       status: 'NEW',
       declinedByResponderIds: {
         $nin: [responderId]
@@ -48,7 +49,8 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     // Scope assigned requests to the current responder so one responder
     // cannot view another responder's active workload.
     const responseRequests = await ResponseRequestModel.find({
-      // Assigned work stays active through dispatch, arrival and assistance, until completion.
+      // An explicit active list excludes CANCELLED, COMPLETED and unknown statuses
+      // without removing the records needed for Resident tracking and history.
       status: { $in: RESPONSE_ACTIVE_ASSIGNED_STATUSES },
       assignedResponderId: responderId
     })
