@@ -14,6 +14,16 @@ const stageStateLabels: Record<ResidentEmergencyRequestProgressStage['state'], s
 };
 
 export function EmergencyRequestProgressTracker({ status }: { status: ResponseStatus }) {
+  // Cancellation is a final outcome outside responder progress, not a missing
+  // or pending stage. Preserve the record without implying an active response.
+  if (status === 'CANCELLED') {
+    return (
+      <View style={styles.panel}>
+        <Text accessibilityRole="header" style={styles.heading}>Request cancelled</Text>
+        <Text style={styles.state}>This request is no longer active. Your request details remain available below.</Text>
+      </View>
+    );
+  }
   const stages = buildResidentEmergencyRequestProgress(status);
 
   return (

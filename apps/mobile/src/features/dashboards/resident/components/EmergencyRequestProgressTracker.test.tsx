@@ -55,7 +55,15 @@ describe('EmergencyRequestProgressTracker', () => {
     expect(screenText(tree)).not.toContain('Not yet reached');
   });
 
-  it.each([undefined, 'UNEXPECTED_INTERNAL_STATUS', 'CANCELLED'])('renders no misleading stages for %s', (status) => {
+  it('presents cancellation as a final outcome without normal response stages', () => {
+    const tree = EmergencyRequestProgressTracker({ status: 'CANCELLED' });
+    expect(screenText(tree)).toContain('Request cancelled');
+    expect(screenText(tree)).toContain('This request is no longer active. Your request details remain available below.');
+    expect(accessibleStageLabels(tree)).toEqual([]);
+    expect(screenText(tree)).not.toMatch(/Progress unavailable|Current stage|Not yet reached|CANCELLED/);
+  });
+
+  it.each([undefined, 'UNEXPECTED_INTERNAL_STATUS'])('renders no misleading stages for %s', (status) => {
     // Simulate an unexpected API value at the typed presentation boundary.
     const tree = EmergencyRequestProgressTracker({ status: status as ResponseStatus });
     expect(screenText(tree)).toContain('Progress unavailable.');

@@ -877,6 +877,118 @@ describe('Resident details Cancel Request action (LDFEW-321)', () => {
   });
 });
 
+describe('Resident emergency request history (LDFEW-325)', () => {
+  it('keeps every lifecycle status in the owner-scoped list and preserves API order', async () => {
+    const statuses = ['NEW', 'ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] as const;
+    const requests = statuses.map((status, index) => ({ ...request, id: `${request.id.slice(0, -1)}${index}`, status }));
+    const api = await vi.importActual<typeof import('../api/responseRequestApi')>('../api/responseRequestApi');
+    vi.mocked(listMyResponseRequests).mockImplementationOnce(api.listMyResponseRequests);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ responseRequests: requests }));
+    vi.stubGlobal('fetch', fetchMock);
+    render();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(summaryCards(render())).toHaveLength(7));
+    expect(summaryCards(render()).map((card) => card.props.request.id)).toEqual(requests.map(({ id }) => id));
+    for (const label of ['Submitted', 'Assigned', 'Dispatched', 'Arrived', 'In Progress', 'Completed', 'Cancelled']) {
+      expect(screenText(render())).toContain(`Status:  ${label}`);
+    }
+    expect(screenText(render())).toContain('7 emergency assistance requests submitted.');
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${apiBaseUrl}/response-requests/mine`,
+      expect.objectContaining({ method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer resident-token' }) }));
+  });
+
+  it.each([['COMPLETED', 'Completed'], ['CANCELLED', 'Cancelled']] as const)(
+    'opens a %s record from My Emergency Requests with all stored details and no cancellation action', async (status, label) => {
+      const historical = { ...detailedRequest, status };
+      vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [historical] });
+      vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: historical });
+      render();
+      const blur = lifecycle.effect();
+      await vi.waitFor(() => expect(summaryCards(render())).toHaveLength(1));
+      const card = EmergencyRequestSummaryCard(summaryCards(render())[0].props);
+      expect(card.props.disabled).toBe(false);
+      expect(card.props.accessibilityLabel).toContain(`Status: ${label}.`);
+      expect(press(card, card.props.accessibilityLabel)).toBe(true);
+      expect(navigation.push).toHaveBeenCalledExactlyOnceWith({
+        pathname: '/resident/emergency-request/[requestId]', params: { requestId: historical.id }
+      });
+      blur?.();
+      lifecycle.slots = [];
+      lifecycle.params = { requestId: historical.id };
+      expect(screenText(renderDetails())).toContain('Loading your emergency request details');
+      lifecycle.effect();
+      await vi.waitFor(() => expect(screenText(renderDetails())).toContain(`Status:  ${label}`));
+      const text = screenText(renderDetails());
+      for (const value of [historical.id, 'Medical Assistance', formatResidentReportDateTime(historical.createdAt),
+        'People needing assistance 7', 'Injured people 2', 'Children 3', 'Elderly people 1',
+        'Persons with disabilities 2', 'Pregnant persons 0', 'Medical assistance Required', 'Road access Limited',
+        'Latitude 6.927100', 'Longitude 79.861200', historical.description, historical.specialRequirements!,
+        historical.contact.name, historical.contact.phoneNumber, historical.contact.email!]) {
+        expect(text).toContain(value);
+      }
+      expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+      expect(cancellationDialog(renderDetails())).toBeNull();
+      expect(getMyResponseRequestById).toHaveBeenCalledExactlyOnceWith(historical.id, 'resident-token');
+      if (status === 'CANCELLED') {
+        expect(text).toContain('This request is no longer active.');
+        expect(text).not.toMatch(/Current stage|Not yet reached|Progress unavailable/);
+      } else {
+        expect(text).toContain('Completed Current stage');
+        expect(text).not.toContain('Not yet reached');
+      }
+    }
+  );
+
+  it('keeps a terminal-only list nonempty and retains a newly cancelled record across refreshes', async () => {
+    const completed = { ...request, id: '507f1f77bcf86cd799439012', status: 'COMPLETED' as const };
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [request, completed] });
+    render();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Status:  Submitted'));
+    const cancelled = { ...request, status: 'CANCELLED' as const };
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [cancelled, completed] });
+    for (let refresh = 0; refresh < 2; refresh += 1) {
+      expect(press(render(), 'Refresh emergency requests')).toBe(true);
+      await vi.waitFor(() => expect(screenText(render())).toContain('Status:  Cancelled'));
+      expect(screenText(render())).toContain('Status:  Completed');
+      expect(screenText(render())).toContain('2 emergency assistance requests submitted.');
+      expect(screenText(render())).not.toContain('You have no emergency assistance requests yet.');
+      expect(summaryCards(render()).map((card) => card.props.request.id)).toEqual([request.id, completed.id]);
+    }
+    expect(listMyResponseRequests).toHaveBeenCalledTimes(3);
+  });
+
+  it.each([undefined, 'UNKNOWN'] as const)('keeps history readable alongside a missing/unknown status: %j', async (status) => {
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [
+      { ...request, status } as unknown as SafeResponseRequest,
+      { ...request, id: '507f1f77bcf86cd799439012', status: 'CANCELLED' },
+      { ...request, id: '507f1f77bcf86cd799439013', status: 'COMPLETED' }
+    ] });
+    render();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(summaryCards(render())).toHaveLength(3));
+    expect(screenText(render())).toContain('Status unavailable');
+    expect(screenText(render())).toContain('Status:  Cancelled');
+    expect(screenText(render())).toContain('Status:  Completed');
+    expect(screenText(render())).not.toContain('UNKNOWN');
+  });
+
+  it('recovers terminal records after a failed refresh without duplicating or hiding history', async () => {
+    vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [{ ...request, status: 'CANCELLED' }] });
+    render();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(render())).toContain('Status:  Cancelled'));
+    vi.mocked(listMyResponseRequests).mockRejectedValueOnce(new Error('Private database error'));
+    press(render(), 'Refresh emergency requests');
+    await vi.waitFor(() => expect(screenText(render())).toContain('Unable to load requests'));
+    expect(screenText(render())).not.toContain('Private');
+    expect(screenText(render())).not.toContain('You have no emergency assistance requests yet.');
+    expect(press(render(), 'Retry')).toBe(true);
+    await vi.waitFor(() => expect(screenText(render())).toContain('Status:  Cancelled'));
+    expect(summaryCards(render())).toHaveLength(1);
+  });
+});
+
 describe('Resident emergency cancellation confirmation (LDFEW-322)', () => {
   async function openConfirmation() {
     vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: request });

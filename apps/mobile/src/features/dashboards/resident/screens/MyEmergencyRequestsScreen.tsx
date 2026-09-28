@@ -42,7 +42,7 @@ export function MyEmergencyRequestsScreen() {
           <Text style={styles.refreshText}>Refresh</Text>
         </Pressable>
       </View>
-      <Text style={styles.description}>Track the progress of your emergency assistance requests.</Text>
+      <Text style={styles.description}>Track the progress of your emergency assistance requests. Completed and cancelled requests remain available here.</Text>
       {isRefreshing ? (
         <EmergencyRequestStatePanel title="Loading your emergency requests..." loading />
       ) : error ? (
@@ -61,6 +61,8 @@ export function MyEmergencyRequestsScreen() {
           {`${requests.length} emergency assistance ${requests.length === 1 ? 'request' : 'requests'} submitted.`}
         </Text>
       ) : null}
+      {/* Terminal requests are Resident history; unlike responder active queues,
+          this list keeps all server results in their original order. */}
       {!error && requests?.map((request, index) => (
         <EmergencyRequestSummaryCard
           key={typeof request.id === 'string' && request.id.trim() ? request.id : `missing-id-${index}`}
