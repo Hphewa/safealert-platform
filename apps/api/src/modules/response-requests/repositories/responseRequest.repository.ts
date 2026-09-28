@@ -26,6 +26,7 @@ export interface ResponseRequestRepository {
   findPendingResponseRequests(responderId: string): Promise<SafeResponseRequest[]>;
   findAssignedResponseRequests(responderId: string): Promise<SafeResponseRequest[]>;
   findResponseRequestForCancellation(responseRequestId: string): Promise<SafeResponseRequest | null>;
+  cancelResponseRequest(responseRequestId: string, residentId: string): Promise<SafeResponseRequest | null>;
   findResponseRequestForProgress(responseRequestId: string): Promise<SafeResponseRequest | null>;
   updateResponseRequestProgress(
     responseRequestId: string,

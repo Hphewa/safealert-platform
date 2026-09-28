@@ -1,4 +1,5 @@
 import type {
+  CancelResponseRequestResponse,
   CreateResponseRequestRequest,
   CreateResponseRequestResponse,
   GetResidentResponseRequestResponse,
@@ -7,7 +8,7 @@ import type {
   SafeUser,
   UserRole
 } from '@safealert/contracts';
-import { isValidResponseProgressTransition } from '@safealert/contracts';
+import { isValidResponseProgressTransition, RESPONSE_CANCELLABLE_STATUS } from '@safealert/contracts';
 import mongoose from 'mongoose';
 
 import { ApiError } from '../../../shared/apiError.js';
@@ -79,7 +80,7 @@ export class ResponseRequestService {
   async cancelResidentResponseRequest(
     responseRequestId: string,
     actor: Pick<SafeUser, 'id' | 'role'> | null | undefined
-  ): Promise<never> {
+  ): Promise<CancelResponseRequestResponse> {
     if (!actor) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
     }
@@ -114,10 +115,9 @@ export class ResponseRequestService {
     }
 
     // Use the freshly retrieved status: a responder may have progressed the
-    // request since the Resident viewed it. With no documented active-stage
-    // cancellation policy, allow only NEW until that policy is confirmed.
-    // An allowlist also keeps COMPLETED, future CANCELLED and unknown states terminal/blocked.
-    if (responseRequest.status !== 'NEW') {
+    // request since the Resident viewed it. Only NEW is eligible; terminal and
+    // progressed states must never be changed by Resident cancellation.
+    if (responseRequest.status !== RESPONSE_CANCELLABLE_STATUS) {
       throw new ApiError(
         409,
         'INVALID_CANCELLATION_STATUS',
@@ -125,14 +125,21 @@ export class ResponseRequestService {
       );
     }
 
-    // LDFEW-323 must atomically recheck ownership and the eligible status when
-    // writing CANCELLED to cover changes after this read. Until then, preserve
-    // history and never report an unpersisted cancellation as successful.
-    throw new ApiError(
-      501,
-      'CANCELLATION_NOT_AVAILABLE',
-      'Emergency request cancellation is not available yet. Your request has not been changed.'
+    const cancelledRequest = await this.repository.cancelResponseRequest(
+      responseRequestId.toLowerCase(),
+      actor.id
     );
+
+    if (!cancelledRequest) {
+      // Do not retry a stale mutation or reveal which ownership/status condition changed.
+      throw new ApiError(
+        409,
+        'REQUEST_CANCELLATION_CONFLICT',
+        'This emergency request changed before it could be cancelled. Refresh it and try again.'
+      );
+    }
+
+    return { responseRequest: cancelledRequest };
   }
 
   private requireResidentIdentity(residentId: string) {

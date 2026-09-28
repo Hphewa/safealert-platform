@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_CANCELLABLE_STATUS, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
 import { responseProgressTimestampFields } from './responseRequest.repository.js';
 
 import type {
@@ -115,6 +115,24 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
 
   async findResponseRequestForCancellation(responseRequestId: string) {
     return this.responseRequests.get(responseRequestId) ?? null;
+  }
+
+  async cancelResponseRequest(responseRequestId: string, residentId: string) {
+    const responseRequest = this.responseRequests.get(responseRequestId);
+    if (!responseRequest || responseRequest.residentId !== residentId || responseRequest.status !== RESPONSE_CANCELLABLE_STATUS) {
+      return null;
+    }
+
+    // No await between checking and replacing: mirror the conditional MongoDB write.
+    const cancelledAt = new Date().toISOString();
+    const updatedRequest: SafeResponseRequest = {
+      ...responseRequest,
+      status: 'CANCELLED',
+      cancelledAt,
+      updatedAt: cancelledAt
+    };
+    this.responseRequests.set(responseRequestId, updatedRequest);
+    return updatedRequest;
   }
 
   async findResponseRequestForProgress(responseRequestId: string) {

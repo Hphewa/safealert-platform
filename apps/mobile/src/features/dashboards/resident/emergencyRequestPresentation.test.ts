@@ -1,4 +1,4 @@
-import { EMERGENCY_ASSISTANCE_TYPES, RESPONSE_STATUSES, type SafeResponseRequest } from '@safealert/contracts';
+import { EMERGENCY_ASSISTANCE_TYPES, RESPONSE_PROGRESS_SEQUENCE, RESPONSE_STATUSES, type SafeResponseRequest } from '@safealert/contracts';
 import { describe, expect, it } from 'vitest';
 
 import { buildResidentEmergencyRequestProgress, presentResidentEmergencyRequest, presentResidentEmergencyRequestDetails } from './emergencyRequestPresentation';
@@ -19,7 +19,7 @@ describe('resident emergency request progress', () => {
     ['COMPLETED', ['reached', 'reached', 'reached', 'reached', 'reached', 'current']]
   ] as const)('presents the persisted %s status in lifecycle order', (status, expectedStates) => {
     const stages = buildResidentEmergencyRequestProgress(status);
-    expect(stages?.map((stage) => stage.status)).toEqual(RESPONSE_STATUSES);
+    expect(stages?.map((stage) => stage.status)).toEqual(['NEW', ...RESPONSE_PROGRESS_SEQUENCE]);
     expect(stages?.map((stage) => stage.label)).toEqual([
       'Submitted', 'Assigned', 'Dispatched', 'Arrived', 'In Progress', 'Completed'
     ]);
@@ -44,7 +44,7 @@ describe('resident emergency request presentation', () => {
   it('labels every lifecycle status without exposing technical enum values', () => {
     expect(RESPONSE_STATUSES.map((status) =>
       presentResidentEmergencyRequest({ ...summary, status }).status
-    )).toEqual(['Submitted', 'Assigned', 'Dispatched', 'Arrived', 'In Progress', 'Completed']);
+    )).toEqual(['Submitted', 'Assigned', 'Dispatched', 'Arrived', 'In Progress', 'Completed', 'Cancelled']);
   });
 
   it('formats the creation timestamp with date, year and local time', () => {

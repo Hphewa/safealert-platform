@@ -10,7 +10,8 @@ const residentRequestStatusLabels: Record<ResponseStatus, string> = {
   DISPATCHED: 'Dispatched',
   ARRIVED: 'Arrived',
   IN_PROGRESS: 'In Progress',
-  COMPLETED: 'Completed'
+  COMPLETED: 'Completed',
+  CANCELLED: 'Cancelled'
 };
 
 // Residents also see submission (NEW); subsequent stages reuse the responder's persisted lifecycle.

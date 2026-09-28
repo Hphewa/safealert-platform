@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { RESPONSE_STATUSES, type CreateResponseRequestRequest } from '@safealert/contracts';
+import { RESPONSE_PROGRESS_SEQUENCE, type CreateResponseRequestRequest } from '@safealert/contracts';
 import mongoose from 'mongoose';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -69,7 +69,7 @@ describe.skipIf(!mongodbUri)('Resident emergency tracking MongoDB persistence', 
       .send({ ...input, description: 'Another resident request.' });
     expect(otherCreated.status).toBe(201);
 
-    for (const status of RESPONSE_STATUSES) {
+    for (const status of ['NEW', ...RESPONSE_PROGRESS_SEQUENCE]) {
       if (status === 'ASSIGNED') {
         const accepted = await request(app).patch(`${basePath}/responder/requests/${id}/accept`)
           .auth(responderToken, { type: 'bearer' });
@@ -97,4 +97,48 @@ describe.skipIf(!mongodbUri)('Resident emergency tracking MongoDB persistence', 
       expect(denied.body).toEqual({ error: { code: 'REQUEST_NOT_FOUND', message: 'Emergency request not found.' } });
     }
   }, 30000);
+
+  it('preserves the cancelled MongoDB document and timestamp across reconnects and retries', async () => {
+    let app = freshApp();
+    const created = await request(app).post(basePath).auth(residentToken, { type: 'bearer' }).send(input);
+    expect(created.status).toBe(201);
+    const id: string = created.body.responseRequest.id;
+    const filter = { _id: new mongoose.Types.ObjectId(id) };
+    const before = await ResponseRequestModel.collection.findOne(filter);
+    const cancelled = await request(app).patch(`${basePath}/${id}/cancel`).auth(residentToken, { type: 'bearer' });
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.responseRequest).toMatchObject({ id, residentId, status: 'CANCELLED' });
+
+    await mongoose.disconnect();
+    await connect();
+    app = freshApp();
+    const persisted = await ResponseRequestModel.collection.findOne(filter);
+    expect(persisted).toEqual({
+      ...before, status: 'CANCELLED', cancelledAt: expect.any(Date), updatedAt: expect.any(Date)
+    });
+    expect(persisted?.cancelledAt?.toISOString()).toBe(cancelled.body.responseRequest.cancelledAt);
+    const detail = await request(app).get(`${basePath}/mine/${id}`).auth(residentToken, { type: 'bearer' });
+    expect(detail.status).toBe(200);
+    expect(detail.body).toEqual(cancelled.body);
+
+    const retry = await request(app).patch(`${basePath}/${id}/cancel`).auth(residentToken, { type: 'bearer' });
+    expect(retry.status).toBe(409);
+    expect(retry.body.error.code).toBe('INVALID_CANCELLATION_STATUS');
+    expect(await ResponseRequestModel.collection.findOne(filter)).toEqual(persisted);
+  }, 30000);
+
+  it('atomically rechecks the owner and NEW status against concurrent MongoDB acceptance', async () => {
+    const repository = new MongooseResponseRequestRepository();
+    const created = await repository.createResponseRequest({ ...input, residentId, status: 'NEW' });
+    await expect(repository.cancelResponseRequest(created.id, otherResidentId)).resolves.toBeNull();
+    const [cancelled, accepted] = await Promise.all([
+      repository.cancelResponseRequest(created.id, residentId),
+      repository.acceptResponseRequest(created.id, responderId)
+    ]);
+    expect([cancelled, accepted].filter(Boolean)).toHaveLength(1);
+    const stored = await repository.findResponseRequestById(created.id, residentId);
+    expect(stored).toEqual(cancelled ?? accepted);
+    await expect(repository.cancelResponseRequest(created.id, residentId)).resolves.toBeNull();
+    expect(await repository.findResponseRequestById(created.id, residentId)).toEqual(stored);
+  });
 });

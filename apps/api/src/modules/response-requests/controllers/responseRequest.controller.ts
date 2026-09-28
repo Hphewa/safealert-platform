@@ -60,7 +60,7 @@ export function createResponseRequestController(responseRequestService: Response
     ));
   });
 
-  const cancelForResident: RequestHandler = asyncHandler(async (request) => {
+  const cancelForResident: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
     }
@@ -73,7 +73,8 @@ export function createResponseRequestController(responseRequestService: Response
 
     // Derive the actor from the verified session, never from client-supplied user IDs.
     // asyncHandler forwards failures to the existing sanitized API error handler.
-    await responseRequestService.cancelResidentResponseRequest(params.requestId, request.auth);
+    const result = await responseRequestService.cancelResidentResponseRequest(params.requestId, request.auth);
+    response.status(200).json(result);
   });
 
   const listPendingForResponder: RequestHandler = asyncHandler(async (request, response) => {

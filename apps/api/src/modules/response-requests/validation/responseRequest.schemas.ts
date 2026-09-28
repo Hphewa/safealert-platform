@@ -18,7 +18,7 @@ export const cancelResponseRequestSchema = z.object({
 
 export const responseRequestProgressSchema = z
   .object({
-    status: z.enum(RESPONSE_STATUSES).exclude(['NEW'])
+    status: z.enum(RESPONSE_STATUSES).exclude(['NEW', 'CANCELLED'])
   })
   .strict();
 

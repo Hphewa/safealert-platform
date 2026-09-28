@@ -1,4 +1,7 @@
-import { RESPONSE_STATUSES, USER_ROLES, type SafeResponseRequest } from '@safealert/contracts';
+import {
+  getNextResponseProgressStatus, getResponseProgressAction, isValidResponseProgressTransition,
+  RESPONSE_STATUSES, USER_ROLES, type SafeResponseRequest
+} from '@safealert/contracts';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,7 +9,7 @@ import { createApp } from '../../../app.js';
 import { loadConfig } from '../../../config/env.js';
 import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
 import { signAccessToken } from '../../auth/services/token.service.js';
-import { ResponseRequestModel } from '../models/responseRequest.model.js';
+import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
 import { InMemoryResponseRequestRepository } from '../repositories/inMemoryResponseRequest.repository.js';
 import { MongooseResponseRequestRepository } from '../repositories/mongooseResponseRequest.repository.js';
 import { ResponseRequestService } from '../services/responseRequest.service.js';
@@ -16,12 +19,6 @@ const requestId = '507f1f77bcf86cd799439011';
 const residentId = '507f1f77bcf86cd799439012';
 const basePath = '/api/v1/response-requests';
 const cancelPath = `${basePath}/${requestId}/cancel`;
-const unavailableResponse = {
-  error: {
-    code: 'CANCELLATION_NOT_AVAILABLE',
-    message: 'Emergency request cancellation is not available yet. Your request has not been changed.'
-  }
-};
 const invalidStatusResponse = {
   error: {
     code: 'INVALID_CANCELLATION_STATUS',
@@ -42,8 +39,10 @@ function createContext() {
     injuredPeople: 0,
     vulnerablePeople: { children: 1, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 },
     roadAccessibility: 'BLOCKED',
-    contact: { name: 'Resident', phoneNumber: '+94775551234' },
+    contact: { name: 'Resident', phoneNumber: '+94775551234', email: 'resident@example.com' },
     description: 'Evacuation assistance needed.',
+    specialRequirements: 'Accessible transport needed.',
+    declinedByResponderIds: ['507f1f77bcf86cd799439097'],
     status: 'NEW',
     createdAt: '2026-09-28T08:00:00.000Z',
     updatedAt: '2026-09-28T08:00:00.000Z'
@@ -58,16 +57,155 @@ function createContext() {
   return { app, config, repository, storedRequest, actor, token: signAccessToken(config, actor) };
 }
 
-afterEach(() => vi.restoreAllMocks());
+function expectCancelledRequest(cancelled: SafeResponseRequest, original: SafeResponseRequest) {
+  // Compare the whole record so an accidental replacement cannot discard original metadata.
+  expect(cancelled).toEqual({
+    ...original, status: 'CANCELLED', cancelledAt: expect.any(String), updatedAt: expect.any(String)
+  });
+  expect(Number.isFinite(Date.parse(cancelled.cancelledAt!))).toBe(true);
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
+
+describe('Resident cancellation persistence (LDFEW-323)', () => {
+  it('writes status and server time in one conditional MongoDB update', async () => {
+    const now = new Date('2026-09-29T10:00:00.000Z');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now);
+    const { storedRequest } = createContext();
+    const original = new ResponseRequestModel({ ...storedRequest, _id: requestId });
+    expect(original.cancelledAt).toBeUndefined();
+    const document = new ResponseRequestModel({
+      ...storedRequest, _id: requestId, status: 'CANCELLED', cancelledAt: now, updatedAt: now
+    });
+    await expect(document.validate()).resolves.toBeUndefined();
+    const query = ResponseRequestModel.findOneAndUpdate();
+    vi.spyOn(query, 'exec').mockResolvedValue(document);
+    const update = vi.spyOn(ResponseRequestModel, 'findOneAndUpdate').mockReturnValueOnce(query);
+
+    const result = await new MongooseResponseRequestRepository().cancelResponseRequest(requestId, residentId);
+    expect(update).toHaveBeenCalledExactlyOnceWith(
+      { _id: requestId, residentId, status: 'NEW' },
+      { $set: { status: 'CANCELLED', cancelledAt: now } },
+      { new: true, runValidators: true }
+    );
+    expect(result).toEqual({ ...storedRequest, status: 'CANCELLED', cancelledAt: now.toISOString(), updatedAt: now.toISOString() });
+  });
+
+  it('returns no result when the conditional MongoDB write no longer matches', async () => {
+    const query = ResponseRequestModel.findOneAndUpdate();
+    vi.spyOn(query, 'exec').mockResolvedValue(null);
+    vi.spyOn(ResponseRequestModel, 'findOneAndUpdate').mockReturnValueOnce(query);
+    await expect(new MongooseResponseRequestRepository().cancelResponseRequest(requestId, residentId))
+      .resolves.toBeNull();
+  });
+
+  it('uses server time for the persisted cancellation timestamp', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const now = new Date('2026-09-29T10:00:00.000Z');
+    vi.setSystemTime(now);
+    const { actor, repository, storedRequest } = createContext();
+    const result = await new ResponseRequestService(repository).cancelResidentResponseRequest(requestId, actor);
+    expectCancelledRequest(result.responseRequest, storedRequest);
+    expect(result.responseRequest.cancelledAt).toBe(now.toISOString());
+    expect(result.responseRequest.updatedAt).toBe(now.toISOString());
+  });
+
+  it.each(['acceptance', 'ownership'] as const)('rejects concurrent %s changes between validation and persistence', async (change) => {
+    const { app, token, repository, storedRequest } = createContext();
+    const cancel = repository.cancelResponseRequest.bind(repository);
+    let concurrentRequest: SafeResponseRequest | null = null;
+    const update = vi.spyOn(repository, 'cancelResponseRequest').mockImplementationOnce(async (...args) => {
+      if (change === 'acceptance') {
+        concurrentRequest = await repository.acceptResponseRequest(requestId, '507f1f77bcf86cd799439099');
+      } else {
+        concurrentRequest = { ...storedRequest, residentId: '507f1f77bcf86cd799439098' };
+        repository.seedResponseRequest(concurrentRequest);
+      }
+      return cancel(...args);
+    });
+
+    const response = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({ error: {
+      code: 'REQUEST_CANCELLATION_CONFLICT',
+      message: 'This emergency request changed before it could be cancelled. Refresh it and try again.'
+    } });
+    expect(update).toHaveBeenCalledExactlyOnceWith(requestId, residentId);
+    expect(concurrentRequest).not.toBeNull();
+    expect(await repository.findResponseRequestForCancellation(requestId)).toEqual(concurrentRequest);
+  });
+
+  it('allows only one of two concurrent cancellations to write', async () => {
+    const { actor, repository, storedRequest } = createContext();
+    const service = new ResponseRequestService(repository);
+    const attempts = await Promise.allSettled([
+      service.cancelResidentResponseRequest(requestId, actor),
+      service.cancelResidentResponseRequest(requestId, actor)
+    ]);
+    expect(attempts.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(attempts.filter((result) => result.status === 'rejected')).toEqual([
+      expect.objectContaining({ reason: expect.objectContaining({ statusCode: 409, code: 'REQUEST_CANCELLATION_CONFLICT' }) })
+    ]);
+    const persisted = await repository.findResponseRequestById(requestId, residentId);
+    expect(persisted).not.toBeNull();
+    expectCancelledRequest(persisted!, storedRequest);
+  });
+
+  it('does not repeat a committed cancellation if the initial response fails', async () => {
+    const { app, token, repository } = createContext();
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const cancel = repository.cancelResponseRequest.bind(repository);
+    const write = vi.spyOn(repository, 'cancelResponseRequest').mockImplementationOnce(async (...args) => {
+      await cancel(...args);
+      throw new Error('Connection lost after write');
+    });
+    const response = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
+    expect(response.status).toBe(500);
+    expect(response.body).toEqual({ error: { code: 'INTERNAL_SERVER_ERROR', message: 'An unexpected error occurred.' } });
+    const committed = structuredClone(await repository.findResponseRequestById(requestId, residentId));
+    expect(committed?.status).toBe('CANCELLED');
+    const retry = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
+    expect(retry.status).toBe(409);
+    expect(retry.body).toEqual(invalidStatusResponse);
+    expect(write).toHaveBeenCalledOnce();
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(committed);
+  });
+
+  it('keeps CANCELLED terminal and outside the responder progress endpoint', async () => {
+    for (const status of RESPONSE_STATUSES) {
+      expect(isValidResponseProgressTransition('CANCELLED', status)).toBe(false);
+      expect(isValidResponseProgressTransition(status, 'CANCELLED')).toBe(false);
+    }
+    expect(getNextResponseProgressStatus('CANCELLED')).toBeNull();
+    expect(getResponseProgressAction('CANCELLED')).toBeNull();
+    const { app, config, repository, storedRequest } = createContext();
+    const token = signAccessToken(config, { id: '507f1f77bcf86cd799439099', role: 'EMERGENCY_RESPONDER' });
+    const response = await request(app).patch(`${basePath}/${requestId}/progress`)
+      .auth(token, { type: 'bearer' }).send({ status: 'CANCELLED' });
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(storedRequest);
+  });
+});
 
 describe('Resident cancellation status eligibility (LDFEW-320)', () => {
-  it('allows an owned NEW request through eligibility without claiming a persisted cancellation', async () => {
+  it('cancels an owned NEW request and keeps it available through Resident tracking', async () => {
     const { app, token, repository, storedRequest } = createContext();
     const before = structuredClone(storedRequest);
     const response = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
-    expect(response.status).toBe(501);
-    expect(response.body).toEqual(unavailableResponse);
-    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(before);
+    expect(response.status).toBe(200);
+    expectCancelledRequest(response.body.responseRequest, before);
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(response.body.responseRequest);
+    const detail = await request(app).get(`${basePath}/mine/${requestId}`).auth(token, { type: 'bearer' });
+    const list = await request(app).get(`${basePath}/mine`).auth(token, { type: 'bearer' });
+    expect(detail.status).toBe(200);
+    expect(detail.body).toEqual(response.body);
+    expect(list.status).toBe(200);
+    expect(list.body).toEqual({ responseRequests: [response.body.responseRequest] });
   });
 
   it.each(RESPONSE_STATUSES.filter((status) => status !== 'NEW'))(
@@ -89,8 +227,7 @@ describe('Resident cancellation status eligibility (LDFEW-320)', () => {
   it.each(['CANCELLED', 'UNRECOGNIZED_STATUS'])(
     'rejects repeated cancellation of a database record with status %s', async (status) => {
       const { config, token, storedRequest } = createContext();
-      // Hydrate a raw database value without widening the current shared status
-      // contract or implementing CANCELLED writes (both belong to later work).
+      // Hydration also exercises unexpected database values without weakening the status contract.
       const document = ResponseRequestModel.hydrate({ ...storedRequest, _id: requestId, status });
       const before = document.toObject();
       const query = ResponseRequestModel.findById(requestId);
@@ -162,7 +299,7 @@ describe('Resident cancellation status eligibility (LDFEW-320)', () => {
 
 describe('Resident cancellation API foundation and ownership (LDFEW-318/319)', () => {
   it('passes the authenticated actor through the service to the existing repository lookup', async () => {
-    const { app, token, actor, repository } = createContext();
+    const { app, token, actor, repository, storedRequest } = createContext();
     const service = vi.spyOn(ResponseRequestService.prototype, 'cancelResidentResponseRequest');
     const lookup = vi.spyOn(repository, 'findResponseRequestForCancellation');
 
@@ -170,30 +307,34 @@ describe('Resident cancellation API foundation and ownership (LDFEW-318/319)', (
 
     expect(service).toHaveBeenCalledExactlyOnceWith(requestId, actor);
     expect(lookup).toHaveBeenCalledExactlyOnceWith(requestId);
-    expect(response.status).toBe(501);
-    expect(response.body).toEqual(unavailableResponse);
+    expect(response.status).toBe(200);
+    expectCancelledRequest(response.body.responseRequest, storedRequest);
   });
 
   it('accepts an empty body and normalizes uppercase identifiers using the existing service', async () => {
-    const { app, token, repository } = createContext();
+    const { app, token, repository, storedRequest } = createContext();
     const lookup = vi.spyOn(repository, 'findResponseRequestForCancellation');
     const response = await request(app).patch(`${basePath}/${requestId.toUpperCase()}/cancel`)
       .auth(token, { type: 'bearer' }).send({});
-    expect(response.status).toBe(501);
-    expect(response.body).toEqual(unavailableResponse);
+    expect(response.status).toBe(200);
+    expectCancelledRequest(response.body.responseRequest, storedRequest);
     expect(lookup).toHaveBeenCalledExactlyOnceWith(requestId);
   });
 
-  it('leaves the record and queue unchanged on repeated attempts without claiming success', async () => {
+  it('rejects repeated cancellation without changing the saved record or cancellation timestamp', async () => {
     const { app, token, repository, storedRequest } = createContext();
-    const before = structuredClone(storedRequest);
+    const first = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
+    expect(first.status).toBe(200);
+    expectCancelledRequest(first.body.responseRequest, storedRequest);
+    const before = structuredClone(first.body.responseRequest);
+    const write = vi.spyOn(repository, 'cancelResponseRequest');
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const response = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
-      expect(response.status).toBe(501);
-      expect(response.body).toEqual(unavailableResponse);
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual(invalidStatusResponse);
     }
     expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(before);
-    expect(await repository.findPendingResponseRequests('responder')).toEqual([before]);
+    expect(write).not.toHaveBeenCalled();
   });
 
   it.each(['not-an-id', '123', 'abcdefghijkl', 'z'.repeat(24), ' ', '{"$ne":null}'])(
@@ -222,7 +363,7 @@ describe('Resident cancellation API foundation and ownership (LDFEW-318/319)', (
     expect(cancelResponseRequestSchema.safeParse({ params: {}, body: {}, query: {} }).success).toBe(false);
   });
 
-  it.each([{ residentId: 'another-user' }, { status: 'CANCELLED' }, { reason: 'anything' }, []])(
+  it.each([{ residentId: 'another-user' }, { status: 'CANCELLED' }, { cancelledAt: '2000-01-01T00:00:00.000Z' }, { reason: 'anything' }, []])(
     'rejects unsupported body %j before reaching the service', async (body) => {
       const { app, token } = createContext();
       const service = vi.spyOn(ResponseRequestService.prototype, 'cancelResidentResponseRequest');
@@ -301,9 +442,9 @@ describe('Resident cancellation API foundation and ownership (LDFEW-318/319)', (
     const service = new ResponseRequestService(repository);
     await expect(service.cancelResidentResponseRequest(requestId, { ...actor, id: 'another-resident' }))
       .rejects.toMatchObject({ statusCode: 403, code: 'REQUEST_NOT_OWNED' });
-    await expect(service.cancelResidentResponseRequest(requestId, actor))
-      .rejects.toMatchObject({ statusCode: 501, code: 'CANCELLATION_NOT_AVAILABLE' });
     expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(before);
+    const result = await service.cancelResidentResponseRequest(requestId, actor);
+    expectCancelledRequest(result.responseRequest, before);
   });
 
   it('uses the stored MongoDB owner as a string for ownership authorization', async () => {
@@ -312,13 +453,20 @@ describe('Resident cancellation API foundation and ownership (LDFEW-318/319)', (
     const query = ResponseRequestModel.findById(requestId);
     vi.spyOn(query, 'exec').mockResolvedValue(document);
     const find = vi.spyOn(ResponseRequestModel, 'findById').mockReturnValue(query);
+    const cancelledDocument = new ResponseRequestModel({
+      ...storedRequest, _id: requestId, status: 'CANCELLED', cancelledAt: new Date()
+    });
+    const updateQuery = ResponseRequestModel.findOneAndUpdate();
+    vi.spyOn(updateQuery, 'exec').mockResolvedValue(cancelledDocument);
+    const update = vi.spyOn(ResponseRequestModel, 'findOneAndUpdate').mockReturnValue(updateQuery);
     const service = new ResponseRequestService(new MongooseResponseRequestRepository());
 
     await expect(service.cancelResidentResponseRequest(requestId, actor))
-      .rejects.toMatchObject({ statusCode: 501, code: 'CANCELLATION_NOT_AVAILABLE' });
+      .resolves.toEqual({ responseRequest: toSafeResponseRequest(cancelledDocument) });
     await expect(service.cancelResidentResponseRequest(requestId, { ...actor, id: 'another-resident' }))
       .rejects.toMatchObject({ statusCode: 403, code: 'REQUEST_NOT_OWNED' });
     expect(find).toHaveBeenCalledWith(requestId);
+    expect(update).toHaveBeenCalledOnce();
     expect(document.residentId.toString()).toBe(residentId);
     expect(document.status).toBe('NEW');
   });
@@ -346,7 +494,7 @@ describe('Resident cancellation API foundation and ownership (LDFEW-318/319)', (
     expect(service).not.toHaveBeenCalled();
   });
 
-  it.each(['repository', 'service'] as const)('sanitizes unexpected %s failures', async (source) => {
+  it.each(['repository', 'service', 'write'] as const)('sanitizes unexpected %s failures', async (source) => {
     const { app, token, repository, storedRequest } = createContext();
     const before = structuredClone(storedRequest);
     // The shared handler logs server diagnostics; the client must receive only its generic error.
@@ -354,7 +502,9 @@ describe('Resident cancellation API foundation and ownership (LDFEW-318/319)', (
     const failure = new Error('MongoServerError: internal database details');
     const failedCall = source === 'repository'
       ? vi.spyOn(repository, 'findResponseRequestForCancellation').mockRejectedValueOnce(failure)
-      : vi.spyOn(ResponseRequestService.prototype, 'cancelResidentResponseRequest').mockRejectedValueOnce(failure);
+      : source === 'write'
+        ? vi.spyOn(repository, 'cancelResponseRequest').mockRejectedValueOnce(failure)
+        : vi.spyOn(ResponseRequestService.prototype, 'cancelResidentResponseRequest').mockRejectedValueOnce(failure);
     const response = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
     expect(failedCall).toHaveBeenCalledOnce();
     expect(response.status).toBe(500);
@@ -362,8 +512,8 @@ describe('Resident cancellation API foundation and ownership (LDFEW-318/319)', (
     expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(before);
 
     const retry = await request(app).patch(cancelPath).auth(token, { type: 'bearer' });
-    expect(retry.status).toBe(501);
-    expect(retry.body).toEqual(unavailableResponse);
+    expect(retry.status).toBe(200);
+    expectCancelledRequest(retry.body.responseRequest, before);
   });
 
   it('validates service callers before repository access', async () => {

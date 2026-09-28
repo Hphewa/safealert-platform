@@ -1,4 +1,4 @@
-import { RESPONSE_STATUSES, USER_ROLES, type SafeResponseRequest, type UserRole } from '@safealert/contracts';
+import { RESPONSE_PROGRESS_SEQUENCE, RESPONSE_STATUSES, USER_ROLES, type SafeResponseRequest, type UserRole } from '@safealert/contracts';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -172,7 +172,7 @@ describe('resident emergency request retrieval', () => {
     expect(accepted.body.status).toBe('ASSIGNED');
     let persisted: SafeResponseRequest = accepted.body;
 
-    for (const status of RESPONSE_STATUSES.filter((status) => status !== 'NEW')) {
+    for (const status of RESPONSE_PROGRESS_SEQUENCE) {
       if (status !== 'ASSIGNED') {
         const update = await request(app).patch(`${basePath}/${requestId}/progress`)
           .auth(responder.token, { type: 'bearer' }).send({ status });

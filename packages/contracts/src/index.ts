@@ -288,10 +288,14 @@ export const RESPONSE_STATUSES = [
   'DISPATCHED',
   'ARRIVED',
   'IN_PROGRESS',
-  'COMPLETED'
+  'COMPLETED',
+  'CANCELLED'
 ] as const;
 
 export type ResponseStatus = (typeof RESPONSE_STATUSES)[number];
+
+// Cancellation branches before assignment; it is not another responder progress stage.
+export const RESPONSE_CANCELLABLE_STATUS = 'NEW' satisfies ResponseStatus;
 
 export const RESPONSE_PROGRESS_ACTIONS = {
   ASSIGNED: 'Start Dispatch',
@@ -333,7 +337,7 @@ export function getNextResponseProgressStatus(
     return null;
   }
 
-  if (currentStatus === 'COMPLETED') {
+  if (currentStatus === 'COMPLETED' || currentStatus === 'CANCELLED') {
     return null;
   }
 
@@ -358,7 +362,7 @@ export function isValidResponseProgressTransition(
     return false;
   }
 
-  if (currentStatus === 'COMPLETED') {
+  if (currentStatus === 'COMPLETED' || currentStatus === 'CANCELLED') {
     return false;
   }
 
@@ -370,7 +374,7 @@ export function isValidResponseProgressTransition(
 export function getResponseProgressAction(
   currentStatus: ResponseStatus
 ): { nextStatus: ResponseStatus; label: string } | null {
-  if (currentStatus === 'NEW' || currentStatus === 'COMPLETED') {
+  if (currentStatus === 'NEW' || currentStatus === 'COMPLETED' || currentStatus === 'CANCELLED') {
     return null;
   }
 
@@ -442,6 +446,7 @@ export type SafeResponseRequest = {
   arrivedAt?: string;
   inProgressAt?: string;
   completedAt?: string;
+  cancelledAt?: string;
   assistanceType: EmergencyAssistanceType;
   location: GeoJsonPoint;
   affectedPeople: number;
@@ -458,6 +463,10 @@ export type SafeResponseRequest = {
 };
 
 export type CreateResponseRequestResponse = {
+  responseRequest: SafeResponseRequest;
+};
+
+export type CancelResponseRequestResponse = {
   responseRequest: SafeResponseRequest;
 };
 

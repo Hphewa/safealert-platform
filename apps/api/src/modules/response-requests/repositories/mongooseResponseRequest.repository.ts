@@ -1,4 +1,4 @@
-import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, type ResponseStatus } from '@safealert/contracts';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_CANCELLABLE_STATUS, type ResponseStatus } from '@safealert/contracts';
 import mongoose from 'mongoose';
 
 import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
@@ -110,6 +110,20 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     // The service must distinguish missing requests from ownership failures;
     // this internal lookup must never be returned before authorization.
     const responseRequest = await ResponseRequestModel.findById(responseRequestId).exec();
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
+  async cancelResponseRequest(responseRequestId: string, residentId: string) {
+    // Recheck ownership and eligibility in the write so concurrent responder
+    // acceptance cannot be overwritten after the service's initial read.
+    const responseRequest = await ResponseRequestModel.findOneAndUpdate(
+      { _id: responseRequestId, residentId, status: RESPONSE_CANCELLABLE_STATUS },
+      // Preserve the original record for tracking/audit. The server owns lifecycle
+      // time; Mongoose maintains updatedAt without changing the submission time.
+      { $set: { status: 'CANCELLED', cancelledAt: new Date() } },
+      { new: true, runValidators: true }
+    ).exec();
+
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 

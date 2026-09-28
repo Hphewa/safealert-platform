@@ -8,7 +8,7 @@ import {
 
 import { ApiClientError, apiRequest } from '../../../../services/api/client';
 
-export type ResponderProgressStatus = Exclude<ResponseStatus, 'NEW' | 'ASSIGNED'>;
+export type ResponderProgressStatus = Exclude<ResponseStatus, 'NEW' | 'ASSIGNED' | 'CANCELLED'>;
 
 const progressTimestampFields = {
   DISPATCHED: 'dispatchedAt',
