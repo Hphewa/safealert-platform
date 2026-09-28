@@ -1,9 +1,54 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { apiBaseUrl } from '../../../../services/api/client';
-import { getMyResponseRequestById, listMyResponseRequests } from './responseRequestApi';
+import { cancelResidentResponseRequest, getMyResponseRequestById, listMyResponseRequests } from './responseRequestApi';
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe('confirmed Resident emergency request cancellation API', () => {
+  const requestId = '507f1f77bcf86cd799439011';
+
+  it('PATCHes only the normalized request ID with the existing bearer token', async () => {
+    const response = { responseRequest: { id: requestId, status: 'CANCELLED' } };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(response));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(cancelResidentResponseRequest(requestId.toUpperCase(), 'resident-token')).resolves.toEqual(response);
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${apiBaseUrl}/response-requests/${requestId}/cancel`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer resident-token' }, body: undefined
+    });
+  });
+
+  it.each(['', 'bad-id', '../other', `${requestId}?ownerId=other`])('rejects an invalid target before transport: %s', async (id) => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(cancelResidentResponseRequest(id, 'resident-token')).rejects.toMatchObject({ code: 'INVALID_REQUEST_ID' });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('does not submit without authentication', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(cancelResidentResponseRequest(requestId, ' ')).rejects.toMatchObject({ status: 401 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([null, {}, { responseRequest: null }, { responseRequest: { id: requestId, status: 'NEW' } },
+    { responseRequest: { id: '507f1f77bcf86cd799439012', status: 'CANCELLED' } }])(
+    'does not claim cancellation succeeded for malformed response %j', async (response) => {
+      vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json(response)));
+      await expect(cancelResidentResponseRequest(requestId, 'resident-token')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
+  );
+
+  it.each([401, 403, 404, 409, 500])('preserves backend rejection (%s) without retrying the mutation', async (status) => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(
+      { error: { code: 'CANCELLATION_REJECTED', message: 'Request unavailable.' } }, { status }
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(cancelResidentResponseRequest(requestId, 'resident-token')).rejects.toMatchObject({ status });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('resident emergency request API', () => {
   it('uses the authenticated mine endpoint without sending an ownership ID', async () => {

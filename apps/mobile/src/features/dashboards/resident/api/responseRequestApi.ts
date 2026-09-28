@@ -1,4 +1,5 @@
 import type {
+  CancelResponseRequestResponse,
   CreateResponseRequestRequest,
   CreateResponseRequestResponse,
   GetResidentResponseRequestResponse,
@@ -7,6 +8,25 @@ import type {
 
 import { ApiClientError, apiRequest } from '../../../../services/api/client';
 import { parseResidentEmergencyRequestId } from '../emergencyRequestNavigation';
+
+export async function cancelResidentResponseRequest(requestId: string, accessToken: string) {
+  if (!accessToken?.trim()) {
+    throw new ApiClientError(401, 'UNAUTHORIZED', 'Authentication is required.');
+  }
+  const normalizedId = parseResidentEmergencyRequestId(requestId);
+  if (!normalizedId) {
+    throw new ApiClientError(400, 'INVALID_REQUEST_ID', 'Select a valid emergency request.');
+  }
+  // Send only the target ID: ownership and current eligibility belong to the backend.
+  const response = await apiRequest<CancelResponseRequestResponse>(
+    `/response-requests/${normalizedId}/cancel`, { method: 'PATCH', accessToken }
+  );
+  if (parseResidentEmergencyRequestId(response?.responseRequest?.id) !== normalizedId
+    || response?.responseRequest?.status !== 'CANCELLED') {
+    throw new ApiClientError(502, 'INVALID_RESPONSE', 'Unable to confirm emergency request cancellation.');
+  }
+  return response;
+}
 
 export async function getMyResponseRequestById(requestId: string, accessToken: string) {
   if (!accessToken.trim()) {

@@ -1,12 +1,11 @@
-import { RESPONSE_CANCELLABLE_STATUS } from '@safealert/contracts';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { EmergencyRequestProgressTracker } from '../components/EmergencyRequestProgressTracker';
+import { EmergencyRequestCancellationDialog } from '../components/EmergencyRequestCancellationDialog';
 import { EmergencyRequestStatePanel } from '../components/EmergencyRequestStatePanel';
 import { presentResidentEmergencyRequestDetails } from '../emergencyRequestPresentation';
 import { residentBottomNavItems } from '../mockData';
@@ -15,20 +14,11 @@ import { useMyEmergencyRequestDetails } from '../useMyEmergencyRequestDetails';
 export function ResidentEmergencyRequestDetailsScreen() {
   const router = useRouter();
   const { requestId } = useLocalSearchParams<{ requestId?: string | string[] }>();
-  const { request, error, refetch, isRefreshing, canRefetch } = useMyEmergencyRequestDetails(requestId);
+  const {
+    request, error, refetch, isRefreshing, canRefetch, canCancelRequest,
+    isConfirmationOpen, isCancelling, openCancellationConfirmation, keepRequest, confirmCancellation
+  } = useMyEmergencyRequestDetails(requestId);
   const details = request ? presentResidentEmergencyRequestDetails(request) : null;
-  const [cancelNoticeRequestId, setCancelNoticeRequestId] = useState<string | null>(null);
-  // Mirror the backend's eligibility rule for visibility only. Missing/unknown
-  // statuses fail closed; the backend still authorizes any future cancellation.
-  const canOfferCancellation = canRefetch && !isRefreshing && !error
-    && request?.status === RESPONSE_CANCELLABLE_STATUS;
-
-  const handleCancelPress = () => {
-    if (!canOfferCancellation || !request) return;
-    // LDFEW-322 will open confirmation here before any API call. Until then,
-    // acknowledge the tap without changing the request or implying cancellation.
-    setCancelNoticeRequestId(request.id);
-  };
 
   const goBack = () => {
     // A direct link may have no previous screen in the Resident stack.
@@ -76,22 +66,19 @@ export function ResidentEmergencyRequestDetailsScreen() {
               ))}
             </View>
           ))}
-          {canOfferCancellation ? (
+          {canCancelRequest ? (
             <View style={styles.cancelAction}>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Cancel Request"
-                accessibilityHint="Does not cancel your request immediately."
-                onPress={handleCancelPress}
+                accessibilityHint="Opens a confirmation before cancelling your request."
+                disabled={isConfirmationOpen}
+                accessibilityState={{ disabled: isConfirmationOpen }}
+                onPress={openCancellationConfirmation}
                 style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
               >
                 <Text style={styles.cancelButtonText}>Cancel Request</Text>
               </Pressable>
-              {cancelNoticeRequestId === request?.id ? (
-                <Text accessibilityLiveRegion="polite" style={styles.value}>
-                  Cancellation is not available yet. Your request is still active.
-                </Text>
-              ) : null}
             </View>
           ) : null}
         </>
@@ -103,6 +90,13 @@ export function ResidentEmergencyRequestDetailsScreen() {
           onRetry={error && canRefetch ? () => void refetch() : undefined}
         />
       )}
+      {isConfirmationOpen ? (
+        <EmergencyRequestCancellationDialog
+          isSubmitting={isCancelling}
+          onKeepRequest={keepRequest}
+          onConfirm={() => void confirmCancellation()}
+        />
+      ) : null}
     </DashboardScreen>
   );
 }

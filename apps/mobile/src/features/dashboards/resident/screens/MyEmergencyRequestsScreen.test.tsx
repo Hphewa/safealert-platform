@@ -6,7 +6,8 @@ import MyEmergencyRequestsRoute from '../../../../../app/resident/my-emergency-r
 import ResidentEmergencyRequestDetailsRoute from '../../../../../app/resident/emergency-request/[requestId]';
 import ResidentLayout from '../../../../../app/resident/_layout';
 import { RoleRouteLayout } from '../../../auth/screens/RoleRouteLayout';
-import { getMyResponseRequestById, listMyResponseRequests } from '../api/responseRequestApi';
+import { cancelResidentResponseRequest, getMyResponseRequestById, listMyResponseRequests } from '../api/responseRequestApi';
+import { EmergencyRequestCancellationDialog } from '../components/EmergencyRequestCancellationDialog';
 import { ApiClientError, apiBaseUrl } from '../../../../services/api/client';
 import { EmergencyRequestSummaryCard } from '../components/EmergencyRequestSummaryCard';
 import { EmergencyRequestStatePanel } from '../components/EmergencyRequestStatePanel';
@@ -52,6 +53,7 @@ vi.mock('expo-router', () => ({
 }));
 vi.mock('react-native', () => ({
   ActivityIndicator: 'span', Pressable: 'button', Text: 'span', View: 'div', TextInput: 'input',
+  Modal: 'dialog', ScrollView: 'section',
   StyleSheet: { create: (styles: unknown) => styles }
 }));
 vi.mock('@/features/auth/hooks/useAuth', () => ({ useAuth: () => auth }));
@@ -61,7 +63,7 @@ vi.mock('../../shared/components/DashboardScreen', () => ({
   DashboardScreen: ({ children }: { children: React.ReactNode }) => children
 }));
 vi.mock('../../shared/currentLocation', () => ({ captureCurrentLocation: vi.fn(), formatCoordinate: vi.fn() }));
-vi.mock('../api/responseRequestApi', () => ({ listMyResponseRequests: vi.fn(), getMyResponseRequestById: vi.fn() }));
+vi.mock('../api/responseRequestApi', () => ({ listMyResponseRequests: vi.fn(), getMyResponseRequestById: vi.fn(), cancelResidentResponseRequest: vi.fn() }));
 vi.mock('../reportDraft', () => ({ ReportHazardDraftProvider: 'report-provider' }));
 vi.mock('../emergencyAssistanceDraft', async (importOriginal) => ({
   ...await importOriginal<typeof import('../emergencyAssistanceDraft')>(),
@@ -133,6 +135,7 @@ beforeEach(() => {
   navigation.canGoBack.mockReturnValue(true);
   vi.mocked(listMyResponseRequests).mockResolvedValue({ responseRequests: [] });
   vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: detailedRequest });
+  vi.mocked(cancelResidentResponseRequest).mockResolvedValue({ responseRequest: { ...request, status: 'CANCELLED' } });
   // Read the existing provider's initial draft so navigation tests don't duplicate form defaults.
   const provider = EmergencyAssistanceDraftProvider({ children: null });
   vi.mocked(useEmergencyAssistanceDraft).mockReturnValue(provider.props.value);
@@ -638,6 +641,19 @@ function renderDetails() {
   return ResidentEmergencyRequestDetailsScreen();
 }
 
+function cancellationDialog(node: React.ReactNode): React.ComponentProps<typeof EmergencyRequestCancellationDialog> | null {
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const dialog = cancellationDialog(child);
+      if (dialog) return dialog;
+    }
+    return null;
+  }
+  if (!React.isValidElement<{ children?: React.ReactNode }>(node)) return null;
+  if (node.type === EmergencyRequestCancellationDialog) return node.props as React.ComponentProps<typeof EmergencyRequestCancellationDialog>;
+  return cancellationDialog(node.props.children);
+}
+
 describe('Resident Emergency Request Details', () => {
   it('registers the screen in the resident route and retrieves the selected ID with the session token', async () => {
     expect(ResidentEmergencyRequestDetailsRoute().type).toBe(ResidentEmergencyRequestDetailsScreen);
@@ -761,7 +777,7 @@ describe('Resident Emergency Request Details', () => {
 });
 
 describe('Resident details Cancel Request action (LDFEW-321)', () => {
-  it('offers NEW requests a non-mutating action prepared for confirmation', async () => {
+  it('opens one confirmation without mutation and Keep Request safely dismisses it', async () => {
     vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: request });
     const fetchMock = vi.fn<typeof fetch>();
     vi.stubGlobal('fetch', fetchMock);
@@ -772,9 +788,10 @@ describe('Resident details Cancel Request action (LDFEW-321)', () => {
     expect(press(renderDetails(), 'Cancel Request')).toBe(true);
     expect(press(renderDetails(), 'Cancel Request')).toBe(true);
     const text = screenText(renderDetails());
-    expect(text).toContain('Cancellation is not available yet. Your request is still active.');
-    expect(text.match(/Cancel Request/g)).toHaveLength(1);
-    expect(text.match(/Your request is still active/g)).toHaveLength(1);
+    expect(text.match(/Cancel emergency request\?/g)).toHaveLength(1);
+    expect(text).toContain('Are you sure you want to cancel this emergency assistance request? This action cannot be undone.');
+    expect(text).toContain('Keep Request');
+    expect(text).toContain('Cancel Request');
     expect(text).toContain('Status:  Submitted');
     expect(text).toContain('Submitted Current stage');
     expect(text).toContain(request.description);
@@ -782,6 +799,12 @@ describe('Resident details Cancel Request action (LDFEW-321)', () => {
     expect(getMyResponseRequestById).toHaveBeenCalledExactlyOnceWith(request.id, 'resident-token');
     expect(navigation.push).not.toHaveBeenCalled();
     expect(navigation.replace).not.toHaveBeenCalled();
+    const confirm = cancellationDialog(renderDetails())!.onConfirm;
+    expect(press(renderDetails(), 'Keep Request')).toBe(true);
+    expect(cancellationDialog(renderDetails())).toBeNull();
+    confirm();
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+    expect(screenText(renderDetails())).toContain('Status:  Submitted');
   });
 
   it.each(['ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED', 'UNKNOWN', undefined, null, ''])(
@@ -838,7 +861,7 @@ describe('Resident details Cancel Request action (LDFEW-321)', () => {
     await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
   });
 
-  it('hides the action and notice when the selected request or authenticated session changes', async () => {
+  it('hides the action and confirmation when the selected request or authenticated session changes', async () => {
     vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: request });
     renderDetails();
     lifecycle.effect();
@@ -846,10 +869,148 @@ describe('Resident details Cancel Request action (LDFEW-321)', () => {
     press(renderDetails(), 'Cancel Request');
     lifecycle.params = { requestId: '507f1f77bcf86cd799439012' };
     expect(screenText(renderDetails())).not.toContain('Cancel Request');
-    expect(screenText(renderDetails())).not.toContain('Your request is still active');
+    expect(cancellationDialog(renderDetails())).toBeNull();
     lifecycle.params = { requestId: request.id };
     auth.accessToken = null;
     expect(screenText(renderDetails())).not.toContain('Cancel Request');
     expect(screenText(renderDetails())).toContain('Please log in again.');
+  });
+});
+
+describe('Resident emergency cancellation confirmation (LDFEW-322)', () => {
+  async function openConfirmation() {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: request });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Cancel Request'));
+    press(renderDetails(), 'Cancel Request');
+    return cancellationDialog(renderDetails())!;
+  }
+
+  it('submits once only after confirmation and displays the server-confirmed cancelled request', async () => {
+    const dialog = await openConfirmation();
+    let resolve!: (response: { responseRequest: SafeResponseRequest }) => void;
+    vi.mocked(cancelResidentResponseRequest).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+    dialog.onConfirm();
+    dialog.onConfirm();
+    dialog.onKeepRequest();
+    expect(cancelResidentResponseRequest).toHaveBeenCalledExactlyOnceWith(request.id, 'resident-token');
+    expect(cancellationDialog(renderDetails())?.isSubmitting).toBe(true);
+    expect(screenText(renderDetails())).toContain('Cancelling...');
+    expect(press(renderDetails(), 'Refresh emergency request details')).toBe(true);
+    expect(getMyResponseRequestById).toHaveBeenCalledTimes(1);
+    resolve({ responseRequest: { ...request, status: 'CANCELLED', cancelledAt: '2026-09-28T10:00:00.000Z' } });
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Status:  Cancelled'));
+    expect(cancellationDialog(renderDetails())).toBeNull();
+    expect(screenText(renderDetails())).toContain(request.description);
+    expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    dialog.onConfirm();
+    expect(cancelResidentResponseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('supports system dismissal as a safe Keep Request operation', async () => {
+    const dialog = await openConfirmation();
+    EmergencyRequestCancellationDialog(dialog).props.onRequestClose();
+    expect(cancellationDialog(renderDetails())).toBeNull();
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+    expect(screenText(renderDetails())).toContain('Submitted Current stage');
+  });
+
+  it('does not reuse a dismissed dialog callback to approve a newly opened confirmation', async () => {
+    const oldDialog = await openConfirmation();
+    oldDialog.onKeepRequest();
+    press(renderDetails(), 'Cancel Request');
+    expect(cancellationDialog(renderDetails())).not.toBeNull();
+    oldDialog.onConfirm();
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+  });
+
+  it('uses the authenticated API adapter only after confirming', async () => {
+    const api = await vi.importActual<typeof import('../api/responseRequestApi')>('../api/responseRequestApi');
+    vi.mocked(cancelResidentResponseRequest).mockImplementationOnce(api.cancelResidentResponseRequest);
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ responseRequest: { ...request, status: 'CANCELLED' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const dialog = await openConfirmation();
+    expect(fetchMock).not.toHaveBeenCalled();
+    dialog.onConfirm();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Status:  Cancelled'));
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${apiBaseUrl}/response-requests/${request.id}/cancel`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer resident-token' }, body: undefined
+    });
+  });
+
+  it('allows a new session to load details without accepting the old cancellation result', async () => {
+    const dialog = await openConfirmation();
+    let resolve!: (response: { responseRequest: SafeResponseRequest }) => void;
+    vi.mocked(cancelResidentResponseRequest).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    dialog.onConfirm();
+    auth.accessToken = 'renewed-token';
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...request, status: 'ASSIGNED' } });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Assigned Current stage'));
+    resolve({ responseRequest: { ...request, status: 'CANCELLED' } });
+    await Promise.resolve();
+    expect(screenText(renderDetails())).toContain('Assigned Current stage');
+    expect(cancellationDialog(renderDetails())).toBeNull();
+  });
+
+  it.each(['refresh', 'request', 'session', 'blur'] as const)('rejects obsolete confirmation after %s', async (change) => {
+    const dialog = await openConfirmation();
+    if (change === 'refresh') {
+      vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...request, status: 'ASSIGNED' } });
+      press(renderDetails(), 'Refresh emergency request details');
+      await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Assigned Current stage'));
+    } else if (change === 'request') {
+      lifecycle.params = { requestId: '507f1f77bcf86cd799439012' };
+    } else if (change === 'session') {
+      auth.accessToken = 'other-session';
+    } else {
+      lifecycle.effect()?.();
+    }
+    expect(cancellationDialog(renderDetails())).toBeNull();
+    dialog.onConfirm();
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+  });
+
+  it.each([409, 403, 404, 401, 500, 0])('handles backend rejection/failure (%s) without exposing internals or automatically retrying', async (status) => {
+    const dialog = await openConfirmation();
+    vi.mocked(cancelResidentResponseRequest).mockRejectedValueOnce(new ApiClientError(status, 'ERROR', 'Private database details'));
+    dialog.onConfirm();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Unable to load request details'));
+    expect(screenText(renderDetails())).not.toContain('Private');
+    expect(screenText(renderDetails())).not.toContain('Cancel Request');
+    expect(cancellationDialog(renderDetails())).toBeNull();
+    if (status === 409) expect(screenText(renderDetails())).toContain('This request has changed');
+    expect(cancelResidentResponseRequest).toHaveBeenCalledTimes(1);
+    // Reload current backend state before making any new cancellation decision.
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...request, status: 'ASSIGNED' } });
+    press(renderDetails(), 'Retry');
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Assigned Current stage'));
+    expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    expect(cancelResidentResponseRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('recovers safely if the cancellation action throws unexpectedly', async () => {
+    const dialog = await openConfirmation();
+    vi.mocked(cancelResidentResponseRequest).mockImplementationOnce(() => { throw new TypeError('Internal action unavailable'); });
+    dialog.onConfirm();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Unable to confirm cancellation.'));
+    expect(screenText(renderDetails())).not.toContain('Internal');
+    expect(cancellationDialog(renderDetails())).toBeNull();
+  });
+
+  it('ignores a late cancellation result after the authenticated session changes', async () => {
+    const dialog = await openConfirmation();
+    let resolve!: (response: { responseRequest: SafeResponseRequest }) => void;
+    vi.mocked(cancelResidentResponseRequest).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    dialog.onConfirm();
+    auth.accessToken = null;
+    renderDetails();
+    resolve({ responseRequest: { ...request, status: 'CANCELLED' } });
+    await Promise.resolve();
+    expect(screenText(renderDetails())).toContain('Please log in again.');
+    expect(screenText(renderDetails())).not.toContain('Status:  Cancelled');
   });
 });
