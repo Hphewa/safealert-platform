@@ -60,4 +60,5 @@ export class WarningService {
     return { warning: published };
   }
   async get(warningId: string) { return this.warnings.findById(warningId); }
+  async getByAssessment(assessmentId: string) { return this.warnings.findByAssessmentId(assessmentId); }
 }

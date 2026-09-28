@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   WARNING_DISTRICTS,
@@ -15,7 +15,7 @@ import {
 } from '../components/RiskAssessmentComponents';
 import { WarningPage, warningStyles } from '../components/WarningComponents';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
-import { dashboardTheme } from '../../shared/theme';
+import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { warningPublishErrorMessage } from '../riskAssessmentForm';
 
 function targetLabel(target: WarningNotificationTarget | undefined, affectedArea: string) {
@@ -103,15 +103,17 @@ export function PublishWarningScreen() {
   };
 
   const displayedWarning = publishedWarning ?? warning;
+  const isPublished = displayedWarning?.status === 'PUBLISHED';
   if (!displayedWarning) {
     return <WarningPage title="Publish Warning" onBack={goBack} busy={busy}>
       <AssessmentLoadState loading={resource.loading} error={resource.error} retry={() => void resource.reload()} />
     </WarningPage>;
   }
 
-  return <WarningPage title={publishedWarning ? 'Warning Published!' : 'Publish Warning'} onBack={goBack} busy={busy}>
-    {publishedWarning ? <View style={warningStyles.success}>
-      <Text style={warningStyles.successTitle}>Warning Published!</Text>
+  return <WarningPage title={isPublished ? 'Published Warning' : 'Publish Warning'} published={isPublished} onBack={() => isPublished ? router.replace('/officer/assessments') : goBack()} busy={busy}>
+    {publishedWarning ? <View style={styles.publishedPanel}>
+      <View style={styles.publishedHeader}><View style={styles.headerCopy}><Text style={styles.eyebrow}>EARLY WARNING · PUBLISHED</Text><Text style={styles.publishedTitle}>Warning Published</Text></View><PriorityBadge priority={publishedWarning.riskLevel} /></View>
+      <View style={styles.statusPill}><Text style={styles.statusDot}>●</Text><Text style={styles.statusText}>PUBLISHED</Text></View>
       <AssessmentDetail label="Status" value="PUBLISHED" />
       <AssessmentDetail label="Affected Area" value={publishedWarning.affectedArea} />
       <AssessmentDetail label="Notification Target" value={targetLabel(publishedWarning.notificationTarget, publishedWarning.affectedArea)} />
@@ -129,9 +131,10 @@ export function PublishWarningScreen() {
       <AssessmentDetail label="Message" value={displayedWarning.message} />
       <AssessmentDetail label="Attachments" value={displayedWarning.attachments?.length ? displayedWarning.attachments.join(', ') : 'None'} />
       <AssessmentDetail label="Current Status" value={displayedWarning.status} />
-      <NotificationTargetSelector target={notificationTarget} onChange={setNotificationTarget} affectedArea={displayedWarning.affectedArea} />
+      {isPublished ? <View style={styles.infoCard}><Text style={styles.cardTitle}>Notification Target</Text><Text style={styles.cardSubtitle}>Who received this warning</Text><AssessmentDetail label="Target" value={targetLabel(displayedWarning.notificationTarget, displayedWarning.affectedArea)} /></View> : <NotificationTargetSelector target={notificationTarget} onChange={setNotificationTarget} affectedArea={displayedWarning.affectedArea} />}
       {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
-      {displayedWarning.status === 'PUBLISHED' && acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
+      {isPublished ? <View style={styles.infoCard}><Text style={styles.cardTitle}>Notification Delivery</Text><Text style={styles.cardSubtitle}>Delivery status is shown only when available.</Text><View style={styles.neutralState}><Text style={styles.neutralIcon}>i</Text><Text style={styles.neutralText}>Delivery details are not available on this screen.</Text></View></View> : null}
+      {isPublished && acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
       {displayedWarning.status === 'DRAFT' ? !displayedWarning.affectedArea.trim() ? <Text accessibilityRole="alert" style={assessmentStyles.error}>The saved warning has no affected area.</Text> : confirming ? <>
         <Text style={warningStyles.notice}>Review the saved warning details and confirm the selected notification target before publishing.</Text>
         <AssessmentButton label="Cancel" secondary disabled={busy} onPress={() => setConfirming(false)} />
@@ -148,7 +151,7 @@ function responseLabel(response: WarningAcknowledgementResponse) {
 }
 
 function ResidentResponses({ data }: { data: WarningAcknowledgementsResponse }) {
-  return <View style={responseStyles.card}><Text style={assessmentStyles.heading}>Resident Responses</Text><View style={responseStyles.summary}><Text style={responseStyles.total}>Total acknowledged <Text style={responseStyles.count}>{data.summary.total}</Text></Text><Text style={responseStyles.line}>I am Safe <Text style={responseStyles.count}>{data.summary.safe}</Text></Text><Text style={responseStyles.line}>I am Evacuating <Text style={responseStyles.count}>{data.summary.evacuating}</Text></Text><Text style={responseStyles.line}>I Need Assistance <Text style={responseStyles.count}>{data.summary.needAssistance}</Text></Text></View>{data.acknowledgements.map(item => <View key={`${item.warningId}-${item.residentId}`} style={responseStyles.person}><Text style={responseStyles.name}>Resident: {item.resident.name}</Text>{item.resident.district ? <Text style={responseStyles.detail}>District: {item.resident.district}</Text> : null}{item.resident.area ? <Text style={responseStyles.detail}>Area: {item.resident.area}</Text> : null}<Text style={responseStyles.response}>Response: {responseLabel(item.response)}</Text><Text style={responseStyles.detail}>Submitted: {new Date(item.acknowledgedAt).toLocaleString()}</Text></View>)}</View>;
+  return <View style={responseStyles.card}><View><Text style={responseStyles.title}>Resident Responses</Text><Text style={responseStyles.subtitle}>Confirmed responses from residents who acknowledged this warning.</Text></View><View style={responseStyles.summary}>{[['Total', data.summary.total, 'total'], ['I am Safe', data.summary.safe, 'safe'], ['Evacuating', data.summary.evacuating, 'evacuating'], ['Need Assistance', data.summary.needAssistance, 'assistance']].map(([label, count, tone]) => <View key={String(label)} style={[responseStyles.stat, responseStyles[tone as 'total' | 'safe' | 'evacuating' | 'assistance']]}><Text style={responseStyles.statLabel}>{label}</Text><Text style={responseStyles.statCount}>{count}</Text></View>)}</View>{data.acknowledgements.length ? data.acknowledgements.map(item => <View key={`${item.warningId}-${item.residentId}`} style={responseStyles.person}><View style={responseStyles.personHeader}><Text style={responseStyles.name}>{item.resident.name}</Text><View style={[responseStyles.responseBadge, responseStyles[item.response.toLowerCase() as 'safeBadge' | 'evacuatingBadge' | 'need_assistanceBadge']]}><Text style={responseStyles.responseBadgeText}>{responseLabel(item.response)}</Text></View></View>{item.resident.district ? <Text style={responseStyles.detail}>District · {item.resident.district}</Text> : null}{item.resident.area ? <Text style={responseStyles.detail}>Area · {item.resident.area}</Text> : null}<Text style={responseStyles.detail}>Submitted · {new Date(item.acknowledgedAt).toLocaleString()}</Text></View>) : <View style={responseStyles.empty}><Text style={responseStyles.emptyTitle}>No resident responses yet</Text><Text style={responseStyles.emptyText}>Residents who acknowledge this warning will appear here.</Text></View>}</View>;
 }
 
 const publishStyles = {
@@ -165,4 +168,5 @@ const publishStyles = {
   districtText: { color: dashboardTheme.colors.text, fontSize: 13 } as const,
   districtTextSelected: { color: '#ffffff', fontWeight: '700' as const } as const
 };
-const responseStyles = { card: { gap: 12, marginTop: 16, padding: 16, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surfaceMuted } as const, summary: { gap: 6, padding: 12, borderRadius: 12, backgroundColor: dashboardTheme.colors.surface } as const, total: { color: dashboardTheme.colors.text, fontWeight: '800' as const }, line: { color: dashboardTheme.colors.muted }, count: { color: dashboardTheme.colors.text, fontWeight: '800' as const, marginLeft: 6 }, person: { gap: 5, padding: 13, borderRadius: 12, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border } as const, name: { color: dashboardTheme.colors.text, fontWeight: '800' as const }, detail: { color: dashboardTheme.colors.muted, fontSize: 13 }, response: { color: dashboardTheme.colors.primaryStrong, fontWeight: '800' as const } };
+const styles = StyleSheet.create({ publishedPanel: { gap: 16, padding: 20, borderRadius: 18, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border, ...cardShadow }, publishedHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, headerCopy: { flex: 1, gap: 6 }, eyebrow: { color: dashboardTheme.colors.primaryStrong, fontSize: 11, fontWeight: '900', letterSpacing: 1 }, publishedTitle: { color: dashboardTheme.colors.text, fontSize: 25, fontWeight: '900' }, statusPill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9, backgroundColor: dashboardTheme.colors.successSoft }, statusDot: { color: dashboardTheme.colors.success, fontSize: 12 }, statusText: { color: '#15803d', fontSize: 12, fontWeight: '900', letterSpacing: 0.5 }, infoCard: { gap: 8, padding: 20, borderRadius: 16, backgroundColor: dashboardTheme.colors.primarySoft, borderWidth: 1, borderColor: '#bfdbfe', ...cardShadow }, cardTitle: { color: dashboardTheme.colors.text, fontSize: 19, fontWeight: '900' }, cardSubtitle: { color: dashboardTheme.colors.muted, fontSize: 13, lineHeight: 19 }, neutralState: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 10, backgroundColor: dashboardTheme.colors.surface }, neutralIcon: { width: 22, height: 22, borderRadius: 11, textAlign: 'center', lineHeight: 22, color: dashboardTheme.colors.primaryStrong, backgroundColor: dashboardTheme.colors.primarySoft, fontWeight: '900' }, neutralText: { flex: 1, color: dashboardTheme.colors.muted, fontSize: 13, lineHeight: 18 } });
+const responseStyles = { card: { gap: 14, marginTop: 16, padding: 20, borderRadius: 16, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border, ...cardShadow } as const, title: { color: dashboardTheme.colors.text, fontSize: 20, fontWeight: '900' as const }, subtitle: { color: dashboardTheme.colors.muted, fontSize: 13, lineHeight: 19 }, summary: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 9 }, stat: { flexGrow: 1, flexBasis: '46%' as const, minWidth: 120, gap: 6, padding: 13, borderRadius: 12, borderWidth: 1 }, total: { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }, safe: { backgroundColor: dashboardTheme.colors.successSoft, borderColor: '#bbf7d0' }, evacuating: { backgroundColor: dashboardTheme.colors.highSoft, borderColor: '#fed7aa' }, assistance: { backgroundColor: dashboardTheme.colors.criticalSoft, borderColor: '#fecaca' }, statLabel: { color: dashboardTheme.colors.muted, fontSize: 12, fontWeight: '800' as const }, statCount: { color: dashboardTheme.colors.text, fontSize: 24, fontWeight: '900' as const }, person: { gap: 7, padding: 15, borderRadius: 12, backgroundColor: dashboardTheme.colors.surfaceMuted, borderWidth: 1, borderColor: dashboardTheme.colors.border }, personHeader: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, gap: 8 }, name: { flex: 1, color: dashboardTheme.colors.text, fontSize: 16, fontWeight: '900' as const }, detail: { color: dashboardTheme.colors.muted, fontSize: 13 }, responseBadge: { maxWidth: '62%' as const, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 8 }, safeBadge: { backgroundColor: dashboardTheme.colors.successSoft }, evacuatingBadge: { backgroundColor: dashboardTheme.colors.highSoft }, need_assistanceBadge: { backgroundColor: dashboardTheme.colors.criticalSoft }, responseBadgeText: { color: dashboardTheme.colors.text, fontSize: 12, fontWeight: '800' as const }, empty: { alignItems: 'center' as const, gap: 5, paddingVertical: 14 }, emptyTitle: { color: dashboardTheme.colors.text, fontWeight: '800' as const }, emptyText: { color: dashboardTheme.colors.muted, fontSize: 13, textAlign: 'center' as const } };

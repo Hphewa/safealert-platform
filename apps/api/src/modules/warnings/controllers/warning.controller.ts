@@ -26,5 +26,10 @@ export function createWarningController(service: WarningService) {
     if (!warning) throw new ApiError(404, 'WARNING_NOT_FOUND', 'Warning not found.');
     response.json({ warning });
   });
-  return { create, publish, get };
+  const getByAssessment: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    const warning = await service.getByAssessment(request.params.assessmentId ?? '');
+    response.json({ warning });
+  });
+  return { create, publish, get, getByAssessment };
 }

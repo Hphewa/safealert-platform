@@ -1,9 +1,10 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { canCreateWarning } from '@safealert/contracts';
+import { canCreateWarning, type SafeWarning } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { getRiskAssessment } from '../api/riskAssessmentApi';
+import { getWarningByAssessment } from '../api/warningApi';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import {
@@ -16,6 +17,7 @@ export function RiskAssessmentResultScreen() {
   const { accessToken, user } = useAuth();
   const params = useLocalSearchParams<{ assessmentId?: string | string[] }>();
   const assessmentId = Array.isArray(params.assessmentId) ? params.assessmentId[0] : params.assessmentId;
+  const [existingWarning, setExistingWarning] = useState<SafeWarning | null>(null);
   const load = useCallback(async () => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
     if (!assessmentId) throw new Error('An assessment reference is required.');
@@ -23,6 +25,7 @@ export function RiskAssessmentResultScreen() {
     return getRiskAssessment(assessmentId, accessToken);
   }, [accessToken, assessmentId]);
   const { data, loading, error, reload } = useAssessmentResource(load);
+  useEffect(() => { if (!accessToken || !assessmentId) return; void getWarningByAssessment(assessmentId, accessToken).then(result => setExistingWarning(result.warning)).catch(() => setExistingWarning(null)); }, [accessToken, assessmentId]);
   return <AssessmentPage title="Risk Assessment Result">
     {!data ? <AssessmentLoadState loading={loading} error={error} retry={() => void reload()} /> : <>
       <View style={assessmentStyles.card}>
@@ -34,7 +37,7 @@ export function RiskAssessmentResultScreen() {
         <AssessmentDetail label="Assessed By" value={user?.id === data.assessment.assessedById ? user.name : data.assessment.assessedById} />
         <AssessmentDetail label="Assessment Reference" value={data.assessment.id} />
       </View>
-      {canCreateWarning(data.assessment.finalRiskLevel) ? <AssessmentButton label="Create Warning" onPress={() => router.push({
+      {canCreateWarning(data.assessment.finalRiskLevel) ? existingWarning ? <AssessmentButton label={existingWarning.status === 'PUBLISHED' ? 'View Published Warning' : 'View/Edit Draft'} onPress={() => router.push({ pathname: '/officer/warnings/[warningId]', params: { warningId: existingWarning.id } })} /> : <AssessmentButton label="Create Warning" onPress={() => router.push({
         pathname: '/officer/warnings/create', params: { assessmentId: data.assessment.id }
       })} /> : null}
       <AssessmentFactorSummary factors={data.assessment} />

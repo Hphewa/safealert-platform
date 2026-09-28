@@ -4,5 +4,6 @@ export type CreateWarningInput = Omit<SafeWarning, 'id' | 'createdAt' | 'updated
 export interface WarningRepository {
   create(input: CreateWarningInput): Promise<SafeWarning>;
   findById(id: string): Promise<SafeWarning | null>;
+  findByAssessmentId(assessmentId: string): Promise<SafeWarning | null>;
   publish(id: string, publishedById: string, publishedAt: string, notificationTarget: WarningNotificationTarget): Promise<SafeWarning | null>;
 }

@@ -20,6 +20,7 @@ export function createWarningRouter(service: WarningService, config: ApiConfig) 
   router.get('/', authorizeRoles('RESIDENT'), async (request, response, next) => {
     try { response.json(await residentWarnings.list(request.auth!.id)); } catch (error) { next(error); }
   });
+  router.get('/by-assessment/:assessmentId', authorizeRoles('DISASTER_OFFICER'), controller.getByAssessment);
   router.get('/:warningId', authorizeRoles('RESIDENT', 'DISASTER_OFFICER'), async (request, response, next) => {
     try {
       if (request.auth!.role === 'DISASTER_OFFICER') {

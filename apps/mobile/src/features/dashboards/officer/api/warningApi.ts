@@ -8,6 +8,9 @@ export function createWarning(input: CreateWarningRequest, accessToken: string) 
 export function getWarning(id: string, accessToken: string) {
   return apiRequest<{ warning: SafeWarning }>(`/warnings/${encodeURIComponent(id)}`, { accessToken });
 }
+export function getWarningByAssessment(assessmentId: string, accessToken: string) {
+  return apiRequest<{ warning: SafeWarning | null }>(`/warnings/by-assessment/${encodeURIComponent(assessmentId)}`, { accessToken });
+}
 export function publishWarning(id: string, input: PublishWarningRequest, accessToken: string) {
   return apiRequest<PublishWarningResponse>(`/warnings/${encodeURIComponent(id)}/publish`, { method: 'POST', body: input, accessToken });
 }
