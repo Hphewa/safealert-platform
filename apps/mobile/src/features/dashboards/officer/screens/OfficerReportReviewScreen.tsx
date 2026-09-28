@@ -350,7 +350,7 @@ export function OfficerReportReviewScreen() {
         <View style={styles.summaryGrid}>
           <DetailMetric label="Time Reported" value={report.reportedTimeLabel} />
           <DetailMetric label="Latest Update" value={report.latestUpdateLabel} />
-          <DetailMetric label="Community Reports" value={report.relatedReportsLabel} />
+          <DetailMetric label="Pending Reports" value={report.relatedReportsLabel} />
           <DetailMetric label="Current Status" value={statusLabelForOfficer(report.status)} />
         </View>
       </View>
@@ -378,8 +378,8 @@ export function OfficerReportReviewScreen() {
           <View style={styles.mediaReferenceCard}>
             <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="camera-outline" size={18} />
             <View style={styles.mediaReferenceBody}>
-              <Text style={styles.mediaReferenceTitle}>Resident photo evidence reference</Text>
-              <Text style={styles.mediaReferenceText}>{report.residentMediaReference}</Text>
+              <Text style={styles.mediaReferenceTitle}>Resident photo evidence attached</Text>
+              <Text style={styles.mediaReferenceText}>The photo is saved with this report, but preview is not available on this device.</Text>
             </View>
           </View>
         ) : (

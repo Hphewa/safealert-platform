@@ -127,7 +127,7 @@ export function statusLabelForOfficer(status: ReportStatus) {
 }
 
 export function formatCommunityReportsLabel(count: number) {
-  return `${count} Community Report${count === 1 ? '' : 's'}`;
+  return `${count} pending report${count === 1 ? '' : 's'}`;
 }
 
 export type OfficerRejectionReasonValidation = {

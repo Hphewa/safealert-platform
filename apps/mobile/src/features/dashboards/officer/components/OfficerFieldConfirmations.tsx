@@ -3,7 +3,8 @@ import { useFocusEffect } from 'expo-router';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { FieldConfirmation, GetFieldConfirmationsResponse } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { apiBaseUrl, apiRequest } from '@/services/api/client';
+import { apiRequest } from '@/services/api/client';
+import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { dashboardTheme } from '../../shared/theme';
 
 export function OfficerFieldConfirmations({ reportId }: { reportId: string }) {
@@ -21,8 +22,8 @@ export function OfficerFieldConfirmations({ reportId }: { reportId: string }) {
         if (!accessToken) throw new Error('Officer session is unavailable.');
         const response = await apiRequest<GetFieldConfirmationsResponse>(`/field-confirmations/${encodeURIComponent(reportId)}`, { accessToken });
         if (active) setItems(response.confirmations);
-      } catch (cause) {
-        if (active) setError(cause instanceof Error ? cause.message : 'Unable to load field confirmations.');
+      } catch {
+        if (active) setError('Volunteer field checks could not be loaded.');
       } finally {
         if (active) setLoading(false);
       }
@@ -38,7 +39,6 @@ export function OfficerFieldConfirmations({ reportId }: { reportId: string }) {
     </> : items.length ? items.map((item) => <View key={item.id} style={styles.item}>
       <Text style={styles.title}>{item.outcome === 'CONFIRMED' ? 'Current Situation Confirmed' : 'Unable to Confirm'}</Text>
       <Text style={styles.text}>Submitted: {new Date(item.createdAt).toLocaleString()}</Text>
-      <Text style={styles.text}>Volunteer: {item.volunteerId}</Text>
       {item.outcome === 'CONFIRMED' ? <View style={styles.stack}>
         <ChecklistRow label="Location matches" value={item.verificationChecklist.locationMatches} />
         <ChecklistRow label="Photo matches" value={item.verificationChecklist.photoMatches} />
@@ -48,26 +48,20 @@ export function OfficerFieldConfirmations({ reportId }: { reportId: string }) {
           <Text style={styles.subtitle}>Observation</Text>
           <Text style={styles.text}>{item.observation}</Text>
         </> : null}
-        {item.mediaReference && resolveMediaUri(item.mediaReference) ? (
-          <Image accessibilityLabel="Volunteer field evidence" source={{ uri: resolveMediaUri(item.mediaReference)! }} style={styles.mediaPreview} />
+        {item.mediaReference && resolveMediaReferenceUri(item.mediaReference) ? (
+          <Image accessibilityLabel="Volunteer field evidence" source={{ uri: resolveMediaReferenceUri(item.mediaReference)! }} style={styles.mediaPreview} />
         ) : null}
       </View> : <View style={styles.stack}>
         <Text style={styles.subtitle}>Reason</Text>
         <Text style={styles.text}>{item.reason}</Text>
         {item.reasonDetails ? <Text style={styles.text}>{item.reasonDetails}</Text> : null}
       </View>}
-    </View>) : <Text style={styles.text}>No volunteer confirmations or flags submitted yet.</Text>}
+    </View>) : <Text style={styles.text}>No community field check has been submitted yet.</Text>}
   </View>;
 }
 
 function ChecklistRow({ label, value }: { label: string; value: boolean }) {
   return <Text style={styles.text}>{value ? 'Yes' : 'No'} - {label}</Text>;
-}
-
-function resolveMediaUri(mediaReference: string) {
-  if (/^(https?:|data:image\/)/i.test(mediaReference)) return mediaReference;
-  if (mediaReference.startsWith('/')) return `${apiBaseUrl.replace(/\/api\/v1\/?$/, '')}${mediaReference}`;
-  return undefined;
 }
 
 const styles = StyleSheet.create({

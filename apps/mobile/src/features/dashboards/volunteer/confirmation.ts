@@ -6,6 +6,8 @@ import {
   type UnableToConfirmReason
 } from '@safealert/contracts';
 
+export type FieldVerificationChecklistDraft = Record<keyof FieldVerificationChecklist, boolean | null>;
+
 export const emptyVerificationChecklist: FieldVerificationChecklist = {
   locationMatches: false,
   photoMatches: false,
@@ -13,16 +15,47 @@ export const emptyVerificationChecklist: FieldVerificationChecklist = {
   severityAppearsCorrect: false
 };
 
+export const emptyVerificationChecklistDraft: FieldVerificationChecklistDraft = {
+  locationMatches: null,
+  photoMatches: null,
+  situationStillExists: null,
+  severityAppearsCorrect: null
+};
+
+export function toExplicitVerificationChecklist(
+  verificationChecklist: FieldVerificationChecklistDraft
+): FieldVerificationChecklist {
+  const entries = Object.entries(verificationChecklist) as Array<[
+    keyof FieldVerificationChecklist,
+    boolean | null
+  ]>;
+
+  if (entries.some(([, value]) => value === null)) {
+    throw new Error('Complete all required field checks.');
+  }
+
+  return entries.reduce<FieldVerificationChecklist>(
+    (result, [key, value]) => ({ ...result, [key]: value === true }),
+    { ...emptyVerificationChecklist }
+  );
+}
+
 export function buildConfirmedInput(
-  verificationChecklist: FieldVerificationChecklist,
+  verificationChecklist: FieldVerificationChecklist | FieldVerificationChecklistDraft,
   observation: string,
   mediaReference?: string | null
 ): CreateFieldConfirmationRequest {
   const normalizedObservation = observation.trim();
   if (normalizedObservation.length > FIELD_CONFIRMATION_OBSERVATION_MAX_LENGTH) throw new Error('The observation is too long.');
+  const explicitChecklist = toExplicitVerificationChecklist({
+    locationMatches: verificationChecklist.locationMatches,
+    photoMatches: verificationChecklist.photoMatches,
+    situationStillExists: verificationChecklist.situationStillExists,
+    severityAppearsCorrect: verificationChecklist.severityAppearsCorrect
+  });
   return {
     outcome: 'CONFIRMED',
-    verificationChecklist,
+    verificationChecklist: explicitChecklist,
     ...(normalizedObservation ? { observation: normalizedObservation } : {}),
     ...(mediaReference ? { mediaReference } : {})
   };

@@ -14,6 +14,7 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
+import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { dashboardTheme } from '../../shared/theme';
 import { VolunteerStateCard } from '../components/VolunteerStateCard';
 import { volunteerBottomNavItems } from '../mockData';
@@ -23,7 +24,8 @@ import { uploadFieldEvidence } from '../api/fieldEvidenceMediaApi';
 import {
   buildConfirmedInput,
   buildUnableToConfirmInput,
-  emptyVerificationChecklist
+  emptyVerificationChecklistDraft,
+  type FieldVerificationChecklistDraft
 } from '../confirmation';
 import { mapCommunityReportToVolunteerReport, type VolunteerCommunityReport } from '../reports';
 
@@ -35,11 +37,15 @@ type SelectedFieldPhoto = {
   uploadedMediaReference: string | null;
 };
 
-const checklistItems: ReadonlyArray<{ key: keyof FieldVerificationChecklist; label: string }> = [
-  { key: 'locationMatches', label: 'Location matches' },
-  { key: 'photoMatches', label: 'Photo matches' },
-  { key: 'situationStillExists', label: 'Situation still exists' },
-  { key: 'severityAppearsCorrect', label: 'Severity appears correct' }
+const checklistItems: ReadonlyArray<{
+  key: keyof FieldVerificationChecklist;
+  label: string;
+  helper: string;
+}> = [
+  { key: 'locationMatches', label: 'Location matches', helper: 'Does the place match the resident report?' },
+  { key: 'photoMatches', label: 'Photo matches', helper: 'Choose No if there is no resident photo to compare.' },
+  { key: 'situationStillExists', label: 'Situation still exists', helper: 'Is the hazard still visible now?' },
+  { key: 'severityAppearsCorrect', label: 'Severity appears correct', helper: 'Does the reported severity look reasonable?' }
 ];
 
 export function VolunteerConfirmationScreen() {
@@ -53,7 +59,7 @@ export function VolunteerConfirmationScreen() {
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [mode, setMode] = useState<ConfirmationMode>(initialMode);
-  const [checklist, setChecklist] = useState<FieldVerificationChecklist>(emptyVerificationChecklist);
+  const [checklist, setChecklist] = useState<FieldVerificationChecklistDraft>(emptyVerificationChecklistDraft);
   const [observation, setObservation] = useState('');
   const [photo, setPhoto] = useState<SelectedFieldPhoto | null>(null);
   const [reason, setReason] = useState<UnableToConfirmReason | ''>('');
@@ -65,7 +71,7 @@ export function VolunteerConfirmationScreen() {
 
   useFocusEffect(useCallback(() => {
     const current = ++generation.current;
-    setLoading(true); setReport(null); setError(null); setResult(null); setMode(initialMode);
+    setLoading(true); setReport(null); setError(null); setResult(null); setMode(initialMode); setChecklist(emptyVerificationChecklistDraft);
     void (async () => {
       try {
         if (!reportId || !accessToken) throw new Error('Report or volunteer session is unavailable.');
@@ -92,8 +98,8 @@ export function VolunteerConfirmationScreen() {
       }
 
       const picked = source === 'camera'
-        ? await ImagePicker.launchCameraAsync({ allowsEditing: false, mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.82 })
-        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: false, mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.82 });
+        ? await ImagePicker.launchCameraAsync({ allowsEditing: false, mediaTypes: 'images', quality: 0.82 })
+        : await ImagePicker.launchImageLibraryAsync({ allowsEditing: false, mediaTypes: 'images', quality: 0.82 });
 
       if (picked.canceled) return;
       const asset = picked.assets[0];
@@ -149,8 +155,10 @@ export function VolunteerConfirmationScreen() {
       <View style={styles.headerSpacer} />
     </View>
     {loading ? <VolunteerStateCard loading title="Loading Report" message="Retrieving current report information." /> : result ?
-      <VolunteerStateCard icon="checkmark-circle-outline" title={result.outcome === 'CONFIRMED' ? 'Confirmation Submitted' : 'Unable to Confirm Submitted'}
-        message={`Available for Disaster Officer review. Submitted ${new Date(result.createdAt).toLocaleString()}.`}
+      <VolunteerStateCard icon="checkmark-circle-outline" title="Field check submitted"
+        message={result.outcome === 'CONFIRMED'
+          ? `Your confirmation has been sent for officer review. Submitted ${new Date(result.createdAt).toLocaleString()}.`
+          : `The issue has been flagged for officer review. Submitted ${new Date(result.createdAt).toLocaleString()}.`}
         actionLabel="Back to Reports" onActionPress={() => router.replace('/volunteer/nearby')} /> : !report ?
       <VolunteerStateCard title="Report Unavailable" message={error ?? 'This report cannot be reviewed.'} actionLabel="Retry" onActionPress={() => setRetry((value) => value + 1)} /> : <>
       <View style={styles.card}>
@@ -158,7 +166,7 @@ export function VolunteerConfirmationScreen() {
         <Text style={styles.text}>{report.locationLabel}</Text>
         <Text style={styles.text}>{report.reportedDateTimeLabel} - {report.severity} - {report.status}</Text>
         <Text style={styles.text}>{report.description}</Text>
-        {report.mediaUrl ? <Image source={{ uri: report.mediaUrl }} accessibilityLabel="Resident report photo" style={styles.photo} /> : null}
+        {resolveMediaReferenceUri(report.mediaUrl) ? <Image source={{ uri: resolveMediaReferenceUri(report.mediaUrl)! }} accessibilityLabel="Resident report photo" style={styles.photo} /> : null}
       </View>
 
       <View style={styles.modeRow}>
@@ -169,17 +177,26 @@ export function VolunteerConfirmationScreen() {
       {mode === 'confirmed' ? <View style={styles.card}>
         <Text style={styles.cardTitle}>Verification Checklist</Text>
         {checklistItems.map((item) => (
-          <Pressable
-            accessibilityLabel={item.label}
-            accessibilityRole="checkbox"
-            accessibilityState={{ checked: checklist[item.key], disabled: submitting }}
-            disabled={submitting}
-            key={item.key}
-            onPress={() => setChecklist((current) => ({ ...current, [item.key]: !current[item.key] }))}
-            style={[styles.choice, checklist[item.key] && styles.selected]}
-          >
-            <Text style={styles.text}>{checklist[item.key] ? '[x]' : '[ ]'} {item.label}</Text>
-          </Pressable>
+          <View key={item.key} style={styles.checkItem}>
+            <View style={styles.checkCopy}>
+              <Text style={styles.label}>{item.label}</Text>
+              <Text style={styles.helper}>{item.helper}</Text>
+            </View>
+            <View style={styles.yesNoRow}>
+              <ChecklistChoice
+                disabled={submitting}
+                label="Yes"
+                onPress={() => setChecklist((current) => ({ ...current, [item.key]: true }))}
+                selected={checklist[item.key] === true}
+              />
+              <ChecklistChoice
+                disabled={submitting}
+                label="No"
+                onPress={() => setChecklist((current) => ({ ...current, [item.key]: false }))}
+                selected={checklist[item.key] === false}
+              />
+            </View>
+          </View>
         ))}
         <View style={styles.fieldHeader}>
           <Text style={styles.label}>Observation</Text>
@@ -242,11 +259,42 @@ function ModeButton({ active, disabled, label, onPress }: { active: boolean; dis
   </Pressable>;
 }
 
+function ChecklistChoice({
+  disabled,
+  label,
+  onPress,
+  selected
+}: {
+  disabled: boolean;
+  label: 'Yes' | 'No';
+  onPress: () => void;
+  selected: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected, disabled }}
+      disabled={disabled}
+      onPress={onPress}
+      style={[styles.yesNoButton, selected && styles.selected]}
+    >
+      <Text style={styles.yesNoText}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function statusChangedMessage(cause: unknown) {
-  if (cause instanceof ApiClientError && (cause.status === 404 || cause.status === 409)) {
-    return 'This report can no longer be confirmed because its status has changed.';
+  if (cause instanceof ApiClientError) {
+    if (cause.code === 'FIELD_CONFIRMATION_ALREADY_EXISTS') {
+      return 'You already submitted a field check for this report.';
+    }
+
+    if (cause.status === 404 || cause.status === 409) {
+      return 'This report is no longer available for field verification.';
+    }
   }
-  return cause instanceof Error ? cause.message : 'Unable to submit. Please try again.';
+
+  return cause instanceof Error ? cause.message : 'Your field check could not be submitted.';
 }
 
 const styles = StyleSheet.create({
@@ -264,6 +312,11 @@ const styles = StyleSheet.create({
   modeButton: { flexGrow: 1, minHeight: 48, alignItems: 'center', justifyContent: 'center', padding: 12, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surface },
   choice: { padding: 14, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surface },
   selected: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.primarySoft },
+  checkItem: { gap: 10, padding: 14, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surface },
+  checkCopy: { gap: 4 },
+  yesNoRow: { flexDirection: 'row', gap: 10 },
+  yesNoButton: { minHeight: 42, flex: 1, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surfaceMuted },
+  yesNoText: { color: dashboardTheme.colors.text, fontSize: 14, fontWeight: '800' },
   fieldHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   count: { color: dashboardTheme.colors.muted, fontSize: 12, fontWeight: '700' },
   textArea: { minHeight: 112, padding: 14, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, color: dashboardTheme.colors.text, backgroundColor: dashboardTheme.colors.surface },

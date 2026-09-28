@@ -24,7 +24,7 @@ const sampleReports: OfficerGroupedReportSummary[] = [
     locationLabel: 'Kelani River Side, Colombo 06',
     latestUpdateLabel: '1h ago',
     communityReportsCount: 12,
-    communityReportsLabel: '12 Community Reports',
+    communityReportsLabel: '12 pending reports',
     descriptionPreview: 'Flood water is spreading along the river edge and reaching the road shoulder.',
     searchText: 'kelani river side flood water road shoulder',
     tone: 'info',
@@ -41,7 +41,7 @@ const sampleReports: OfficerGroupedReportSummary[] = [
     locationLabel: 'Temple Approach Road, Kandy',
     latestUpdateLabel: '32m ago',
     communityReportsCount: 8,
-    communityReportsLabel: '8 Community Reports',
+    communityReportsLabel: '8 pending reports',
     descriptionPreview: 'A slope failure has narrowed the road and left loose debris along the edge.',
     searchText: 'temple approach road slope failure debris',
     tone: 'moderate',
@@ -87,7 +87,7 @@ describe('real Officer report mapping', () => {
         locationLabel: '6.927100, 79.861200',
         latestUpdateLabel: '30m ago',
         communityReportsCount: 1,
-        communityReportsLabel: '1 Community Report',
+        communityReportsLabel: '1 pending report',
         href: '/officer/reports/real-pending-report'
       })
     );

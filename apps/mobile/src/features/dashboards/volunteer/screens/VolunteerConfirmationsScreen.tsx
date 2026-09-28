@@ -96,8 +96,8 @@ export function VolunteerConfirmationsScreen() {
               </View>}
               <View style={styles.cardFooter}>
                 <View style={styles.metadata}>
-                  <Text style={styles.metaLabel}>REPORT REFERENCE</Text>
-                  <Text selectable style={styles.reportReference}>{item.reportId}</Text>
+                  <Text style={styles.metaLabel}>REPORT</Text>
+                  <Text style={styles.reportReference}>Community report</Text>
                 </View>
                 <View style={styles.metadata}>
                   <Text style={styles.metaLabel}>SUBMITTED</Text>

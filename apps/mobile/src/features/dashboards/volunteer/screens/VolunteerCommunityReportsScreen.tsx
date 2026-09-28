@@ -132,13 +132,13 @@ export function VolunteerCommunityReportsScreen() {
         setLoadStatus('error');
         if (error instanceof ApiClientError) {
           setErrorKind(error.status === 0 ? 'network' : 'api');
-          setErrorMessage(error.message);
+          setErrorMessage('Community reports could not be loaded.');
         } else if (error instanceof Error) {
           setErrorKind('location-unavailable');
           setErrorMessage('We could not determine your current location. Check GPS/location services and try again.');
         } else {
           setErrorKind('api');
-          setErrorMessage('Unable to load community reports right now.');
+          setErrorMessage('Community reports could not be loaded.');
         }
       } finally {
         if (latestRequestIdRef.current === requestId && inFlightTabRef.current === tab) {
@@ -304,7 +304,7 @@ function VolunteerReportsEmptyOrErrorState({
           <VolunteerStateCard
             actionLabel="Retry"
             icon="alert-circle-outline"
-            message={errorMessage ?? 'Unable to load volunteer community reports right now.'}
+            message={errorMessage ?? 'Community reports could not be loaded.'}
             onActionPress={onRetry}
             title="Unable to Load Reports"
           />
@@ -315,13 +315,13 @@ function VolunteerReportsEmptyOrErrorState({
   return activeTab === 'nearby' ? (
     <VolunteerStateCard
       icon="locate-outline"
-      message="No nearby reports requiring confirmation."
+      message="No community reports need your attention nearby."
       title="No Nearby Reports"
     />
   ) : (
     <VolunteerStateCard
       icon="time-outline"
-      message="No new community reports right now."
+      message="No new community reports need your field check."
       title="No Incoming Reports"
     />
   );
