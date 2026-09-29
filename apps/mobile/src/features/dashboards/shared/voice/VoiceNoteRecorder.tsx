@@ -56,6 +56,7 @@ export function VoiceNoteRecorder({
   const [status, setStatus] = useState<RecorderUiStatus>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const recordingStartedAtRef = useRef<number | null>(null);
+  const startInFlightRef = useRef(false);
   const isRecording = status === 'recording' || recorderState.isRecording;
 
   const elapsedSeconds = isRecording
@@ -72,10 +73,11 @@ export function VoiceNoteRecorder({
   }, [elapsedSeconds, isRecording]);
 
   const startRecording = async () => {
-    if (disabled || isRecording) {
+    if (disabled || isRecording || startInFlightRef.current) {
       return;
     }
 
+    startInFlightRef.current = true;
     setStatus('requesting');
     setMessage(null);
 
@@ -103,6 +105,8 @@ export function VoiceNoteRecorder({
     } catch {
       setStatus('error');
       setMessage('We could not start recording. Check microphone access and try again.');
+    } finally {
+      startInFlightRef.current = false;
     }
   };
 
