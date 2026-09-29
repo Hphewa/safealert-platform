@@ -110,3 +110,13 @@ export const createResponseRequestSchema = z
       });
     }
   });
+
+// A complete editable snapshot keeps the existing cross-field medical rules
+// consistent with creation. Strict objects reject ownership and lifecycle fields.
+export const updateResponseRequestSchema = z.object({
+  params: z.object({
+    requestId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'A valid response request id is required.')
+  }).strict(),
+  body: createResponseRequestSchema,
+  query: z.object({}).strict()
+});

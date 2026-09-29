@@ -6,9 +6,11 @@ import type {
   GetResidentResponseRequestsResponse,
   ResponseStatus,
   SafeUser,
+  UpdateResponseRequestRequest,
+  UpdateResponseRequestResponse,
   UserRole
 } from '@safealert/contracts';
-import { isValidResponseProgressTransition, RESPONSE_CANCELLABLE_STATUS } from '@safealert/contracts';
+import { isValidResponseProgressTransition, RESPONSE_CANCELLABLE_STATUS, RESPONSE_EDITABLE_STATUS } from '@safealert/contracts';
 import mongoose from 'mongoose';
 
 import { ApiError } from '../../../shared/apiError.js';
@@ -74,6 +76,40 @@ export class ResponseRequestService {
       throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
     }
 
+    return { responseRequest };
+  }
+
+  async updateResidentResponseRequest(
+    responseRequestId: string,
+    actor: Pick<SafeUser, 'id' | 'role'> | null | undefined,
+    input: UpdateResponseRequestRequest
+  ): Promise<UpdateResponseRequestResponse> {
+    if (!actor) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+    if (actor.role !== 'RESIDENT') {
+      throw new ApiError(403, 'FORBIDDEN', 'Only Residents can edit emergency requests.');
+    }
+    this.requireResidentIdentity(actor.id);
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    const requestId = responseRequestId.toLowerCase();
+    // Reuse the owner-scoped tracking lookup without revealing another Resident's request.
+    const current = await this.repository.findResponseRequestById(requestId, actor.id);
+    if (!current) {
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+    if (current.status !== RESPONSE_EDITABLE_STATUS) {
+      throw new ApiError(409, 'INVALID_EDIT_STATUS', 'This request can no longer be edited because its status has changed.');
+    }
+
+    const responseRequest = await this.repository.updateResidentResponseRequest(requestId, actor.id, input);
+    if (!responseRequest) {
+      // Acceptance/cancellation can win after the read; never retry a stale edit.
+      throw new ApiError(409, 'REQUEST_EDIT_CONFLICT', 'This request changed before it could be updated. Refresh it to see its latest status.');
+    }
     return { responseRequest };
   }
 

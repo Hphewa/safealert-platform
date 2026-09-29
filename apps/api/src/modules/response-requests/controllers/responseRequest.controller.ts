@@ -7,6 +7,7 @@ import type { ResponseRequestService } from '../services/responseRequest.service
 import {
   cancelResponseRequestSchema,
   createResponseRequestSchema,
+  updateResponseRequestSchema,
   responseRequestProgressSchema
 } from '../validation/responseRequest.schemas.js';
 
@@ -57,6 +58,31 @@ export function createResponseRequestController(responseRequestService: Response
     response.status(200).json(await responseRequestService.getResidentResponseRequestById(
       request.auth.id,
       request.params.requestId ?? ''
+    ));
+  });
+
+  const updateMineById: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const { params, body } = updateResponseRequestSchema.parse({
+      params: request.params,
+      body: request.body,
+      query: request.query
+    });
+    const { contact, specialRequirements, ...fields } = body;
+    // Ownership comes exclusively from the verified session, never the edit form.
+    response.status(200).json(await responseRequestService.updateResidentResponseRequest(
+      params.requestId, request.auth, {
+        ...fields,
+        contact: {
+          name: contact.name,
+          phoneNumber: contact.phoneNumber,
+          ...(contact.email ? { email: contact.email } : {})
+        },
+        ...(specialRequirements ? { specialRequirements } : {})
+      }
     ));
   });
 
@@ -152,6 +178,7 @@ export function createResponseRequestController(responseRequestService: Response
     create,
     listMine,
     getMineById,
+    updateMineById,
     cancelForResident,
     listPendingForResponder,
     listAssignedForResponder,

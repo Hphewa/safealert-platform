@@ -457,6 +457,8 @@ export type ResponseStatus = (typeof RESPONSE_STATUSES)[number];
 // Cancellation branches before assignment; it is not another responder progress stage.
 export const RESPONSE_CANCELLABLE_STATUS = 'NEW' satisfies ResponseStatus;
 
+export const RESPONSE_EDITABLE_STATUS = 'NEW' satisfies ResponseStatus;
+
 export const RESPONSE_PROGRESS_ACTIONS = {
   ASSIGNED: 'Start Dispatch',
   DISPATCHED: 'Mark as Arrived',
@@ -623,6 +625,14 @@ export type SafeResponseRequest = {
 };
 
 export type CreateResponseRequestResponse = {
+  responseRequest: SafeResponseRequest;
+};
+
+// Editing replaces the complete Resident-entered information, not the lifecycle.
+// Omitted optional contact email/special requirements are cleared on update.
+export type UpdateResponseRequestRequest = CreateResponseRequestRequest;
+
+export type UpdateResponseRequestResponse = {
   responseRequest: SafeResponseRequest;
 };
 

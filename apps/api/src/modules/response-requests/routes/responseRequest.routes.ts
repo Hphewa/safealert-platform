@@ -15,6 +15,12 @@ export function createResponseRequestRouter(
 
   router.post('/', authenticate(config), authorizeRoles('RESIDENT'), controller.create);
   router.get('/mine', authenticate(config), authorizeRoles('RESIDENT'), controller.listMine);
+  router.patch(
+    '/mine/:requestId',
+    authenticate(config),
+    authorizeRoles('RESIDENT'),
+    controller.updateMineById
+  );
   router.get(
     '/mine/:requestId',
     authenticate(config),

@@ -1,8 +1,8 @@
-import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_CANCELLABLE_STATUS, type ResponseStatus } from '@safealert/contracts';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_CANCELLABLE_STATUS, RESPONSE_EDITABLE_STATUS, type ResponseStatus, type UpdateResponseRequestRequest } from '@safealert/contracts';
 import mongoose from 'mongoose';
 
 import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
-import { responseProgressTimestampFields } from './responseRequest.repository.js';
+import { residentEditableFields, responseProgressTimestampFields } from './responseRequest.repository.js';
 import type {
   CreateResponseRequestInput,
   ResponseRequestRepository
@@ -12,6 +12,22 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
   async createResponseRequest(input: CreateResponseRequestInput) {
     const responseRequest = await ResponseRequestModel.create(input);
     return toSafeResponseRequest(responseRequest);
+  }
+
+  async updateResidentResponseRequest(responseRequestId: string, residentId: string, input: UpdateResponseRequestRequest) {
+    const fields = residentEditableFields(input);
+    // Ownership and NEW must still match at write time, even if a responder
+    // accepted the request after the Resident opened or submitted the edit form.
+    const responseRequest = await ResponseRequestModel.findOneAndUpdate(
+      { _id: responseRequestId, residentId, status: RESPONSE_EDITABLE_STATUS },
+      {
+        $set: fields,
+        // A full edit can clear optional notes; omission must not retain old text.
+        ...(!fields.specialRequirements ? { $unset: { specialRequirements: 1 } } : {})
+      },
+      { new: true, runValidators: true }
+    ).exec();
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 
   async findResponseRequestsByResidentId(residentId: string) {

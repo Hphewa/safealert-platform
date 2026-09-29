@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
-import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_CANCELLABLE_STATUS, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
-import { responseProgressTimestampFields } from './responseRequest.repository.js';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_CANCELLABLE_STATUS, RESPONSE_EDITABLE_STATUS, type ResponseStatus, type SafeResponseRequest, type UpdateResponseRequestRequest } from '@safealert/contracts';
+import { residentEditableFields, responseProgressTimestampFields } from './responseRequest.repository.js';
 
 import type {
   CreateResponseRequestInput,
@@ -37,6 +37,19 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
 
     this.responseRequests.set(responseRequest.id, responseRequest);
     return responseRequest;
+  }
+
+  async updateResidentResponseRequest(responseRequestId: string, residentId: string, input: UpdateResponseRequestRequest) {
+    const current = this.responseRequests.get(responseRequestId);
+    if (!current || current.residentId !== residentId || current.status !== RESPONSE_EDITABLE_STATUS) {
+      return null;
+    }
+    // No await between the predicate and replacement, matching the MongoDB write.
+    const fields = residentEditableFields(input);
+    const updated = { ...current, ...fields, updatedAt: new Date().toISOString() };
+    if (!fields.specialRequirements) delete updated.specialRequirements;
+    this.responseRequests.set(responseRequestId, updated);
+    return updated;
   }
 
   async findResponseRequestsByResidentId(residentId: string) {

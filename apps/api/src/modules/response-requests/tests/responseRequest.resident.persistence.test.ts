@@ -64,6 +64,33 @@ describe.skipIf(!mongodbUri)('Resident emergency tracking MongoDB persistence', 
     }
   });
 
+  it('persists Resident edits on the same document across reconnects and fresh authenticated reads', async () => {
+    const app = freshApp();
+    const created = await request(app).post(basePath).auth(residentToken, { type: 'bearer' }).send(input);
+    expect(created.status).toBe(201);
+    const id = created.body.responseRequest.id as string;
+    const changed = { ...input, injuredPeople: 2, description: 'Two people now need assistance.', specialRequirements: '' };
+    const updated = await request(app).patch(`${basePath}/mine/${id}`)
+      .auth(residentToken, { type: 'bearer' }).send(changed);
+    expect(updated.status).toBe(200);
+    expect(updated.body.responseRequest).toMatchObject({
+      id, residentId, status: 'NEW', injuredPeople: 2,
+      description: changed.description, createdAt: created.body.responseRequest.createdAt
+    });
+    expect(updated.body.responseRequest.specialRequirements).toBeUndefined();
+
+    await mongoose.disconnect();
+    await connect();
+    const freshToken = signAccessToken(config, { id: residentId, role: 'RESIDENT' });
+    const retrieved = await request(freshApp()).get(`${basePath}/mine/${id}`).auth(freshToken, { type: 'bearer' });
+    expect(retrieved.status).toBe(200);
+    expect(retrieved.body).toEqual(updated.body);
+    expect(await ResponseRequestModel.countDocuments({ residentId })).toBe(1);
+    const stored = await ResponseRequestModel.collection.findOne({ _id: new mongoose.Types.ObjectId(id) });
+    expect(stored?.injuredPeople).toBe(2);
+    expect(stored?.specialRequirements).toBeUndefined();
+  }, 30000);
+
   it('persists every responder update across disconnect/reconnect and fresh owner-scoped API reads', async () => {
     let app = freshApp();
     const created = await request(app).post(basePath).auth(residentToken, { type: 'bearer' }).send(input);

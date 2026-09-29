@@ -1,0 +1,225 @@
+import { RESPONSE_STATUSES, USER_ROLES, type SafeResponseRequest, type UpdateResponseRequestRequest, type UserRole } from '@safealert/contracts';
+import request from 'supertest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { createApp } from '../../../app.js';
+import { loadConfig } from '../../../config/env.js';
+import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.repository.js';
+import { signAccessToken } from '../../auth/services/token.service.js';
+import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
+import { InMemoryResponseRequestRepository } from '../repositories/inMemoryResponseRequest.repository.js';
+import { MongooseResponseRequestRepository } from '../repositories/mongooseResponseRequest.repository.js';
+
+const requestId = '507f1f77bcf86cd799439011';
+const residentId = '507f1f77bcf86cd799439012';
+const responderId = '507f1f77bcf86cd799439013';
+const basePath = '/api/v1/response-requests';
+const editPath = `${basePath}/mine/${requestId}`;
+
+function editableInput(): UpdateResponseRequestRequest {
+  return {
+    assistanceType: 'MEDICAL_ASSISTANCE',
+    location: { type: 'Point', coordinates: [79.8612, 6.9271] },
+    affectedPeople: 4,
+    medicalNeeds: true,
+    injuredPeople: 2,
+    vulnerablePeople: { children: 1, elderlyPeople: 1, personsWithDisabilities: 0, pregnantPersons: 0 },
+    roadAccessibility: 'LIMITED',
+    contact: { name: 'Resident A', phoneNumber: '+94-77-555-1234', email: 'resident@example.com' },
+    description: 'Two residents now need medical assistance.',
+    specialRequirements: 'Wheelchair accessible transport.'
+  };
+}
+
+function context(overrides: Partial<SafeResponseRequest> = {}) {
+  const config = { ...loadConfig(), nodeEnv: 'test', jwtAccessSecret: 'resident-edit-test-secret' };
+  const repository = new InMemoryResponseRequestRepository();
+  const original: SafeResponseRequest = {
+    ...editableInput(), id: requestId, residentId, status: 'NEW', injuredPeople: 1,
+    description: 'One resident needs assistance.', declinedByResponderIds: [responderId],
+    createdAt: '2026-09-23T10:00:00.000Z', updatedAt: '2026-09-23T10:00:00.000Z',
+    ...overrides
+  };
+  repository.seedResponseRequest(original);
+  const freshApp = () => createApp({ config, authRepository: new InMemoryAuthRepository(), responseRequestRepository: repository });
+  const token = (id = residentId, role: UserRole = 'RESIDENT') => signAccessToken(config, { id, role });
+  return { repository, original, app: freshApp(), freshApp, token };
+}
+
+afterEach(() => vi.restoreAllMocks());
+
+describe('LDFEW-338 Resident update API', () => {
+  it('updates the existing record and returns changed values on fresh authenticated tracking reads', async () => {
+    const { app, freshApp, token, original, repository } = context();
+    const create = vi.spyOn(repository, 'createResponseRequest');
+    const input = editableInput();
+    const response = await request(app).patch(editPath).auth(token(), { type: 'bearer' }).send(input);
+    expect(response.status).toBe(200);
+    expect(response.body.responseRequest).toEqual({ ...original, ...input, updatedAt: expect.any(String) });
+    expect(response.body.responseRequest.updatedAt).not.toBe(original.updatedAt);
+    expect(create).not.toHaveBeenCalled();
+
+    // Recreate handlers and credentials so verification reads repository state,
+    // not the previous response or a mobile cache.
+    const reopened = freshApp();
+    const detail = await request(reopened).get(editPath).auth(token(), { type: 'bearer' });
+    const list = await request(reopened).get(`${basePath}/mine`).auth(token(), { type: 'bearer' });
+    expect(detail.status).toBe(200);
+    expect(detail.body).toEqual(response.body);
+    expect(list.body.responseRequests).toEqual([response.body.responseRequest]);
+  });
+
+  it.each([undefined, '', '   '])('clears optional notes (%j) and omitted contact email', async (notes) => {
+    const { app, token } = context();
+    const input = editableInput();
+    delete input.contact.email;
+    delete input.specialRequirements;
+    const response = await request(app).patch(editPath).auth(token(), { type: 'bearer' })
+      .send({ ...input, ...(notes !== undefined ? { specialRequirements: notes } : {}) });
+    expect(response.status).toBe(200);
+    expect(response.body.responseRequest.specialRequirements).toBeUndefined();
+    expect(response.body.responseRequest.contact.email).toBeUndefined();
+  });
+
+  it('normalizes uppercase IDs and trims editable text', async () => {
+    const { app, token } = context();
+    const response = await request(app).patch(`${basePath}/mine/${requestId.toUpperCase()}`)
+      .auth(token(), { type: 'bearer' }).send({ ...editableInput(), description: '  Updated description  ' });
+    expect(response.status).toBe(200);
+    expect(response.body.responseRequest.description).toBe('Updated description');
+  });
+
+  it('requires a valid authenticated session', async () => {
+    const { app, repository, original } = context();
+    expect((await request(app).patch(editPath).send(editableInput())).status).toBe(401);
+    expect((await request(app).patch(editPath).auth('invalid', { type: 'bearer' }).send(editableInput())).status).toBe(401);
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(original);
+  });
+
+  it.each(USER_ROLES.filter((role) => role !== 'RESIDENT'))('rejects the %s role', async (role) => {
+    const { app, token, repository, original } = context();
+    const response = await request(app).patch(editPath).auth(token(residentId, role), { type: 'bearer' }).send(editableInput());
+    expect(response.status).toBe(403);
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(original);
+  });
+
+  it('does not disclose or update another Resident request', async () => {
+    const { app, token, repository, original } = context();
+    const otherToken = token('507f1f77bcf86cd799439014');
+    const denied = await request(app).patch(editPath).auth(otherToken, { type: 'bearer' }).send(editableInput());
+    const missing = await request(app).patch(`${basePath}/mine/507f1f77bcf86cd799439015`)
+      .auth(otherToken, { type: 'bearer' }).send(editableInput());
+    expect(denied.status).toBe(404);
+    expect(missing.status).toBe(404);
+    expect(denied.body).toEqual(missing.body);
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(original);
+  });
+
+  it.each(RESPONSE_STATUSES.filter((status) => status !== 'NEW'))('does not edit %s requests', async (status) => {
+    const { app, token, repository, original } = context({ status });
+    const response = await request(app).patch(editPath).auth(token(), { type: 'bearer' }).send(editableInput());
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('INVALID_EDIT_STATUS');
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(original);
+  });
+
+  it.each([
+    {}, { description: 'Missing other required information' },
+    { ...editableInput(), assistanceType: 'INVALID' },
+    { ...editableInput(), affectedPeople: 0 },
+    { ...editableInput(), affectedPeople: 1.5 },
+    { ...editableInput(), injuredPeople: -1 },
+    { ...editableInput(), injuredPeople: 5 },
+    { ...editableInput(), medicalNeeds: false },
+    { ...editableInput(), medicalNeeds: 'yes' },
+    { ...editableInput(), vulnerablePeople: { ...editableInput().vulnerablePeople, children: -1 } },
+    { ...editableInput(), vulnerablePeople: { ...editableInput().vulnerablePeople, pregnantPersons: 0.5 } },
+    { ...editableInput(), location: { type: 'Point', coordinates: [181, 0] } },
+    { ...editableInput(), location: { type: 'Point', coordinates: [0, 91] } },
+    { ...editableInput(), location: { type: 'Point', coordinates: [0] } },
+    { ...editableInput(), contact: { ...editableInput().contact, phoneNumber: '' } },
+    { ...editableInput(), contact: { ...editableInput().contact, name: ' ' } },
+    { ...editableInput(), contact: { ...editableInput().contact, email: 'invalid' } },
+    { ...editableInput(), roadAccessibility: 'INVALID' },
+    { ...editableInput(), description: '  ' },
+    { ...editableInput(), description: 'x'.repeat(1001) },
+    { ...editableInput(), specialRequirements: 'x'.repeat(501) }
+  ])('rejects invalid edit payload %# without writing', async (body) => {
+    const { app, token, repository, original } = context();
+    const response = await request(app).patch(editPath).auth(token(), { type: 'bearer' }).send(body);
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe('VALIDATION_ERROR');
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(original);
+  });
+
+  it.each([
+    'id', '_id', 'residentId', 'userId', 'status', 'assignedResponderId', 'declinedByResponderIds',
+    'acceptedAt', 'dispatchedAt', 'arrivedAt', 'inProgressAt', 'completedAt', 'cancelledAt', 'createdAt', 'updatedAt', '__v'
+  ])('rejects client-controlled %s', async (field) => {
+    const { app, token, repository, original } = context();
+    const response = await request(app).patch(editPath).auth(token(), { type: 'bearer' })
+      .send({ ...editableInput(), [field]: 'spoofed' });
+    expect(response.status).toBe(400);
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(original);
+  });
+
+  it('rejects invalid IDs, query overrides and nested unknown fields', async () => {
+    const { app, token, repository } = context();
+    const update = vi.spyOn(repository, 'updateResidentResponseRequest');
+    for (const path of [`${basePath}/mine/invalid`, `${editPath}?residentId=${residentId}`]) {
+      expect((await request(app).patch(path).auth(token(), { type: 'bearer' }).send(editableInput())).status).toBe(400);
+    }
+    const nested = await request(app).patch(editPath).auth(token(), { type: 'bearer' })
+      .send({ ...editableInput(), contact: { ...editableInput().contact, residentId } });
+    expect(nested.status).toBe(400);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it.each(['accept', 'cancel'] as const)('rejects a write if %s wins after the initial lookup', async (action) => {
+    const { app, token, repository, original } = context();
+    const write = repository.updateResidentResponseRequest.bind(repository);
+    vi.spyOn(repository, 'updateResidentResponseRequest').mockImplementationOnce(async (...args) => {
+      // Simulate the lifecycle changing between the service read and conditional write.
+      if (action === 'accept') await repository.acceptResponseRequest(requestId, responderId);
+      else await repository.cancelResponseRequest(requestId, residentId);
+      return write(...args);
+    });
+    const response = await request(app).patch(editPath).auth(token(), { type: 'bearer' }).send(editableInput());
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('REQUEST_EDIT_CONFLICT');
+    const refreshed = await request(app).get(editPath).auth(token(), { type: 'bearer' });
+    expect(refreshed.body.responseRequest).toMatchObject({
+      status: action === 'accept' ? 'ASSIGNED' : 'CANCELLED', injuredPeople: original.injuredPeople,
+      description: original.description
+    });
+  });
+});
+
+describe('Resident update MongoDB operation', () => {
+  it.each([true, false])('uses an atomic owner/NEW predicate and explicit editable fields (notes: %s)', async (includeNotes) => {
+    const { original } = context();
+    const input = editableInput();
+    if (!includeNotes) delete input.specialRequirements;
+    const document = new ResponseRequestModel({ ...original, ...input, _id: requestId });
+    const query = ResponseRequestModel.findOneAndUpdate();
+    vi.spyOn(query, 'exec').mockResolvedValue(document);
+    const update = vi.spyOn(ResponseRequestModel, 'findOneAndUpdate').mockReturnValueOnce(query);
+    // Extra runtime fields must never reach $set, even if an internal caller bypasses HTTP validation.
+    const result = await new MongooseResponseRequestRepository().updateResidentResponseRequest(requestId, residentId, {
+      ...input, status: 'COMPLETED', residentId: responderId, createdAt: 'spoofed'
+    } as UpdateResponseRequestRequest);
+    expect(update).toHaveBeenCalledExactlyOnceWith(
+      { _id: requestId, residentId, status: 'NEW' },
+      { $set: input, ...(!includeNotes ? { $unset: { specialRequirements: 1 } } : {}) },
+      { new: true, runValidators: true }
+    );
+    expect(result).toEqual(toSafeResponseRequest(document));
+  });
+
+  it('returns null when the conditional database update no longer matches', async () => {
+    const query = ResponseRequestModel.findOneAndUpdate();
+    vi.spyOn(query, 'exec').mockResolvedValue(null);
+    vi.spyOn(ResponseRequestModel, 'findOneAndUpdate').mockReturnValueOnce(query);
+    expect(await new MongooseResponseRequestRepository().updateResidentResponseRequest(requestId, residentId, editableInput())).toBeNull();
+  });
+});
