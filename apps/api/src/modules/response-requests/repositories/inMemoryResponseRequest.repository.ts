@@ -152,11 +152,44 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return this.responseRequests.get(responseRequestId) ?? null;
   }
 
+  // LDFEW-266: In-memory simulation of atomic responder field update
+  async updateResponseRequestFieldUpdate(
+    responseRequestId: string,
+    responderId: string,
+    fieldNotes: string
+  ) {
+    const responseRequest = this.responseRequests.get(responseRequestId);
+
+    // Enforce responder assignment and active assigned statuses
+    if (
+      !responseRequest ||
+      responseRequest.assignedResponderId !== responderId ||
+      !RESPONSE_ACTIVE_ASSIGNED_STATUSES.some((status) => status === responseRequest.status)
+    ) {
+      return null;
+    }
+
+    const occurredAt = new Date().toISOString();
+    const updatedRequest: SafeResponseRequest = {
+      ...responseRequest,
+      fieldNotes: fieldNotes.trim(),
+      fieldUpdatedAt: occurredAt,
+      updatedAt: occurredAt
+    };
+    this.responseRequests.set(responseRequestId, updatedRequest);
+    return updatedRequest;
+  }
+
   async updateResponseRequestProgress(
     responseRequestId: string,
     responderId: string,
     currentStatus: ResponseStatus,
-    nextStatus: ResponseStatus
+    nextStatus: ResponseStatus,
+    completionDetails?: {
+      assistanceProvided: string;
+      completionSummary: string;
+      responderRemarks?: string;
+    }
   ) {
     const responseRequest = this.responseRequests.get(responseRequestId);
     const timestampField = responseProgressTimestampFields[nextStatus];
@@ -175,6 +208,12 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
       ...responseRequest,
       status: nextStatus,
       [timestampField]: occurredAt,
+      // LDFEW-266: Persist validated completion details alongside completedAt timestamp
+      ...(nextStatus === 'COMPLETED' && completionDetails ? {
+        assistanceProvided: completionDetails.assistanceProvided.trim(),
+        completionSummary: completionDetails.completionSummary.trim(),
+        ...(completionDetails.responderRemarks?.trim() ? { responderRemarks: completionDetails.responderRemarks.trim() } : {})
+      } : {}),
       updatedAt: occurredAt
     };
     this.responseRequests.set(responseRequestId, updatedRequest);

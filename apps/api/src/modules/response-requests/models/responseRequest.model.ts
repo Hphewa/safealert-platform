@@ -141,6 +141,34 @@ const responseRequestSchema = new mongoose.Schema(
     cancelledAt: {
       type: Date
     },
+    // LDFEW-266: Operational field notes recorded by the assigned Emergency Responder
+    fieldNotes: {
+      type: String,
+      trim: true,
+      maxlength: 2000
+    },
+    // LDFEW-266: Server timestamp recorded when field notes are persisted
+    fieldUpdatedAt: {
+      type: Date
+    },
+    // LDFEW-266: Summary of assistance delivered upon request completion
+    assistanceProvided: {
+      type: String,
+      trim: true,
+      maxlength: 1000
+    },
+    // LDFEW-266: Overall outcome and resolution summary
+    completionSummary: {
+      type: String,
+      trim: true,
+      maxlength: 1000
+    },
+    // LDFEW-266: Optional responder-specific operational remarks
+    responderRemarks: {
+      type: String,
+      trim: true,
+      maxlength: 1000
+    },
     assistanceType: {
       type: String,
       required: true,
@@ -277,6 +305,27 @@ export function toSafeResponseRequest(responseRequest: ResponseRequestDocument):
 
   if (responseRequest.cancelledAt) {
     safeResponseRequest.cancelledAt = responseRequest.cancelledAt.toISOString();
+  }
+
+  // LDFEW-266: Map responder field notes and completion fields safely for clients
+  if (responseRequest.fieldNotes) {
+    safeResponseRequest.fieldNotes = responseRequest.fieldNotes;
+  }
+
+  if (responseRequest.fieldUpdatedAt) {
+    safeResponseRequest.fieldUpdatedAt = responseRequest.fieldUpdatedAt.toISOString();
+  }
+
+  if (responseRequest.assistanceProvided) {
+    safeResponseRequest.assistanceProvided = responseRequest.assistanceProvided;
+  }
+
+  if (responseRequest.completionSummary) {
+    safeResponseRequest.completionSummary = responseRequest.completionSummary;
+  }
+
+  if (responseRequest.responderRemarks) {
+    safeResponseRequest.responderRemarks = responseRequest.responderRemarks;
   }
 
   if (responseRequest.specialRequirements) {

@@ -151,11 +151,45 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 
+  // LDFEW-266: Atomically record responder field notes and server timestamp in MongoDB
+  async updateResponseRequestFieldUpdate(
+    responseRequestId: string,
+    responderId: string,
+    fieldNotes: string
+  ) {
+    if (!mongoose.isValidObjectId(responseRequestId) || !mongoose.isValidObjectId(responderId)) {
+      return null;
+    }
+
+    // Enforce responder ownership and active assigned status atomically at write time
+    const responseRequest = await ResponseRequestModel.findOneAndUpdate(
+      {
+        _id: responseRequestId,
+        assignedResponderId: responderId,
+        status: { $in: RESPONSE_ACTIVE_ASSIGNED_STATUSES }
+      },
+      {
+        $set: {
+          fieldNotes: fieldNotes.trim(),
+          fieldUpdatedAt: new Date()
+        }
+      },
+      { new: true, runValidators: true }
+    ).exec();
+
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
   async updateResponseRequestProgress(
     responseRequestId: string,
     responderId: string,
     currentStatus: ResponseStatus,
-    nextStatus: ResponseStatus
+    nextStatus: ResponseStatus,
+    completionDetails?: {
+      assistanceProvided: string;
+      completionSummary: string;
+      responderRemarks?: string;
+    }
   ) {
     const timestampField = responseProgressTimestampFields[nextStatus];
 
@@ -170,8 +204,18 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
         assignedResponderId: responderId,
         status: currentStatus
       },
-      // Status and its server timestamp must succeed or fail together.
-      { $set: { status: nextStatus, [timestampField]: new Date() } },
+      // Status, server timestamp, and completion details must succeed or fail together.
+      {
+        $set: {
+          status: nextStatus,
+          [timestampField]: new Date(),
+          ...(nextStatus === 'COMPLETED' && completionDetails ? {
+            assistanceProvided: completionDetails.assistanceProvided.trim(),
+            completionSummary: completionDetails.completionSummary.trim(),
+            ...(completionDetails.responderRemarks?.trim() ? { responderRemarks: completionDetails.responderRemarks.trim() } : {})
+          } : {})
+        }
+      },
       { new: true, runValidators: true }
     ).exec();
 

@@ -74,6 +74,20 @@ export function presentResidentEmergencyRequestDetails(request: SafeResponseRequ
         { label: 'Assistance', value: summary.assistanceType },
         { label: 'Submitted', value: summary.submittedAt }
       ] },
+      // LDFEW-266 / LDFEW-357: Present response outcome and completion details to the resident.
+      // Internal responder remarks and operational field notes are strictly excluded.
+      ...(request.status === 'COMPLETED'
+        ? [
+            {
+              title: 'Completion Details',
+              fields: [
+                { label: 'Completed date / time', value: formatResidentReportDateTime(request.completedAt) },
+                { label: 'Assistance provided', value: detailText(request.assistanceProvided) },
+                { label: 'Completion summary', value: detailText(request.completionSummary) }
+              ]
+            }
+          ]
+        : []),
       { title: 'People Needing Help', fields: [
         { label: 'People needing assistance', value: detailCount(request.affectedPeople) },
         { label: 'Injured people', value: detailCount(request.injuredPeople) }

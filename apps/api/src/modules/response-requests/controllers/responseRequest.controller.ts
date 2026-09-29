@@ -8,7 +8,8 @@ import {
   cancelResponseRequestSchema,
   createResponseRequestSchema,
   updateResponseRequestSchema,
-  responseRequestProgressSchema
+  responseRequestProgressSchema,
+  recordFieldUpdateSchema
 } from '../validation/responseRequest.schemas.js';
 
 export function createResponseRequestController(responseRequestService: ResponseRequestService) {
@@ -159,16 +160,47 @@ export function createResponseRequestController(responseRequestService: Response
     response.status(200).json(responseRequest);
   });
 
+  // LDFEW-266 / LDFEW-350: Assigned responder records operational field notes
+  const recordFieldUpdate: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const { params, body } = recordFieldUpdateSchema.parse({
+      params: request.params,
+      body: request.body,
+      query: request.query
+    });
+
+    const responseRequest = await responseRequestService.recordFieldUpdate(
+      params.requestId,
+      request.auth,
+      body.fieldNotes
+    );
+
+    response.status(200).json(responseRequest);
+  });
+
   const updateProgress: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
     }
 
-    const { status } = responseRequestProgressSchema.parse(request.body);
+    const parsed = responseRequestProgressSchema.parse(request.body);
+    // LDFEW-356: Extract completion details when completing the request
+    const completionDetails = parsed.status === 'COMPLETED' && parsed.assistanceProvided !== undefined && parsed.completionSummary !== undefined
+      ? {
+          assistanceProvided: parsed.assistanceProvided,
+          completionSummary: parsed.completionSummary,
+          ...(parsed.responderRemarks ? { responderRemarks: parsed.responderRemarks } : {})
+        }
+      : undefined;
+
     const responseRequest = await responseRequestService.updateResponseRequestProgress(
       request.params.requestId ?? '',
       request.auth,
-      status
+      parsed.status,
+      completionDetails
     );
 
     response.status(200).json(responseRequest);
@@ -184,6 +216,7 @@ export function createResponseRequestController(responseRequestService: Response
     listAssignedForResponder,
     acceptForResponder,
     declineForResponder,
-    updateProgress
+    updateProgress,
+    recordFieldUpdate
   };
 }

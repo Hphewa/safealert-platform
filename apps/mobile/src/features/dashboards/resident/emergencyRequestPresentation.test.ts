@@ -109,4 +109,72 @@ describe('resident emergency request detail presentation', () => {
       .find((item) => item.label === 'People needing assistance');
     expect(field?.value).toBe('Not provided');
   });
+
+  it('displays completion details section on COMPLETED requests without exposing internal responder remarks or field notes', () => {
+    const completedRequest: SafeResponseRequest = {
+      ...summary,
+      id: '507f1f77bcf86cd799439011',
+      residentId: 'resident-1',
+      assignedResponderId: 'responder-1',
+      status: 'COMPLETED',
+      affectedPeople: 1,
+      injuredPeople: 0,
+      medicalNeeds: false,
+      vulnerablePeople: { children: 0, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 },
+      roadAccessibility: 'ACCESSIBLE',
+      contact: { name: 'Resident', phoneNumber: '+94-77-555-1234' },
+      description: 'Need relief pack.',
+      location: { type: 'Point', coordinates: [79.8612, 6.9271] },
+      updatedAt: '2026-09-24T12:00:00.000Z',
+      completedAt: '2026-09-24T12:00:00.000Z',
+      assistanceProvided: 'Delivered food rations and potable water.',
+      completionSummary: 'Resident received supplies in good order.',
+      // Internal fields that MUST NOT be exposed to resident
+      fieldNotes: 'Internal dispatch notes - road was tricky.',
+      responderRemarks: 'Internal note: resident was agitated initially.'
+    };
+
+    const details = presentResidentEmergencyRequestDetails(completedRequest);
+    const completionSection = details.sections.find((section) => section.title === 'Completion Details');
+
+    expect(completionSection).toBeDefined();
+    expect(completionSection?.fields).toEqual([
+      { label: 'Completed date / time', value: expect.any(String) },
+      { label: 'Assistance provided', value: 'Delivered food rations and potable water.' },
+      { label: 'Completion summary', value: 'Resident received supplies in good order.' }
+    ]);
+
+    // Ensure internal notes and responder remarks are never leaked to any field in any section
+    const allLabels = details.sections.flatMap((s) => s.fields.map((f) => f.label));
+    const allValues = details.sections.flatMap((s) => s.fields.map((f) => f.value));
+
+    expect(allLabels).not.toContain('Field notes');
+    expect(allLabels).not.toContain('Responder remarks');
+    expect(allValues).not.toContain('Internal dispatch notes - road was tricky.');
+    expect(allValues).not.toContain('Internal note: resident was agitated initially.');
+  });
+
+  it('does not display completion details section when status is not COMPLETED', () => {
+    const inProgressRequest: SafeResponseRequest = {
+      ...summary,
+      id: '507f1f77bcf86cd799439011',
+      residentId: 'resident-1',
+      assignedResponderId: 'responder-1',
+      status: 'IN_PROGRESS',
+      affectedPeople: 1,
+      injuredPeople: 0,
+      medicalNeeds: false,
+      vulnerablePeople: { children: 0, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 },
+      roadAccessibility: 'ACCESSIBLE',
+      contact: { name: 'Resident', phoneNumber: '+94-77-555-1234' },
+      description: 'Need help.',
+      location: { type: 'Point', coordinates: [79.8612, 6.9271] },
+      updatedAt: '2026-09-24T11:00:00.000Z'
+    };
+
+    const details = presentResidentEmergencyRequestDetails(inProgressRequest);
+    const completionSection = details.sections.find((section) => section.title === 'Completion Details');
+    expect(completionSection).toBeUndefined();
+  });
 });
+

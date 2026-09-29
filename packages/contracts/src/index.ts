@@ -609,6 +609,13 @@ export type SafeResponseRequest = {
   inProgressAt?: string;
   completedAt?: string;
   cancelledAt?: string;
+  // LDFEW-266: Operational field notes and server timestamp recorded during active response
+  fieldNotes?: string;
+  fieldUpdatedAt?: string;
+  // LDFEW-266: Completion details recorded when transitioning request to COMPLETED
+  assistanceProvided?: string;
+  completionSummary?: string;
+  responderRemarks?: string;
   assistanceType: EmergencyAssistanceType;
   location: GeoJsonPoint;
   affectedPeople: number;
@@ -622,6 +629,18 @@ export type SafeResponseRequest = {
   status: ResponseStatus;
   createdAt: string;
   updatedAt: string;
+};
+
+// LDFEW-266: Payload for recording responder field updates
+export type RecordFieldUpdateRequest = {
+  fieldNotes: string;
+};
+
+// LDFEW-266: Payload for documenting completion details upon completing a request
+export type CompleteResponseRequestInput = {
+  assistanceProvided: string;
+  completionSummary: string;
+  responderRemarks?: string;
 };
 
 export type CreateResponseRequestResponse = {

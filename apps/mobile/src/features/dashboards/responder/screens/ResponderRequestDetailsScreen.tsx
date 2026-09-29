@@ -1,6 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { SafeResponseRequest } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -17,6 +17,13 @@ import { replaceResponderRequestCache } from '../requestDetailsCache';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { acceptResponderRequest, declineResponderRequest } from '../api/responderDecisionApi';
 import { updateResponderRequestProgress } from '../api/responderProgressApi';
+import { saveResponderFieldUpdate } from '../api/responderFieldUpdateApi';
+import {
+  canRecordFieldUpdate,
+  formatUpdateTimestamp,
+  validateCompletionDetails,
+  validateFieldNotes
+} from '../fieldUpdateUi';
 import {
   canManageResponderProgress,
   getResponderProgressAction,
@@ -51,6 +58,88 @@ export function ResponderRequestDetailsScreen() {
   const progressAction = getResponderProgressAction(responseRequest, user);
   const progressDisabled = isUpdatingProgress || !accessToken?.trim();
 
+  // LDFEW-266: Operational field notes state and duplicate-submit prevention
+  const [fieldNotesDraft, setFieldNotesDraft] = useState<{ id: string; value: string } | null>(null);
+  const fieldNotesInput = fieldNotesDraft && responseRequest && fieldNotesDraft.id === responseRequest.id
+    ? fieldNotesDraft.value
+    : (responseRequest?.fieldNotes ?? '');
+  const setFieldNotesInput = (value: string) => {
+    setFieldNotesDraft({ id: responseRequest?.id ?? '', value });
+  };
+
+  const fieldUpdateInFlightRef = useRef(false);
+  const [fieldUpdateFeedback, setFieldUpdateFeedback] = useState<{
+    requestId: string;
+    kind: 'saving' | 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const currentFieldFeedback = fieldUpdateFeedback?.requestId === requestId ? fieldUpdateFeedback : null;
+  const isSavingFieldUpdate = fieldUpdateFeedback?.kind === 'saving';
+
+  // LDFEW-266 / LDFEW-352: Completion details form inputs
+  const [assistanceDraft, setAssistanceDraft] = useState<{ id: string; value: string } | null>(null);
+  const assistanceProvidedInput = assistanceDraft && responseRequest && assistanceDraft.id === responseRequest.id
+    ? assistanceDraft.value
+    : (responseRequest?.assistanceProvided ?? '');
+  const setAssistanceProvidedInput = (value: string) => {
+    setAssistanceDraft({ id: responseRequest?.id ?? '', value });
+  };
+
+  const [summaryDraft, setSummaryDraft] = useState<{ id: string; value: string } | null>(null);
+  const completionSummaryInput = summaryDraft && responseRequest && summaryDraft.id === responseRequest.id
+    ? summaryDraft.value
+    : (responseRequest?.completionSummary ?? '');
+  const setCompletionSummaryInput = (value: string) => {
+    setSummaryDraft({ id: responseRequest?.id ?? '', value });
+  };
+
+  const [remarksDraft, setRemarksDraft] = useState<{ id: string; value: string } | null>(null);
+  const responderRemarksInput = remarksDraft && responseRequest && remarksDraft.id === responseRequest.id
+    ? remarksDraft.value
+    : (responseRequest?.responderRemarks ?? '');
+  const setResponderRemarksInput = (value: string) => {
+    setRemarksDraft({ id: responseRequest?.id ?? '', value });
+  };
+
+  // LDFEW-266 / LDFEW-351: Save operational field updates
+  const saveFieldUpdate = async () => {
+    if (
+      fieldUpdateInFlightRef.current ||
+      !requestId ||
+      requestId !== responseRequest?.id ||
+      !accessToken?.trim()
+    ) {
+      return;
+    }
+
+    const validationError = validateFieldNotes(fieldNotesInput);
+    if (validationError) {
+      setFieldUpdateFeedback({ requestId, kind: 'error', message: validationError });
+      return;
+    }
+
+    fieldUpdateInFlightRef.current = true;
+    setFieldUpdateFeedback({ requestId, kind: 'saving', message: 'Saving field update...' });
+
+    try {
+      const updated = await saveResponderFieldUpdate(requestId, fieldNotesInput.trim(), accessToken);
+      updateCachedResponderRequest(updated);
+      setUpdatedRequest(updated);
+      setFieldUpdateFeedback({
+        requestId,
+        kind: 'success',
+        message: 'Field update saved successfully.'
+      });
+    } catch (error) {
+      const message = error instanceof ApiClientError
+        ? error.message
+        : 'Unable to save field update. Please check your connection and try again.';
+      setFieldUpdateFeedback({ requestId, kind: 'error', message });
+    } finally {
+      fieldUpdateInFlightRef.current = false;
+    }
+  };
+
   const updateProgress = async () => {
     if (
       progressInFlightRef.current ||
@@ -62,12 +151,34 @@ export function ResponderRequestDetailsScreen() {
       return;
     }
 
+    // LDFEW-353 & LDFEW-356: Validate required completion information before final completion
+    const completionDetails = progressAction.nextStatus === 'COMPLETED' && (assistanceProvidedInput.trim() || completionSummaryInput.trim() || responderRemarksInput.trim())
+      ? {
+          assistanceProvided: assistanceProvidedInput.trim(),
+          completionSummary: completionSummaryInput.trim(),
+          ...(responderRemarksInput.trim() ? { responderRemarks: responderRemarksInput.trim() } : {})
+        }
+      : undefined;
+
+    if (progressAction.nextStatus === 'COMPLETED' && completionDetails) {
+      const validationError = validateCompletionDetails(completionDetails);
+      if (validationError) {
+        setProgressFeedback({ requestId, kind: 'error', message: validationError });
+        return;
+      }
+    }
+
     // The ref blocks repeated taps before React can render the disabled state.
     progressInFlightRef.current = true;
     setProgressFeedback({ requestId, kind: 'updating', message: 'Updating progress...' });
 
     try {
-      const updated = await updateResponderRequestProgress(requestId, progressAction.nextStatus, accessToken);
+      const updated = await updateResponderRequestProgress(
+        requestId,
+        progressAction.nextStatus,
+        accessToken,
+        completionDetails
+      );
       // Keep the backend-confirmed status for details and the dashboard's next focus.
       updateCachedResponderRequest(updated);
       setUpdatedRequest(updated);
@@ -263,9 +374,20 @@ export function ResponderRequestDetailsScreen() {
           <Text style={styles.sectionTitle}>RESPONSE PROGRESS</Text>
           <Text style={styles.detailValue}>Current status: {progressStatusLabel(responseRequest.status)}</Text>
           {responseRequest.status === 'COMPLETED' ? (
-            <Text accessibilityLiveRegion="polite" style={styles.progressSuccess}>
-              {'\u2713'} Emergency response completed
-            </Text>
+            <View style={styles.completedSummaryCard}>
+              <Text accessibilityLiveRegion="polite" style={styles.progressSuccess}>
+                {'\u2713'} Emergency response completed
+              </Text>
+              <View style={styles.completionDetailsBlock}>
+                <Text style={styles.completionSectionHeading}>COMPLETION DETAILS</Text>
+                <DetailRow label="Completed at" value={formatUpdateTimestamp(responseRequest.completedAt)} />
+                <DetailRow label="Assistance provided" value={displayValue(responseRequest.assistanceProvided)} />
+                <DetailRow label="Completion summary" value={displayValue(responseRequest.completionSummary)} />
+                {responseRequest.responderRemarks ? (
+                  <DetailRow label="Responder remarks" value={displayValue(responseRequest.responderRemarks)} />
+                ) : null}
+              </View>
+            </View>
           ) : progressAction ? (
             <Pressable
               accessibilityLabel={progressAction.label}
@@ -298,6 +420,143 @@ export function ResponderRequestDetailsScreen() {
             </Text>
           ) : null}
         </View>
+      ) : null}
+
+      {/* LDFEW-352: Completion details form rendered when request is IN_PROGRESS */}
+      {canManageResponderProgress(responseRequest, user) && responseRequest.status === 'IN_PROGRESS' ? (
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>RECORD COMPLETION DETAILS</Text>
+          <Text style={styles.decisionHelper}>
+            Document the assistance provided and resolution outcome before completing this request.
+          </Text>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Assistance Provided *</Text>
+            <TextInput
+              accessibilityLabel="Assistance Provided"
+              accessibilityHint="Enter description of assistance provided to residents"
+              editable={!isUpdatingProgress}
+              maxLength={1000}
+              multiline
+              numberOfLines={3}
+              onChangeText={setAssistanceProvidedInput}
+              placeholder="e.g., Evacuated residents safely to designated shelter"
+              placeholderTextColor={dashboardTheme.colors.muted}
+              style={styles.textAreaInput}
+              value={assistanceProvidedInput}
+            />
+            <Text style={styles.charCount}>{assistanceProvidedInput.length} / 1000</Text>
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Completion Summary *</Text>
+            <TextInput
+              accessibilityLabel="Completion Summary"
+              accessibilityHint="Enter overall outcome and resolution summary"
+              editable={!isUpdatingProgress}
+              maxLength={1000}
+              multiline
+              numberOfLines={3}
+              onChangeText={setCompletionSummaryInput}
+              placeholder="e.g., Immediate threat resolved; resident safe and stable"
+              placeholderTextColor={dashboardTheme.colors.muted}
+              style={styles.textAreaInput}
+              value={completionSummaryInput}
+            />
+            <Text style={styles.charCount}>{completionSummaryInput.length} / 1000</Text>
+          </View>
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>Responder Remarks (Optional)</Text>
+            <TextInput
+              accessibilityLabel="Responder Remarks"
+              accessibilityHint="Enter any internal remarks or notes"
+              editable={!isUpdatingProgress}
+              maxLength={1000}
+              multiline
+              numberOfLines={2}
+              onChangeText={setResponderRemarksInput}
+              placeholder="Optional operational or handover remarks..."
+              placeholderTextColor={dashboardTheme.colors.muted}
+              style={styles.textAreaInput}
+              value={responderRemarksInput}
+            />
+            <Text style={styles.charCount}>{responderRemarksInput.length} / 1000</Text>
+          </View>
+        </View>
+      ) : null}
+
+      {/* LDFEW-351: Field Update section for assigned responder */}
+      {canRecordFieldUpdate(responseRequest, user) ? (
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>FIELD UPDATE</Text>
+          <Text style={styles.decisionHelper}>
+            Record on-site observations, status updates, or coordination notes during active response.
+          </Text>
+
+          {/* LDFEW-355: Display previously saved responder update if present */}
+          {responseRequest.fieldNotes ? (
+            <View style={styles.savedNoteBox}>
+              <View style={styles.savedNoteHeader}>
+                <Text style={styles.savedNoteLabel}>PREVIOUSLY SAVED UPDATE</Text>
+                <Text style={styles.savedNoteTimestamp}>
+                  {formatUpdateTimestamp(responseRequest.fieldUpdatedAt)}
+                </Text>
+              </View>
+              <Text style={styles.savedNoteText}>{responseRequest.fieldNotes}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.inputLabel}>
+              {responseRequest.fieldNotes ? 'Update Field Notes' : 'Field Notes *'}
+            </Text>
+            <TextInput
+              accessibilityLabel="Field Update Notes"
+              accessibilityHint="Enter operational notes or field updates"
+              editable={!isSavingFieldUpdate}
+              maxLength={2000}
+              multiline
+              numberOfLines={4}
+              onChangeText={setFieldNotesInput}
+              placeholder="Record operational observations, hazards encountered, or supply updates..."
+              placeholderTextColor={dashboardTheme.colors.muted}
+              style={styles.textAreaInput}
+              value={fieldNotesInput}
+            />
+            <Text style={styles.charCount}>{fieldNotesInput.length} / 2000</Text>
+          </View>
+
+          <Pressable
+            accessibilityLabel="Save Field Update"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: isSavingFieldUpdate || !accessToken?.trim(), busy: isSavingFieldUpdate }}
+            disabled={isSavingFieldUpdate || !accessToken?.trim()}
+            onPress={() => void saveFieldUpdate()}
+            style={({ pressed }) => [
+              styles.secondaryActionButton,
+              (isSavingFieldUpdate || !accessToken?.trim()) && styles.disabledButton,
+              pressed && !isSavingFieldUpdate && styles.pressed
+            ]}
+          >
+            {isSavingFieldUpdate ? <ActivityIndicator color={dashboardTheme.colors.primaryStrong} /> : null}
+            <Text style={styles.secondaryActionButtonText}>
+              {isSavingFieldUpdate ? 'Saving update...' : 'Save Field Update'}
+            </Text>
+          </Pressable>
+
+          {currentFieldFeedback && currentFieldFeedback.kind !== 'saving' ? (
+            <Text
+              accessibilityRole={currentFieldFeedback.kind === 'error' ? 'alert' : 'text'}
+              accessibilityLiveRegion="polite"
+              style={currentFieldFeedback.kind === 'error' ? styles.progressError : styles.progressSuccess}
+            >
+              {currentFieldFeedback.message}
+            </Text>
+          ) : null}
+        </View>
+      ) : responseRequest.status === 'COMPLETED' && responseRequest.fieldNotes ? (
+        <DetailsSection title="SAVED FIELD NOTES">
+          <DetailRow label="Last updated" value={formatUpdateTimestamp(responseRequest.fieldUpdatedAt)} />
+          <Text style={styles.description}>{responseRequest.fieldNotes}</Text>
+        </DetailsSection>
       ) : null}
 
       <DetailsSection title="LOCATION">
@@ -698,5 +957,110 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.8
+  },
+  // LDFEW-266: Styles for field updates and completion details
+  textAreaInput: {
+    minHeight: 80,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.md,
+    padding: 12,
+    fontSize: 15,
+    lineHeight: 22,
+    color: dashboardTheme.colors.text,
+    backgroundColor: '#ffffff',
+    textAlignVertical: 'top'
+  },
+  inputGroup: {
+    gap: 4
+  },
+  inputLabel: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: dashboardTheme.colors.text
+  },
+  charCount: {
+    fontSize: 12,
+    color: dashboardTheme.colors.muted,
+    textAlign: 'right'
+  },
+  savedNoteBox: {
+    padding: 12,
+    backgroundColor: '#f1f5f9',
+    borderRadius: dashboardTheme.radius.md,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    gap: 6
+  },
+  savedNoteHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 4
+  },
+  savedNoteLabel: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+    color: dashboardTheme.colors.info
+  },
+  savedNoteTimestamp: {
+    fontSize: 12,
+    color: dashboardTheme.colors.muted
+  },
+  savedNoteText: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: dashboardTheme.colors.text
+  },
+  secondaryActionButton: {
+    minHeight: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: dashboardTheme.colors.primaryStrong,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  secondaryActionButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  completionFormCard: {
+    gap: 12,
+    paddingTop: 8,
+    paddingBottom: 4
+  },
+  completionFormHeading: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: dashboardTheme.colors.info
+  },
+  completionFormHelper: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: dashboardTheme.colors.muted
+  },
+  completedSummaryCard: {
+    gap: 12
+  },
+  completionDetailsBlock: {
+    gap: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: dashboardTheme.colors.border
+  },
+  completionSectionHeading: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: dashboardTheme.colors.info,
+    marginBottom: 4
   }
 });

@@ -16,9 +16,43 @@ export const cancelResponseRequestSchema = z.object({
   query: z.object({}).strict()
 });
 
+// LDFEW-266: Validation for saving responder operational field notes
+export const recordFieldUpdateSchema = z.object({
+  params: z.object({
+    // Reject malformed IDs before Mongoose can attempt to cast them
+    requestId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'A valid response request id is required.')
+  }).strict(),
+  body: z.object({
+    fieldNotes: z
+      .string({ required_error: 'Field update notes are required.' })
+      .trim()
+      .min(3, 'Field update notes must be at least 3 characters.')
+      .max(2000, 'Field update notes must be at most 2000 characters.')
+  }).strict(),
+  query: z.object({}).strict()
+});
+
+// LDFEW-121 & LDFEW-266: Strict progress transitions, accepting completion details on final completion
 export const responseRequestProgressSchema = z
   .object({
-    status: z.enum(RESPONSE_STATUSES).exclude(['NEW', 'CANCELLED'])
+    status: z.enum(RESPONSE_STATUSES).exclude(['NEW', 'CANCELLED']),
+    assistanceProvided: z
+      .string()
+      .trim()
+      .min(3, 'Assistance provided must be at least 3 characters.')
+      .max(1000, 'Assistance provided must be at most 1000 characters.')
+      .optional(),
+    completionSummary: z
+      .string()
+      .trim()
+      .min(3, 'Completion summary must be at least 3 characters.')
+      .max(1000, 'Completion summary must be at most 1000 characters.')
+      .optional(),
+    responderRemarks: z
+      .string()
+      .trim()
+      .max(1000, 'Responder remarks must be at most 1000 characters.')
+      .optional()
   })
   .strict();
 

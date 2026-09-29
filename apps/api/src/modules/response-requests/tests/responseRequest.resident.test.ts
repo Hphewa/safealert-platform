@@ -174,8 +174,11 @@ describe('resident emergency request retrieval', () => {
 
     for (const status of RESPONSE_PROGRESS_SEQUENCE) {
       if (status !== 'ASSIGNED') {
+        const progressPayload = status === 'COMPLETED'
+          ? { status, assistanceProvided: 'Provided medical aid and blanket', completionSummary: 'Resident safe' }
+          : { status };
         const update = await request(app).patch(`${basePath}/${requestId}/progress`)
-          .auth(responder.token, { type: 'bearer' }).send({ status });
+          .auth(responder.token, { type: 'bearer' }).send(progressPayload);
         expect(update.status).toBe(200);
         persisted = update.body;
       }

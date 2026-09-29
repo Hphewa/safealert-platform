@@ -252,10 +252,82 @@ export class ResponseRequestService {
     return responseRequest;
   }
 
+  // LDFEW-266 / LDFEW-350: Assigned responder records operational field notes
+  async recordFieldUpdate(
+    responseRequestId: string,
+    actor: ResponderActionActor | null | undefined,
+    fieldNotes: string
+  ) {
+    const responderId = this.validateResponderActionInput(responseRequestId, actor);
+
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    if (typeof fieldNotes !== 'string' || !fieldNotes.trim()) {
+      throw new ApiError(400, 'INVALID_FIELD_UPDATE', 'Field update notes are required.');
+    }
+
+    const trimmedNotes = fieldNotes.trim();
+    if (trimmedNotes.length < 3 || trimmedNotes.length > 2000) {
+      throw new ApiError(400, 'INVALID_FIELD_UPDATE', 'Field update notes must be between 3 and 2000 characters.');
+    }
+
+    const requestId = responseRequestId.toLowerCase();
+    const responseRequest = await this.repository.findResponseRequestForProgress(requestId);
+
+    if (!responseRequest) {
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+
+    // Lifecycle enforcement: only allow updates while active (not NEW, CANCELLED, or COMPLETED)
+    if (responseRequest.status === 'NEW') {
+      throw new ApiError(409, 'INVALID_REQUEST_STATUS', 'Cannot record field updates on an unassigned request.');
+    }
+
+    // Enforce assigned-responder authorization strictly on the backend (LDFEW-358)
+    if (responseRequest.assignedResponderId !== responderId) {
+      throw new ApiError(
+        403,
+        'REQUEST_NOT_ASSIGNED',
+        'Only the responder assigned to this request can record field updates.'
+      );
+    }
+
+    if (responseRequest.status === 'CANCELLED') {
+      throw new ApiError(409, 'INVALID_REQUEST_STATUS', 'Cannot record field updates on a cancelled request.');
+    }
+
+    if (responseRequest.status === 'COMPLETED') {
+      throw new ApiError(409, 'INVALID_REQUEST_STATUS', 'Cannot record field updates on a completed request.');
+    }
+
+    const updatedRequest = await this.repository.updateResponseRequestFieldUpdate(
+      requestId,
+      responderId,
+      trimmedNotes
+    );
+
+    if (!updatedRequest) {
+      throw new ApiError(
+        409,
+        'REQUEST_UPDATE_CONFLICT',
+        'This request changed before the field update could be saved. Refresh it and try again.'
+      );
+    }
+
+    return updatedRequest;
+  }
+
   async updateResponseRequestProgress(
     responseRequestId: string,
     actor: ResponderActionActor | null | undefined,
-    nextStatus: ResponseStatus
+    nextStatus: ResponseStatus,
+    completionDetails?: {
+      assistanceProvided: string;
+      completionSummary: string;
+      responderRemarks?: string;
+    }
   ) {
     const responderId = this.validateResponderActionInput(responseRequestId, actor);
 
@@ -287,11 +359,50 @@ export class ResponseRequestService {
       );
     }
 
+    // LDFEW-356: Ensure required completion details are validated before transitioning to COMPLETED
+    if (nextStatus === 'COMPLETED') {
+      if (!completionDetails || (!completionDetails.assistanceProvided && !completionDetails.completionSummary)) {
+        throw new ApiError(
+          400,
+          'COMPLETION_DETAILS_REQUIRED',
+          'Completion details (assistance provided and completion summary) are required to complete this request.'
+        );
+      }
+
+      const trimmedAssistance = completionDetails.assistanceProvided?.trim();
+      const trimmedSummary = completionDetails.completionSummary?.trim();
+
+      if (!trimmedAssistance || trimmedAssistance.length < 3 || trimmedAssistance.length > 1000) {
+        throw new ApiError(
+          400,
+          'INVALID_COMPLETION_DETAILS',
+          'Assistance provided is required and must be between 3 and 1000 characters.'
+        );
+      }
+
+      if (!trimmedSummary || trimmedSummary.length < 3 || trimmedSummary.length > 1000) {
+        throw new ApiError(
+          400,
+          'INVALID_COMPLETION_DETAILS',
+          'Completion summary is required and must be between 3 and 1000 characters.'
+        );
+      }
+
+      if (completionDetails.responderRemarks && completionDetails.responderRemarks.trim().length > 1000) {
+        throw new ApiError(
+          400,
+          'INVALID_COMPLETION_DETAILS',
+          'Responder remarks must be at most 1000 characters.'
+        );
+      }
+    }
+
     const updatedRequest = await this.repository.updateResponseRequestProgress(
       requestId,
       responderId,
       responseRequest.status,
-      nextStatus
+      nextStatus,
+      completionDetails
     );
 
     if (!updatedRequest) {

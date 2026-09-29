@@ -60,11 +60,22 @@ export interface ResponseRequestRepository {
   findResponseRequestForCancellation(responseRequestId: string): Promise<SafeResponseRequest | null>;
   cancelResponseRequest(responseRequestId: string, residentId: string): Promise<SafeResponseRequest | null>;
   findResponseRequestForProgress(responseRequestId: string): Promise<SafeResponseRequest | null>;
+  // LDFEW-266: Persist responder field notes with server-recorded fieldUpdatedAt timestamp
+  updateResponseRequestFieldUpdate(
+    responseRequestId: string,
+    responderId: string,
+    fieldNotes: string
+  ): Promise<SafeResponseRequest | null>;
   updateResponseRequestProgress(
     responseRequestId: string,
     responderId: string,
     currentStatus: ResponseStatus,
-    nextStatus: ResponseStatus
+    nextStatus: ResponseStatus,
+    completionDetails?: {
+      assistanceProvided: string;
+      completionSummary: string;
+      responderRemarks?: string;
+    }
   ): Promise<SafeResponseRequest | null>;
   acceptResponseRequest(
     responseRequestId: string,

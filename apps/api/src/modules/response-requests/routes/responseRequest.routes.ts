@@ -69,5 +69,19 @@ export function createResponseRequestRouter(
     controller.updateProgress
   );
 
+  // LDFEW-266 / LDFEW-350: Assigned Emergency Responder records operational field updates
+  router.patch(
+    '/:requestId/field-update',
+    authenticate(config),
+    authorizeRoles('EMERGENCY_RESPONDER'),
+    controller.recordFieldUpdate
+  );
+  router.patch(
+    '/responder/requests/:requestId/field-update',
+    authenticate(config),
+    authorizeRoles('EMERGENCY_RESPONDER'),
+    controller.recordFieldUpdate
+  );
+
   return router;
 }

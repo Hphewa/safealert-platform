@@ -227,9 +227,12 @@ describe('LDFEW-340 edit lifecycle boundaries', () => {
 
     const responderToken = token(responderId, 'EMERGENCY_RESPONDER');
     for (const status of RESPONSE_PROGRESS_SEQUENCE) {
+      const progressPayload = status === 'COMPLETED'
+        ? { status, assistanceProvided: 'Evacuated resident to shelter', completionSummary: 'Safe transfer completed' }
+        : { status };
       const transition = status === 'ASSIGNED'
         ? await request(app).patch(`${basePath}/responder/requests/${requestId}/accept`).auth(responderToken, { type: 'bearer' })
-        : await request(app).patch(`${basePath}/${requestId}/progress`).auth(responderToken, { type: 'bearer' }).send({ status });
+        : await request(app).patch(`${basePath}/${requestId}/progress`).auth(responderToken, { type: 'bearer' }).send(progressPayload);
       expect(transition.status).toBe(200);
       expect(transition.body).toMatchObject({ ...changed, status, assignedResponderId: responderId });
       const rejected = await request(app).patch(editPath).auth(token(), { type: 'bearer' })

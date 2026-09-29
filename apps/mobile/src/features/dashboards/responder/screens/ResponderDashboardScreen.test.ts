@@ -42,7 +42,7 @@ vi.mock('expo-router', () => ({
   useRouter: () => navigation
 }));
 vi.mock('react-native', () => ({
-  ActivityIndicator: 'span', Pressable: 'button', Text: 'span', View: 'div',
+  ActivityIndicator: 'span', Pressable: 'button', Text: 'span', TextInput: 'input', View: 'div',
   Alert: { alert: vi.fn() },
   StyleSheet: { create: (styles: unknown) => styles }
 }));
