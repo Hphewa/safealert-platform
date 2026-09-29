@@ -122,7 +122,9 @@ export type WarningRiskLevel = (typeof WARNING_RISK_LEVELS)[number];
 export function canCreateWarning(riskLevel: RiskLevel): riskLevel is WarningRiskLevel {
   return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
 }
-export const WARNING_STATUSES = ['DRAFT', 'PUBLISHED'] as const;
+// LDFEW-115 lifecycle: DRAFT → PUBLISHED → CANCELLED/ARCHIVED. The backend is the
+// only source of truth for transitions between these values.
+export const WARNING_STATUSES = ['DRAFT', 'PUBLISHED', 'CANCELLED', 'ARCHIVED'] as const;
 export const WARNING_NOTIFICATION_SCOPES = ['AFFECTED_AREA', 'DISTRICT', 'WHOLE_COUNTRY'] as const;
 export const NOTIFICATION_COUNTRY = 'Sri Lanka' as const;
 export function normalizeNotificationLocation(value: string | null | undefined): string | null {
@@ -171,8 +173,26 @@ export type SafeWarning = CreateWarningRequest & {
   publishedById?: string;
   createdAt: string;
   updatedAt: string;
+  cancelledById?: string;
+  cancelledAt?: string;
+  archivedById?: string;
+  archivedAt?: string;
 };
 export type CreateWarningResponse = { warning: SafeWarning };
+// LDFEW-115: only the permitted content fields are editable. Relationships,
+// risk level, status, and publication information are never part of the input.
+export type UpdateWarningRequest = {
+  assessmentId?: string;
+  affectedArea?: string;
+  requiredAction?: string;
+  unsafeRoads?: string;
+  safeRoutes?: string;
+  message?: string;
+  attachments?: string[];
+};
+export type UpdateWarningResponse = { warning: SafeWarning };
+export type CancelWarningResponse = { warning: SafeWarning };
+export type ArchiveWarningResponse = { warning: SafeWarning };
 export type PublishWarningRequest = { notificationTarget: WarningNotificationTarget };
 export type PublishWarningResponse = { warning: SafeWarning };
 export type ResidentWarning = SafeWarning & { acknowledgedAt?: string; acknowledgementResponse?: WarningAcknowledgementResponse };

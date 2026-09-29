@@ -172,7 +172,7 @@ export function RiskAssessmentResultScreen() {
   return <AssessmentPage title="Risk Assessment Result">
     {!data ? <AssessmentLoadState loading={loading} error={error} retry={() => void reload()} /> : <>
       <View style={assessmentStyles.card}>
-        <Text style={assessmentStyles.heading}>Saved assessment · {displayedAssessment!.status}</Text>
+        <Text style={assessmentStyles.heading}>Saved assessment ï¿½ {displayedAssessment!.status}</Text>
         <Text style={assessmentStyles.label}>Final Risk Level</Text>
         <PriorityBadge priority={displayedAssessment!.finalRiskLevel} />
         <AssessmentDetail label="Decision Reason" value={displayedAssessment!.decisionReason ?? 'Suggested risk accepted without an additional reason.'} />
@@ -183,7 +183,7 @@ export function RiskAssessmentResultScreen() {
         {displayedAssessment!.closureNote ? <AssessmentDetail label="Closure Note" value={displayedAssessment!.closureNote} /> : null}
       </View>
       {displayedAssessment!.status === 'ACTIVE' && canCreateWarning(displayedAssessment!.finalRiskLevel) ? existingWarning ? <AssessmentButton
-        label={existingWarning.status === 'PUBLISHED' ? 'View Published Warning' : 'View/Edit Draft'}
+        label={existingWarning.status === 'PUBLISHED' ? 'View Published Warning' : existingWarning.status === 'DRAFT' ? 'View/Edit Draft' : 'View Warning'}
         disabled={currentBusy}
         onPress={() => router.push({ pathname: '/officer/warnings/[warningId]', params: { warningId: existingWarning.id } })} /> : <AssessmentButton
         label="Create Warning" disabled={currentBusy} onPress={() => router.push({
@@ -270,7 +270,7 @@ export function AssessmentHistorySection({
     <Text style={assessmentStyles.heading}>Assessment History</Text>
     {state.kind === 'loading' ? <>
       <ActivityIndicator color={dashboardTheme.colors.primary} size="small" />
-      <Text style={assessmentStyles.helper}>Loading assessment history…</Text>
+      <Text style={assessmentStyles.helper}>Loading assessment historyï¿½</Text>
     </> : state.kind === 'error' ? <>
       <Text accessibilityRole="alert" style={assessmentStyles.error}>Unable to load assessment history.</Text>
       <AssessmentButton label="Retry" onPress={onRetry} />

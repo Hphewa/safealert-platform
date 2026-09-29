@@ -1,4 +1,4 @@
-import type { CreateWarningRequest, CreateWarningResponse, PublishWarningRequest, PublishWarningResponse, SafeWarning, UploadWarningImageResponse, WarningAcknowledgementsResponse } from '@safealert/contracts';
+import type { ArchiveWarningResponse, CancelWarningResponse, CreateWarningRequest, CreateWarningResponse, PublishWarningRequest, PublishWarningResponse, SafeWarning, UpdateWarningRequest, UpdateWarningResponse, UploadWarningImageResponse, WarningAcknowledgementsResponse } from '@safealert/contracts';
 import { apiRequest } from '../../../../services/api/client';
 import type { WarningPhoto } from '../warningImages';
 
@@ -13,6 +13,16 @@ export function getWarningByAssessment(assessmentId: string, accessToken: string
 }
 export function publishWarning(id: string, input: PublishWarningRequest, accessToken: string) {
   return apiRequest<PublishWarningResponse>(`/warnings/${encodeURIComponent(id)}/publish`, { method: 'POST', body: input, accessToken });
+}
+// LDFEW-115: lifecycle maintenance reuses the same officer auth/channel as publish.
+export function updateWarning(id: string, input: UpdateWarningRequest, accessToken: string) {
+  return apiRequest<UpdateWarningResponse>(`/warnings/${encodeURIComponent(id)}`, { method: 'PATCH', body: input, accessToken });
+}
+export function cancelWarning(id: string, accessToken: string) {
+  return apiRequest<CancelWarningResponse>(`/warnings/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: {}, accessToken });
+}
+export function archiveWarning(id: string, accessToken: string) {
+  return apiRequest<ArchiveWarningResponse>(`/warnings/${encodeURIComponent(id)}/archive`, { method: 'POST', body: {}, accessToken });
 }
 export function getWarningAcknowledgements(id: string, accessToken: string) {
   return apiRequest<WarningAcknowledgementsResponse>(`/warnings/${encodeURIComponent(id)}/acknowledgements`, { accessToken });

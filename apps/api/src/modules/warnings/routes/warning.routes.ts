@@ -52,5 +52,9 @@ export function createWarningRouter(service: WarningService, config: ApiConfig) 
   });
   router.post('/', authorizeRoles('DISASTER_OFFICER'), controller.create);
   router.post('/:warningId/publish', authorizeRoles('DISASTER_OFFICER'), controller.publish);
+  // LDFEW-115: lifecycle maintenance follows the same REST/auth style as publish.
+  router.patch('/:warningId', authorizeRoles('DISASTER_OFFICER'), controller.update);
+  router.post('/:warningId/cancel', authorizeRoles('DISASTER_OFFICER'), controller.cancel);
+  router.post('/:warningId/archive', authorizeRoles('DISASTER_OFFICER'), controller.archive);
   return router;
 }

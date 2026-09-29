@@ -121,6 +121,18 @@ export function assessmentErrorMessage(error: unknown) {
   }
   return error instanceof Error ? error.message : 'Unable to complete this request. Please try again.';
 }
+export function warningLifecycleErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (/WARNING_NOT_FOUND/i.test(error.message)) return 'Warning not found.';
+    if (/WARNING_ALREADY_CANCELLED/i.test(error.message)) return 'This warning has already been cancelled.';
+    if (/WARNING_ALREADY_ARCHIVED/i.test(error.message)) return 'This warning has already been archived.';
+    if (/WARNING_NOT_EDITABLE|WARNING_INVALID_TRANSITION/i.test(error.message)) {
+      return 'This warning cannot be changed in its current state.';
+    }
+    if (/FORBIDDEN|not authorized/i.test(error.message)) return 'You are not authorized to change warnings.';
+  }
+  return error instanceof Error ? error.message : 'Unable to update this warning. Please try again.';
+}
 export function warningPublishErrorMessage(error: unknown) {
   if (error instanceof Error) {
     if (/WARNING_NOT_FOUND/i.test(error.message)) return 'Warning not found.';

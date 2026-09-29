@@ -6,7 +6,9 @@ import {
   WARNING_SAFE_ROUTES_MIN_LENGTH,
   WARNING_UNSAFE_ROADS_MIN_LENGTH,
   type CreateWarningRequest,
-  type RiskAssessmentResponse
+  type RiskAssessmentResponse,
+  type SafeWarning,
+  type UpdateWarningRequest
 } from '@safealert/contracts';
 import { formatIncidentLocation } from './incidentGrouping';
 

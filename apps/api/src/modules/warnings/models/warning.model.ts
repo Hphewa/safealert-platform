@@ -22,9 +22,14 @@ const warningSchema = new mongoose.Schema({
     scope: { type: String, enum: ['AFFECTED_AREA', 'DISTRICT', 'WHOLE_COUNTRY'] },
     district: { type: String, enum: WARNING_DISTRICTS },
     country: { type: String, enum: ['Sri Lanka'] }
-  }
-  ,publishedAt: { type: Date },
-  publishedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' }
+  },
+  publishedAt: { type: Date },
+  publishedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  // LDFEW-115 lifecycle audit: who performed the cancellation/archive and when.
+  cancelledById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  cancelledAt: { type: Date },
+  archivedById: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  archivedAt: { type: Date }
 }, { timestamps: true });
 
 type WarningDocument = InferSchemaType<typeof warningSchema> & { _id: mongoose.Types.ObjectId };
@@ -48,6 +53,10 @@ export function toSafeWarning(warning: WarningDocument): SafeWarning {
     } : {}),
     createdAt: warning.createdAt.toISOString(), updatedAt: warning.updatedAt.toISOString(),
     ...(warning.publishedAt ? { publishedAt: warning.publishedAt.toISOString() } : {}),
-    ...(warning.publishedById ? { publishedById: warning.publishedById.toString() } : {})
+    ...(warning.publishedById ? { publishedById: warning.publishedById.toString() } : {}),
+    ...(warning.cancelledById ? { cancelledById: warning.cancelledById.toString() } : {}),
+    ...(warning.cancelledAt ? { cancelledAt: warning.cancelledAt.toISOString() } : {}),
+    ...(warning.archivedById ? { archivedById: warning.archivedById.toString() } : {}),
+    ...(warning.archivedAt ? { archivedAt: warning.archivedAt.toISOString() } : {})
   };
 }

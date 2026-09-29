@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express';
 import { ApiError } from '../../../shared/apiError.js';
 import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { WarningService } from '../services/warning.service.js';
-import { createWarningSchema, publishWarningSchema } from '../validation/warning.schemas.js';
+import { createWarningSchema, publishWarningSchema, updateWarningSchema } from '../validation/warning.schemas.js';
 
 export function createWarningController(service: WarningService) {
   const create: RequestHandler = asyncHandler(async (request, response) => {
@@ -18,6 +18,24 @@ export function createWarningController(service: WarningService) {
     if (!/^[a-f\d]{24}$/i.test(id)) throw new ApiError(400, 'VALIDATION_ERROR', 'A valid warning ID is required.');
     response.json(await service.publish(request.auth.id, id, publishWarningSchema.parse(request.body)));
   });
+  const update: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    const id = request.params.warningId ?? '';
+    if (!/^[a-f\d]{24}$/i.test(id)) throw new ApiError(400, 'VALIDATION_ERROR', 'A valid warning ID is required.');
+    response.json(await service.update(request.auth.id, id, updateWarningSchema.parse(request.body)));
+  });
+  const cancel: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    const id = request.params.warningId ?? '';
+    if (!/^[a-f\d]{24}$/i.test(id)) throw new ApiError(400, 'VALIDATION_ERROR', 'A valid warning ID is required.');
+    response.json(await service.cancel(request.auth.id, id));
+  });
+  const archive: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    const id = request.params.warningId ?? '';
+    if (!/^[a-f\d]{24}$/i.test(id)) throw new ApiError(400, 'VALIDATION_ERROR', 'A valid warning ID is required.');
+    response.json(await service.archive(request.auth.id, id));
+  });
   const get: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
     const id = request.params.warningId ?? '';
@@ -31,5 +49,5 @@ export function createWarningController(service: WarningService) {
     const warning = await service.getByAssessment(request.params.assessmentId ?? '');
     response.json({ warning });
   });
-  return { create, publish, get, getByAssessment };
+  return { create, publish, update, cancel, archive, get, getByAssessment };
 }

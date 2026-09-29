@@ -16,8 +16,8 @@ import { dashboardTheme } from '../../shared/theme';
 import type { BadgeTone } from '../../shared/types';
 
 // The tab only reuses the existing lifecycle vocabulary: an eligible assessment without
-// a warning is "NEEDS WARNING"; otherwise the persisted DRAFT/PUBLISHED status shows.
-type WarningCardStatus = 'NEEDS WARNING' | 'DRAFT' | 'PUBLISHED';
+// a warning is "NEEDS WARNING"; otherwise the persisted DRAFT/PUBLISHED/CANCELLED/ARCHIVED status shows.
+type WarningCardStatus = 'NEEDS WARNING' | 'DRAFT' | 'PUBLISHED' | 'CANCELLED' | 'ARCHIVED';
 type StatusFilter = 'ALL' | WarningCardStatus;
 
 type WarningRow = {
@@ -36,12 +36,16 @@ const STATUS_FILTERS: { label: string; value: StatusFilter }[] = [
   { label: 'All', value: 'ALL' },
   { label: 'Needs Warning', value: 'NEEDS WARNING' },
   { label: 'Draft', value: 'DRAFT' },
-  { label: 'Published', value: 'PUBLISHED' }
+  { label: 'Published', value: 'PUBLISHED' },
+  { label: 'Cancelled', value: 'CANCELLED' },
+  { label: 'Archived', value: 'ARCHIVED' }
 ];
 
 function warningStatusTone(status: WarningCardStatus): BadgeTone {
   if (status === 'PUBLISHED') return 'success';
   if (status === 'DRAFT') return 'neutral';
+  if (status === 'CANCELLED') return 'high';
+  if (status === 'ARCHIVED') return 'neutral';
   return 'high';
 }
 
@@ -216,7 +220,7 @@ export function OfficerWarningsScreen() {
                   <Text style={styles.dateTime}>{`${row.whenLabel}: ${row.whenTime}`}</Text>
                   {warningId ? (
                     <AssessmentButton
-                      label={row.status === 'PUBLISHED' ? 'View Published Warning' : 'View/Edit Draft'}
+                      label={row.status === 'PUBLISHED' ? 'View Published Warning' : row.status === 'DRAFT' ? 'View/Edit Draft' : 'View Warning'}
                       onPress={() => router.push({ pathname: '/officer/warnings/[warningId]', params: { warningId } })}
                     />
                   ) : (
