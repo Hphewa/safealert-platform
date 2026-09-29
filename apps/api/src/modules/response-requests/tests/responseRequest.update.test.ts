@@ -1,4 +1,4 @@
-import { RESPONSE_STATUSES, USER_ROLES, type SafeResponseRequest, type UpdateResponseRequestRequest, type UserRole } from '@safealert/contracts';
+import { RESPONSE_EDITABLE_STATUS, RESPONSE_PROGRESS_SEQUENCE, RESPONSE_STATUSES, USER_ROLES, type SafeResponseRequest, type UpdateResponseRequestRequest, type UserRole } from '@safealert/contracts';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -118,9 +118,13 @@ describe('LDFEW-338 Resident update API', () => {
 
   it.each(RESPONSE_STATUSES.filter((status) => status !== 'NEW'))('does not edit %s requests', async (status) => {
     const { app, token, repository, original } = context({ status });
+    const write = vi.spyOn(repository, 'updateResidentResponseRequest');
     const response = await request(app).patch(editPath).auth(token(), { type: 'bearer' }).send(editableInput());
     expect(response.status).toBe(409);
-    expect(response.body.error.code).toBe('INVALID_EDIT_STATUS');
+    expect(response.body).toEqual({ error: {
+      code: 'INVALID_EDIT_STATUS', message: 'This request can no longer be edited because its status has changed.'
+    } });
+    expect(write).not.toHaveBeenCalled();
     expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(original);
   });
 
@@ -179,21 +183,103 @@ describe('LDFEW-338 Resident update API', () => {
   it.each(['accept', 'cancel'] as const)('rejects a write if %s wins after the initial lookup', async (action) => {
     const { app, token, repository, original } = context();
     const write = repository.updateResidentResponseRequest.bind(repository);
-    vi.spyOn(repository, 'updateResidentResponseRequest').mockImplementationOnce(async (...args) => {
-      // Simulate the lifecycle changing between the service read and conditional write.
-      if (action === 'accept') await repository.acceptResponseRequest(requestId, responderId);
-      else await repository.cancelResponseRequest(requestId, residentId);
+    let changedRequest: SafeResponseRequest | null = null;
+    const update = vi.spyOn(repository, 'updateResidentResponseRequest').mockImplementationOnce(async (...args) => {
+      // Deterministically interleave a real authenticated lifecycle operation
+      // after the service read but before its write. No timing/sleep assumptions.
+      expect((await repository.findResponseRequestById(requestId, residentId))?.status).toBe(RESPONSE_EDITABLE_STATUS);
+      const transition = action === 'accept'
+        ? await request(app).patch(`${basePath}/responder/requests/${requestId}/accept`)
+          .auth(token(responderId, 'EMERGENCY_RESPONDER'), { type: 'bearer' })
+        : await request(app).patch(`${basePath}/${requestId}/cancel`).auth(token(), { type: 'bearer' });
+      expect(transition.status).toBe(200);
+      changedRequest = await repository.findResponseRequestById(requestId, residentId);
       return write(...args);
     });
     const response = await request(app).patch(editPath).auth(token(), { type: 'bearer' }).send(editableInput());
     expect(response.status).toBe(409);
-    expect(response.body.error.code).toBe('REQUEST_EDIT_CONFLICT');
+    expect(response.body).toEqual({ error: {
+      code: 'REQUEST_EDIT_CONFLICT', message: 'This request changed before it could be updated. Refresh it to see its latest status.'
+    } });
+    expect(update).toHaveBeenCalledTimes(1);
     const refreshed = await request(app).get(editPath).auth(token(), { type: 'bearer' });
+    expect(refreshed.status).toBe(200);
     expect(refreshed.body.responseRequest).toMatchObject({
       status: action === 'accept' ? 'ASSIGNED' : 'CANCELLED', injuredPeople: original.injuredPeople,
       description: original.description
     });
+    // Exact equality protects assignment, all emergency fields and timestamps,
+    // including updatedAt, from being touched by the rejected Resident edit.
+    expect(changedRequest).not.toBeNull();
+    expect(refreshed.body.responseRequest).toEqual(changedRequest);
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(changedRequest);
   });
+});
+
+describe('LDFEW-340 edit lifecycle boundaries', () => {
+  it('preserves NEW on edit, then prevents further edits throughout the responder lifecycle', async () => {
+    const { app, token, original } = context();
+    const changed = editableInput();
+    const edited = await request(app).patch(editPath).auth(token(), { type: 'bearer' }).send(changed);
+    expect(edited.status).toBe(200);
+    expect(edited.body.responseRequest).toEqual({ ...original, ...changed, updatedAt: expect.any(String) });
+    expect(edited.body.responseRequest.status).toBe(RESPONSE_EDITABLE_STATUS);
+
+    const responderToken = token(responderId, 'EMERGENCY_RESPONDER');
+    for (const status of RESPONSE_PROGRESS_SEQUENCE) {
+      const transition = status === 'ASSIGNED'
+        ? await request(app).patch(`${basePath}/responder/requests/${requestId}/accept`).auth(responderToken, { type: 'bearer' })
+        : await request(app).patch(`${basePath}/${requestId}/progress`).auth(responderToken, { type: 'bearer' }).send({ status });
+      expect(transition.status).toBe(200);
+      expect(transition.body).toMatchObject({ ...changed, status, assignedResponderId: responderId });
+      const rejected = await request(app).patch(editPath).auth(token(), { type: 'bearer' })
+        .send({ ...changed, description: 'This stale edit must not persist.' });
+      expect(rejected.status).toBe(409);
+      expect(rejected.body.error.code).toBe('INVALID_EDIT_STATUS');
+      const refreshed = await request(app).get(editPath).auth(token(), { type: 'bearer' });
+      expect(refreshed.status).toBe(200);
+      expect(refreshed.body.responseRequest).toEqual(transition.body);
+    }
+  });
+
+  it('allows cancellation after editing a NEW request and preserves the cancelled record on later edits', async () => {
+    const { app, token } = context();
+    const changed = editableInput();
+    const edited = await request(app).patch(editPath).auth(token(), { type: 'bearer' }).send(changed);
+    expect(edited.status).toBe(200);
+    const cancelled = await request(app).patch(`${basePath}/${requestId}/cancel`).auth(token(), { type: 'bearer' });
+    expect(cancelled.status).toBe(200);
+    expect(cancelled.body.responseRequest).toMatchObject({ ...changed, status: 'CANCELLED' });
+    const rejected = await request(app).patch(editPath).auth(token(), { type: 'bearer' })
+      .send({ ...changed, injuredPeople: 3 });
+    expect(rejected.status).toBe(409);
+    expect(rejected.body.error.code).toBe('INVALID_EDIT_STATUS');
+    const refreshed = await request(app).get(editPath).auth(token(), { type: 'bearer' });
+    expect(refreshed.status).toBe(200);
+    expect(refreshed.body).toEqual(cancelled.body);
+  });
+
+  it('rejects a client attempt to restore NEW on an accepted request', async () => {
+    const { app, token, repository } = context();
+    const accepted = await request(app).patch(`${basePath}/responder/requests/${requestId}/accept`)
+      .auth(token(responderId, 'EMERGENCY_RESPONDER'), { type: 'bearer' });
+    expect(accepted.status).toBe(200);
+    const write = vi.spyOn(repository, 'updateResidentResponseRequest');
+    const rejected = await request(app).patch(editPath).auth(token(), { type: 'bearer' })
+      .send({ ...editableInput(), status: RESPONSE_EDITABLE_STATUS });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error.code).toBe('VALIDATION_ERROR');
+    expect(write).not.toHaveBeenCalled();
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(accepted.body);
+  });
+
+  it.each(RESPONSE_STATUSES.filter((status) => status !== RESPONSE_EDITABLE_STATUS))(
+    'rejects %s even when an internal caller bypasses the service check', async (status) => {
+      const { repository, original } = context({ status });
+      expect(await repository.updateResidentResponseRequest(requestId, residentId, editableInput())).toBeNull();
+      expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(original);
+    }
+  );
 });
 
 describe('LDFEW-339 authenticated Resident ownership', () => {

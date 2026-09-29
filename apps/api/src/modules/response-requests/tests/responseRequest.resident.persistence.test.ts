@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
-import { RESPONSE_PROGRESS_SEQUENCE, RESPONSE_STATUSES, type CreateResponseRequestRequest } from '@safealert/contracts';
+import { RESPONSE_EDITABLE_STATUS, RESPONSE_PROGRESS_SEQUENCE, RESPONSE_STATUSES, type CreateResponseRequestRequest } from '@safealert/contracts';
 import mongoose from 'mongoose';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from '../../../app.js';
 import { loadConfig } from '../../../config/env.js';
@@ -90,6 +90,58 @@ describe.skipIf(!mongodbUri)('Resident emergency tracking MongoDB persistence', 
     expect(stored?.injuredPeople).toBe(2);
     expect(stored?.specialRequirements).toBeUndefined();
   }, 30000);
+
+  it('LDFEW-340: MongoDB rejects an edit when acceptance wins after the service read', async () => {
+    const repository = new MongooseResponseRequestRepository();
+    const app = createApp({ config, authRepository: new InMemoryAuthRepository(), responseRequestRepository: repository });
+    const created = await repository.createResponseRequest({ ...input, residentId, status: RESPONSE_EDITABLE_STATUS });
+    const filter = { _id: new mongoose.Types.ObjectId(created.id) };
+    let acceptedDocument = await ResponseRequestModel.collection.findOne(filter);
+    const write = repository.updateResidentResponseRequest.bind(repository);
+    const update = vi.spyOn(repository, 'updateResidentResponseRequest').mockImplementationOnce(async (...args) => {
+      // Keep the real MongoDB write, but force acceptance into the window after
+      // the service approved NEW. This tests the database predicate, not a mock result.
+      const accepted = await request(app).patch(`${basePath}/responder/requests/${created.id}/accept`)
+        .auth(responderToken, { type: 'bearer' });
+      expect(accepted.status).toBe(200);
+      acceptedDocument = await ResponseRequestModel.collection.findOne(filter);
+      return write(...args);
+    });
+    try {
+      const rejected = await request(app).patch(`${basePath}/mine/${created.id}`)
+        .auth(residentToken, { type: 'bearer' })
+        .send({ ...input, injuredPeople: 2, description: 'This stale edit must not persist.', specialRequirements: '' });
+      expect(rejected.status).toBe(409);
+      expect(rejected.body.error.code).toBe('REQUEST_EDIT_CONFLICT');
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(acceptedDocument?.status).toBe('ASSIGNED');
+      expect(await ResponseRequestModel.collection.findOne(filter)).toEqual(acceptedDocument);
+      const refreshed = await request(freshApp()).get(`${basePath}/mine/${created.id}`).auth(residentToken, { type: 'bearer' });
+      expect(refreshed.status).toBe(200);
+      expect(refreshed.body.responseRequest).toEqual({
+        ...created, status: 'ASSIGNED', assignedResponderId: responderId,
+        acceptedAt: acceptedDocument?.acceptedAt?.toISOString(), updatedAt: acceptedDocument?.updatedAt.toISOString()
+      });
+    } finally {
+      update.mockRestore();
+    }
+  });
+
+  it('LDFEW-340: the MongoDB predicate rejects every non-NEW state without the service guard', async () => {
+    const repository = new MongooseResponseRequestRepository();
+    for (const status of RESPONSE_STATUSES.filter((value) => value !== RESPONSE_EDITABLE_STATUS)) {
+      const created = await repository.createResponseRequest({ ...input, residentId, status: RESPONSE_EDITABLE_STATUS });
+      const filter = { _id: new mongoose.Types.ObjectId(created.id) };
+      // Seed each state to exercise the storage boundary independently of the
+      // service's early rejection; even updatedAt must remain unchanged.
+      await ResponseRequestModel.updateOne(filter, { $set: { status } });
+      const before = await ResponseRequestModel.collection.findOne(filter);
+      expect(await repository.updateResidentResponseRequest(created.id, residentId, {
+        ...input, injuredPeople: 2, specialRequirements: ''
+      })).toBeNull();
+      expect(await ResponseRequestModel.collection.findOne(filter)).toEqual(before);
+    }
+  });
 
   it('persists every responder update across disconnect/reconnect and fresh owner-scoped API reads', async () => {
     let app = freshApp();

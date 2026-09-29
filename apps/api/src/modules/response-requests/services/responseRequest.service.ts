@@ -102,13 +102,17 @@ export class ResponseRequestService {
     if (!current) {
       throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
     }
+    // Responders must be able to rely on accepted emergency details. Only NEW
+    // is editable; this early check cannot replace the repository's write-time check.
     if (current.status !== RESPONSE_EDITABLE_STATUS) {
       throw new ApiError(409, 'INVALID_EDIT_STATUS', 'This request can no longer be edited because its status has changed.');
     }
 
     const responseRequest = await this.repository.updateResidentResponseRequest(requestId, actor.id, input);
     if (!responseRequest) {
-      // Acceptance/cancellation can win after the read; never retry a stale edit.
+      // The owner-scoped read succeeded, but acceptance/cancellation may now have
+      // won. Return a conflict without guessing the new status or retrying the edit;
+      // the authenticated tracking endpoint can safely retrieve the latest state.
       throw new ApiError(409, 'REQUEST_EDIT_CONFLICT', 'This request changed before it could be updated. Refresh it to see its latest status.');
     }
     return { responseRequest };
