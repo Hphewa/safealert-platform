@@ -21,6 +21,7 @@ import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listMyReports } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
+import { listQueuedReports, type OfflineReportQueueItem } from '../offlineReportQueue';
 import {
   filterResidentReports,
   formatResidentReportCount,
@@ -41,11 +42,12 @@ type ResidentReportsLoadStatus = 'idle' | 'loading' | 'refreshing' | 'success' |
 
 export function ResidentReportsScreen() {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const [activeTab, setActiveTab] = useState<ResidentReportFilterKey>('all');
   const [reports, setReports] = useState<SafeReport[]>([]);
   const [loadStatus, setLoadStatus] = useState<ResidentReportsLoadStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [queuedReports, setQueuedReports] = useState<OfflineReportQueueItem[]>([]);
   const inFlightRef = useRef(false);
   const latestRequestIdRef = useRef(0);
   const reportsRef = useRef<SafeReport[]>([]);
@@ -97,15 +99,25 @@ export function ResidentReportsScreen() {
     [accessToken]
   );
 
+  const loadQueuedReports = useCallback(async () => {
+    if (!user?.id) {
+      setQueuedReports([]);
+      return;
+    }
+
+    setQueuedReports(await listQueuedReports(user.id));
+  }, [user?.id]);
+
   useFocusEffect(
     useCallback(() => {
       void loadReports(reportsRef.current.length > 0);
+      void loadQueuedReports();
 
       return () => {
         latestRequestIdRef.current += 1;
         inFlightRef.current = false;
       };
-    }, [loadReports])
+    }, [loadQueuedReports, loadReports])
   );
 
   const filteredReports = filterResidentReports(reports, activeTab);
@@ -113,6 +125,7 @@ export function ResidentReportsScreen() {
   const isRefreshing = loadStatus === 'refreshing';
   const showInitialLoading = loadStatus === 'loading' && reports.length === 0;
   const summaryText = errorMessage && reports.length ? errorMessage : formatResidentReportCount(filteredReports.length, activeTab);
+  const visibleQueuedReports = activeTab === 'all' || activeTab === 'pending' ? queuedReports : [];
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
@@ -201,6 +214,9 @@ export function ResidentReportsScreen() {
               <Text style={[styles.summaryText, errorMessage && reports.length ? styles.errorText : null]}>
                 {summaryText}
               </Text>
+              {visibleQueuedReports.map((item) => (
+                <OfflineReportCard item={item} key={item.id} />
+              ))}
             </View>
           }
           refreshControl={
@@ -217,6 +233,26 @@ export function ResidentReportsScreen() {
         <BottomNavigation items={residentBottomNavItems} />
       </View>
     </SafeAreaView>
+  );
+}
+
+function OfflineReportCard({ item }: { item: OfflineReportQueueItem }) {
+  const hazardLabel = item.draft.hazardType
+    ? hazardLabelForResident(item.draft.hazardType, item.draft.otherHazardType)
+    : 'Hazard report';
+
+  return (
+    <View style={styles.offlineCard}>
+      <View style={styles.offlineCardHeader}>
+        <Text style={styles.offlineCardTitle}>{hazardLabel}</Text>
+        <Text style={styles.offlineBadge}>Saved offline</Text>
+      </View>
+      <Text style={styles.offlineCardText}>
+        {item.status === 'FAILED'
+          ? 'Waiting to retry when connection returns.'
+          : 'Will submit automatically when connection returns.'}
+      </Text>
+    </View>
   );
 }
 
@@ -479,6 +515,36 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: dashboardTheme.colors.primaryStrong
+  },
+  offlineCard: {
+    gap: 6,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.moderate,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.moderateSoft
+  },
+  offlineCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8
+  },
+  offlineCardTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  offlineBadge: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: dashboardTheme.colors.moderate
+  },
+  offlineCardText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: dashboardTheme.colors.muted
   },
   errorText: {
     color: dashboardTheme.colors.critical

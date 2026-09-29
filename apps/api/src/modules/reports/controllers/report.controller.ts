@@ -31,7 +31,8 @@ export function createReportController(reportService: ReportService) {
       ...(parsedInput.mediaReference ? { mediaReference: parsedInput.mediaReference } : {}),
       ...(parsedInput.voiceEvidence ? { voiceEvidence: parsedInput.voiceEvidence } : {})
     };
-    const result = await reportService.createResidentReport(request.auth.id, input);
+    const clientOperationId = request.get('Idempotency-Key')?.trim();
+    const result = await reportService.createResidentReport(request.auth.id, input, clientOperationId || undefined);
 
     response.status(201).json(result);
   });

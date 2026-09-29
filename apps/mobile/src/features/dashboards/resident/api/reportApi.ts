@@ -11,10 +11,11 @@ import type {
 
 import { apiRequest } from '../../../../services/api/client';
 
-export function createResidentReport(input: CreateReportRequest, accessToken: string) {
+export function createResidentReport(input: CreateReportRequest, accessToken: string, clientOperationId?: string) {
   return apiRequest<CreateReportResponse>('/reports', {
     method: 'POST',
     accessToken,
+    ...(clientOperationId ? { idempotencyKey: clientOperationId } : {}),
     body: input
   });
 }

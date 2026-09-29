@@ -168,6 +168,30 @@ describe('report API', () => {
     expect(response.body.report.updatedAt).toBe(response.body.report.createdAt);
   });
 
+  it('returns the existing report for a retried client operation', async () => {
+    const { app } = createTestContext();
+    const resident = await registerResident(app);
+    const operationId = 'resident-offline-operation-1';
+
+    const first = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .set('Idempotency-Key', operationId)
+      .send(validReportPayload);
+    const second = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .set('Idempotency-Key', operationId)
+      .send(validReportPayload);
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(second.body.report.id).toBe(first.body.report.id);
+    expect((await request(app)
+      .get('/api/v1/reports/mine')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)).body.reports).toHaveLength(1);
+  });
+
   it('creates a pending resident hazard report with optional voice evidence metadata', async () => {
     const { app } = createTestContext();
     const resident = await registerResident(app);

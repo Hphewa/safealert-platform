@@ -168,6 +168,11 @@ const reportSchema = new mongoose.Schema(
       ref: 'User',
       index: true
     },
+    clientOperationId: {
+      type: String,
+      trim: true,
+      maxlength: 200
+    },
     communityReportClusterId: {
       type: mongoose.Schema.Types.ObjectId,
       required: false,
@@ -244,6 +249,7 @@ const reportSchema = new mongoose.Schema(
 );
 
 reportSchema.index({ location: '2dsphere' });
+reportSchema.index({ residentId: 1, clientOperationId: 1 }, { unique: true, sparse: true });
 
 export type ReportDocument = InferSchemaType<typeof reportSchema> & {
   _id: { toString(): string };

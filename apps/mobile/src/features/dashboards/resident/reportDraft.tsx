@@ -3,6 +3,7 @@ import {
   createContext,
   useContext,
   useMemo,
+  useEffect,
   useState,
   type Dispatch,
   type ReactNode,
@@ -10,6 +11,12 @@ import {
 } from 'react';
 
 import type { LocalVoiceEvidence } from '../shared/voice/voiceEvidence';
+import { useAuth } from '../../auth/hooks/useAuth';
+import {
+  clearPersistedReportDraft,
+  readPersistedReportDraft,
+  writePersistedReportDraft
+} from './offlineReportQueue';
 
 export type HazardType = 'FLOOD' | 'BLOCKED_ROAD' | 'LANDSLIDE' | 'OTHER';
 export type HazardSeverity = 'LOW' | 'MODERATE' | 'HIGH';
@@ -152,10 +159,46 @@ const initialReportHazardDraft: ReportHazardDraft = {
 };
 
 export function ReportHazardDraftProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [draft, setDraft] = useState<ReportHazardDraft>(initialReportHazardDraft);
   const [submittedReport, setSubmittedReport] = useState<SafeReport | null>(null);
+  const [storageReady, setStorageReady] = useState(false);
   const validation = useMemo(() => validateReportHazardDraft(draft), [draft]);
-  const resetDraft = () => setDraft(initialReportHazardDraft);
+  const resetDraft = () => {
+    setDraft(initialReportHazardDraft);
+    if (user?.id) void clearPersistedReportDraft(user.id);
+  };
+
+  useEffect(() => {
+    let active = true;
+    setStorageReady(false);
+
+    if (!user?.id) {
+      setDraft(initialReportHazardDraft);
+      setStorageReady(true);
+      return () => {
+        active = false;
+      };
+    }
+
+    void readPersistedReportDraft(user.id)
+      .then((storedDraft) => {
+        if (active && storedDraft) setDraft(storedDraft);
+      })
+      .finally(() => {
+        if (active) setStorageReady(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (storageReady && user?.id) {
+      void writePersistedReportDraft(user.id, draft);
+    }
+  }, [draft, storageReady, user?.id]);
   const value = useMemo(
     () => ({
       draft,

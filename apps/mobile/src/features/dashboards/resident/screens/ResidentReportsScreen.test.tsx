@@ -54,6 +54,7 @@ vi.mock('react-native', () => ({
     </div>
   ),
   Pressable: 'button',
+  Image: 'img',
   RefreshControl: 'refresh',
   StyleSheet: { create: (styles: unknown) => styles },
   Text: 'span',

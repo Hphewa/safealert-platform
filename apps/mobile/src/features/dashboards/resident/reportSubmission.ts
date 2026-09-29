@@ -18,7 +18,8 @@ type UploadReportEvidence = (input: {
 
 type CreateResidentReport = (
   input: CreateReportRequest,
-  accessToken: string
+  accessToken: string,
+  clientOperationId?: string
 ) => Promise<CreateReportResponse>;
 
 export type SubmitResidentReportDraftResult = {
@@ -44,6 +45,7 @@ export class ReportSubmissionError extends Error {
 type SubmitResidentReportDraftInput = {
   draft: ReportHazardDraft;
   accessToken: string;
+  clientOperationId?: string;
   uploadReportEvidence: UploadReportEvidence;
   createResidentReport: CreateResidentReport;
   onEvidenceUploaded?: (mediaReference: string) => void;
@@ -53,6 +55,7 @@ type SubmitResidentReportDraftInput = {
 export async function submitResidentReportDraft({
   draft,
   accessToken,
+  clientOperationId,
   uploadReportEvidence,
   createResidentReport,
   onEvidenceUploaded,
@@ -100,7 +103,9 @@ export async function submitResidentReportDraft({
 
   try {
     return {
-      response: await createResidentReport(payload, accessToken),
+        response: clientOperationId
+          ? await createResidentReport(payload, accessToken, clientOperationId)
+          : await createResidentReport(payload, accessToken),
       ...(mediaReference ? { mediaReference } : {}),
       ...(voiceEvidence ? { voiceEvidence } : {})
     };

@@ -8,6 +8,7 @@ type ApiRequestOptions = {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   accessToken?: string | null;
+  idempotencyKey?: string;
 };
 
 export class ApiClientError extends Error {
@@ -39,7 +40,8 @@ export async function apiRequest<TResponse>(path: string, options: ApiRequestOpt
       method: options.method ?? 'GET',
       headers: {
         'Content-Type': 'application/json',
-        ...(options.accessToken ? { Authorization: `Bearer ${options.accessToken}` } : {})
+        ...(options.accessToken ? { Authorization: `Bearer ${options.accessToken}` } : {}),
+        ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {})
       },
       body: options.body ? JSON.stringify(options.body) : undefined
     });

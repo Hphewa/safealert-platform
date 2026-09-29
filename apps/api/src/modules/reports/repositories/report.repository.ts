@@ -11,6 +11,7 @@ import type {
 export type CreateReportInput = CreateReportRequest & {
   residentId: string;
   status: 'PENDING';
+  clientOperationId?: string;
 };
 
 export type SetCommunityReportClusterInput = {
@@ -48,6 +49,7 @@ export interface ReportRepository {
   findReportById(reportId: string): Promise<SafeReport | null>;
   findReportsByResidentId(residentId: string): Promise<SafeReport[]>;
   findReportByIdAndResidentId(reportId: string, residentId: string): Promise<SafeReport | null>;
+  findReportByClientOperationId(residentId: string, clientOperationId: string): Promise<SafeReport | null>;
   findReportsByIds(reportIds: string[]): Promise<SafeReport[]>;
   findReportsByCommunityReportClusterId(communityReportClusterId: string): Promise<SafeReport[]>;
   findVerifiedSummariesByIds(reportIds: string[]): Promise<MonitoringReportSummary[]>;

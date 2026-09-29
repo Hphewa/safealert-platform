@@ -29,6 +29,12 @@ import {
   isReportSubmissionActive
 } from '../reportSubmissionGuard';
 import { ReportSubmissionError, submitResidentReportDraft } from '../reportSubmission';
+import {
+  clearPersistedReportDraft,
+  createReportOperationId,
+  enqueueReportSubmission
+} from '../offlineReportQueue';
+import { prepareDraftForOffline } from '../offlineEvidence';
 
 type SubmitState = {
   status: 'idle' | 'uploading' | 'submitting' | 'error';
@@ -38,11 +44,12 @@ type SubmitState = {
 
 export function ReviewReportScreen() {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const { draft, resetDraft, setDraft, setSubmittedReport, validation } = useReportHazardDraft();
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
   const [locationPlace, setLocationPlace] = useState<string | null>(null);
   const submitInFlightRef = useRef(false);
+  const operationIdRef = useRef(createReportOperationId());
   const isSubmitting = isReportSubmissionActive(submitState.status);
   const canSubmit = canSubmitReport({ isValid: validation.isValid, status: submitState.status });
 
@@ -103,6 +110,7 @@ export function ReviewReportScreen() {
       const result = await submitResidentReportDraft({
         draft,
         accessToken,
+        clientOperationId: operationIdRef.current,
         uploadReportEvidence,
         createResidentReport,
         onEvidenceUploaded: (mediaReference) => {
@@ -152,10 +160,21 @@ export function ReviewReportScreen() {
       router.replace('/resident/report-submitted');
     } catch (error) {
       clearReportSubmission(submitInFlightRef);
-      setSubmitState({
-        status: 'error',
-        ...submitErrorStateFor(error)
-      });
+      const errorState = submitErrorStateFor(error);
+
+      if (errorState.reason === 'network' && user?.id) {
+          const offlineDraft = await prepareDraftForOffline(draft, operationIdRef.current);
+          await enqueueReportSubmission(user.id, offlineDraft, operationIdRef.current);
+        await clearPersistedReportDraft(user.id);
+        setSubmitState({
+          status: 'error',
+          reason: 'network',
+          message: 'Saved offline. SafeAlert will submit this report when you are connected again.'
+        });
+        return;
+      }
+
+      setSubmitState({ status: 'error', ...errorState });
     }
   };
 
