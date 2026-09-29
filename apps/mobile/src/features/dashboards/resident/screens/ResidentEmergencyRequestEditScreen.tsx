@@ -462,9 +462,11 @@ export function ResidentEmergencyRequestEditScreen({
 
     try {
       await updateResidentResponseRequest(normalizedRequestId, payload, accessToken);
-      // Clean navigation back to the request details screen with updated information
+      // Clean navigation back to the request details screen with refreshed flag
+      // so Request Details immediately fetches the updated request from the backend
       router.replace(
-        residentEmergencyRequestDetailsHref(normalizedRequestId) ?? '/resident/my-emergency-requests'
+        residentEmergencyRequestDetailsHref(normalizedRequestId, { refreshed: true }) ??
+          '/resident/my-emergency-requests'
       );
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 409) {

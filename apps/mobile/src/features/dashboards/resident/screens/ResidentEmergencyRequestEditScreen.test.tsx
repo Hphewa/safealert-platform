@@ -10,6 +10,10 @@ import {
   type ResidentEmergencyRequestEditScreenProps
 } from './ResidentEmergencyRequestEditScreen';
 import {
+  ResidentEmergencyRequestDetailsScreen,
+  type ResidentEmergencyRequestDetailsScreenProps
+} from './ResidentEmergencyRequestDetailsScreen';
+import {
   cancelResidentResponseRequest,
   createResidentResponseRequest,
   getMyResponseRequestById,
@@ -24,7 +28,7 @@ import {
 const lifecycle = vi.hoisted(() => ({
   slots: [] as unknown[],
   cursor: 0,
-  params: { requestId: '507f1f77bcf86cd799439011' } as { requestId?: string | string[] },
+  params: { requestId: '507f1f77bcf86cd799439011' } as { requestId?: string | string[]; refreshed?: string },
   effect: (() => undefined) as () => (() => void) | undefined
 }));
 
@@ -161,6 +165,11 @@ const mockNewRequest: SafeResponseRequest = {
 function renderScreen(props?: ResidentEmergencyRequestEditScreenProps) {
   lifecycle.cursor = 0;
   return ResidentEmergencyRequestEditScreen(props);
+}
+
+function renderDetailsScreen(props?: ResidentEmergencyRequestDetailsScreenProps) {
+  lifecycle.cursor = 0;
+  return ResidentEmergencyRequestDetailsScreen(props);
 }
 
 type MockElementProps = {
@@ -1152,7 +1161,7 @@ describe('ResidentEmergencyRequestEditScreen Persistence (LDFEW-345)', () => {
 
     expect(navigation.replace).toHaveBeenCalledWith({
       pathname: '/resident/emergency-request/[requestId]',
-      params: { requestId: mockNewRequest.id }
+      params: { requestId: mockNewRequest.id, refreshed: 'true' }
     });
   });
 
@@ -1378,6 +1387,219 @@ describe('ResidentEmergencyRequestEditScreen Persistence (LDFEW-345)', () => {
     const viewDetails = findByAccessibilityLabel(conflictView, 'View latest request details');
     (viewDetails?.props.onPress ?? viewDetails?.props.onClick)?.();
     expect(onViewDetails).toHaveBeenCalledOnce();
+  });
+});
+
+describe('LDFEW-346: Refresh Resident Request Details after update', () => {
+  const updatedRequest: SafeResponseRequest = {
+    ...mockNewRequest,
+    affectedPeople: 5,
+    injuredPeople: 2,
+    assistanceType: 'FLOOD_ASSISTANCE',
+    roadAccessibility: 'ACCESSIBLE',
+    description: 'Flooding reached ground floor, food spoiled and need clean water.',
+    specialRequirements: 'Baby food and blankets required.',
+    contact: {
+      name: 'Nimal Perera',
+      email: 'nimal@example.test',
+      phoneNumber: '0779998888'
+    },
+    updatedAt: '2026-09-29T10:00:00.000Z'
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id };
+    navigation.canGoBack.mockReturnValue(true);
+    auth.accessToken = 'resident-token';
+  });
+
+  it('1. Confirm Changes succeeds -> router navigates to Request Details with refreshed: true -> Details screen refetches and displays updated backend values', async () => {
+    // Stage 1: Edit screen loads the initial request
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    // Resident advances to Review Changes
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    // Resident clicks Confirm Changes
+    vi.mocked(updateResidentResponseRequest).mockResolvedValueOnce({ responseRequest: updatedRequest });
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    // Navigation replaced with refreshed: 'true' parameter
+    expect(navigation.replace).toHaveBeenCalledWith({
+      pathname: '/resident/emergency-request/[requestId]',
+      params: { requestId: mockNewRequest.id, refreshed: 'true' }
+    });
+
+    // Stage 2: Details screen is mounted with the refreshed route parameter
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id, refreshed: 'true' };
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: updatedRequest });
+
+    renderDetailsScreen();
+    // Initially shows loading state while refetching
+    expect(extractScreenText(renderDetailsScreen())).toContain('Loading your emergency request details');
+
+    // Trigger focus / mount refetch
+    lifecycle.effect?.();
+
+    // Authoritative fetch happens from getMyResponseRequestById with token
+    await vi.waitFor(() => {
+      const text = extractScreenText(renderDetailsScreen());
+      expect(text).toContain('People needing assistance 5');
+    });
+
+    const detailsText = extractScreenText(renderDetailsScreen());
+    // Directly verifies updated fields: injuredPeople updated from 1 to 2
+    expect(detailsText).toContain('Injured people 2');
+    expect(detailsText).toContain('Flood Assistance');
+    expect(detailsText).toContain('Road access Accessible');
+    expect(detailsText).toContain('Flooding reached ground floor, food spoiled and need clean water.');
+    expect(detailsText).toContain('Baby food and blankets required.');
+    expect(detailsText).toContain('0779998888');
+
+    // Does NOT display pre-edit values
+    expect(detailsText).not.toContain('Injured people 1');
+    expect(detailsText).not.toContain('Oxygen cylinder needed');
+
+    // Verified authentic endpoint read
+    expect(getMyResponseRequestById).toHaveBeenCalledWith(mockNewRequest.id, 'resident-token');
+  });
+
+  it('2. App reload or direct deep-link fetches the persisted MongoDB state without relying on route params or stale client state', async () => {
+    // Direct link to the details screen with clean state (simulating fresh page load / reload)
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id };
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: updatedRequest });
+
+    renderDetailsScreen();
+    lifecycle.effect?.();
+
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderDetailsScreen())).toContain('Injured people 2');
+    });
+
+    const text = extractScreenText(renderDetailsScreen());
+    expect(text).toContain('People needing assistance 5');
+    expect(text).toContain('Flood Assistance');
+    expect(text).toContain('Flooding reached ground floor, food spoiled and need clean water.');
+    expect(getMyResponseRequestById).toHaveBeenCalledExactlyOnceWith(mockNewRequest.id, 'resident-token');
+  });
+
+  it('3. Refresh failure on Request Details handles API errors gracefully with error panel and retry action', async () => {
+    // Simulating returning from edit when network drops or backend encounters 500 error
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id, refreshed: 'true' };
+    vi.mocked(getMyResponseRequestById).mockRejectedValueOnce(
+      new ApiClientError(500, 'SERVER_ERROR', 'Database temporarily unavailable')
+    );
+
+    renderDetailsScreen();
+    lifecycle.effect?.();
+
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderDetailsScreen())).toContain('Unable to load request details');
+    });
+
+    const errorText = extractScreenText(renderDetailsScreen());
+    expect(errorText).toContain('Unable to load your emergency request details right now.');
+    // Must NOT display stale request data or crash
+    expect(errorText).not.toContain('Injured people');
+    expect(errorText).not.toContain('Database temporarily unavailable');
+
+    // Retry button is available
+    const retryButton = findByAccessibilityLabel(renderDetailsScreen(), 'Refresh emergency request details');
+    expect(retryButton).toBeDefined();
+
+    // When backend recovers, retry restores the updated details
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: updatedRequest });
+    (retryButton?.props.onPress ?? retryButton?.props.onClick)?.();
+
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderDetailsScreen())).toContain('Injured people 2');
+    });
+    expect(extractScreenText(renderDetailsScreen())).toContain('People needing assistance 5');
+  });
+
+  it('4. Re-editing immediately after update pre-fills the edit form with newly saved values', async () => {
+    // 1. Details screen loads updated request
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id };
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: updatedRequest });
+
+    renderDetailsScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderDetailsScreen())).toContain('Injured people 2');
+    });
+
+    // Edit button is enabled for NEW status
+    const editBtn = findByAccessibilityLabel(renderDetailsScreen(), 'Edit Request');
+    expect(editBtn).toBeDefined();
+    expect(editBtn?.props.disabled).toBe(false);
+
+    // Resident clicks Edit Request
+    (editBtn?.props.onPress ?? editBtn?.props.onClick)?.();
+    expect(navigation.push).toHaveBeenCalledWith({
+      pathname: '/resident/emergency-request/[requestId]/edit',
+      params: { requestId: mockNewRequest.id }
+    });
+
+    // 2. Edit Screen mounts and fetches the latest data from the backend
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id };
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: updatedRequest });
+
+    renderScreen();
+    lifecycle.effect?.();
+
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderScreen())).toContain('Edit Emergency Assistance Request');
+    });
+
+    // Form is pre-filled with the NEW values (not original values)
+    const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    expect(descInput?.props.value).toBe(updatedRequest.description);
+    const specInput = findByAccessibilityLabel(renderScreen(), 'Special requirements');
+    expect(specInput?.props.value).toBe(updatedRequest.specialRequirements);
+    expect(extractScreenText(renderScreen())).toContain('Flood Assistance');
+  });
+
+  it('5. Manual Refresh button in Details header fetches fresh data', async () => {
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id };
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: mockNewRequest });
+
+    renderDetailsScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderDetailsScreen())).toContain('Injured people 1');
+    });
+
+    // Another update occurs on backend; Resident taps Refresh
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: updatedRequest });
+    const refreshButton = findByAccessibilityLabel(renderDetailsScreen(), 'Refresh emergency request details');
+    (refreshButton?.props.onPress ?? refreshButton?.props.onClick)?.();
+
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderDetailsScreen())).toContain('Injured people 2');
+    });
+    expect(getMyResponseRequestById).toHaveBeenCalledTimes(2);
   });
 });
 

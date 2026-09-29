@@ -21,7 +21,10 @@ type DetailsState = {
 
 type CancellationConfirmation = { requestId: string; accessToken: string; readId: number };
 
-export function useMyEmergencyRequestDetails(routeId: string | string[] | undefined) {
+export function useMyEmergencyRequestDetails(
+  routeId: string | string[] | undefined,
+  refreshTrigger?: unknown
+) {
   const { accessToken } = useAuth();
   const requestId = parseResidentEmergencyRequestId(routeId);
   const [state, setState] = useState<DetailsState | null>(null);
@@ -63,7 +66,8 @@ export function useMyEmergencyRequestDetails(routeId: string | string[] | undefi
   }, [requestId, accessToken]);
 
   useFocusEffect(useCallback(() => {
-    // Refetch the same backend request so the status heading and tracker share responder-confirmed progress.
+    // Refetch the same backend request so the status heading, tracker, and details
+    // immediately display responder progress and any freshly confirmed resident edits.
     void refetch();
     // Ignore late responses from a previous focus, request ID or authenticated session.
     return () => {
@@ -71,7 +75,7 @@ export function useMyEmergencyRequestDetails(routeId: string | string[] | undefi
       inFlightRead.current = null;
       confirmationRef.current = null;
     };
-  }, [refetch]));
+  }, [refetch, refreshTrigger]));
 
   // Share the backend's NEW-only rule for visibility and confirmation; unknown
   // statuses fail closed rather than becoming an alternative cancellation path.

@@ -7,12 +7,22 @@ export function parseResidentEmergencyRequestId(value: unknown): string | null {
     : null;
 }
 
-export function residentEmergencyRequestDetailsHref(value: unknown) {
+export function residentEmergencyRequestDetailsHref(
+  value: unknown,
+  options?: { refreshed?: boolean | string }
+) {
   const requestId = parseResidentEmergencyRequestId(value);
-  return requestId ? {
+  if (!requestId) return null;
+  if (options?.refreshed) {
+    return {
+      pathname: '/resident/emergency-request/[requestId]',
+      params: { requestId, refreshed: String(options.refreshed) }
+    } as const satisfies Href;
+  }
+  return {
     pathname: '/resident/emergency-request/[requestId]',
     params: { requestId }
-  } as const satisfies Href : null;
+  } as const satisfies Href;
 }
 
 export function residentEmergencyRequestEditHref(value: unknown) {

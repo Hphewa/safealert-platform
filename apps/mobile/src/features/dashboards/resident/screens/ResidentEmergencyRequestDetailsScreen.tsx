@@ -13,13 +13,18 @@ import { parseResidentEmergencyRequestId, residentEmergencyRequestEditHref } fro
 import { residentBottomNavItems } from '../mockData';
 import { useMyEmergencyRequestDetails } from '../useMyEmergencyRequestDetails';
 
-export function ResidentEmergencyRequestDetailsScreen() {
+export type ResidentEmergencyRequestDetailsScreenProps = {
+  requestId?: string;
+};
+
+export function ResidentEmergencyRequestDetailsScreen(props?: ResidentEmergencyRequestDetailsScreenProps) {
   const router = useRouter();
-  const { requestId } = useLocalSearchParams<{ requestId?: string | string[] }>();
+  const searchParams = useLocalSearchParams<{ requestId?: string | string[]; refreshed?: string }>();
+  const requestId = props?.requestId ?? searchParams.requestId;
   const {
     request, error, refetch, isRefreshing, canRefetch, canCancelRequest, cancellationFeedback,
     isConfirmationOpen, isCancelling, openCancellationConfirmation, keepRequest, confirmCancellation
-  } = useMyEmergencyRequestDetails(requestId);
+  } = useMyEmergencyRequestDetails(requestId, searchParams.refreshed);
   const details = request ? presentResidentEmergencyRequestDetails(request) : null;
   // NEW-only visibility is a UX guard; the backend rechecks ownership and status
   // before persisting any future edit. Never navigate using a mismatched record.
