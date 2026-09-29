@@ -28,7 +28,11 @@ import {
 const lifecycle = vi.hoisted(() => ({
   slots: [] as unknown[],
   cursor: 0,
-  params: { requestId: '507f1f77bcf86cd799439011' } as { requestId?: string | string[]; refreshed?: string },
+  params: { requestId: '507f1f77bcf86cd799439011' } as {
+    requestId?: string | string[];
+    refreshed?: string;
+    updated?: string;
+  },
   effect: (() => undefined) as () => (() => void) | undefined
 }));
 
@@ -1161,7 +1165,7 @@ describe('ResidentEmergencyRequestEditScreen Persistence (LDFEW-345)', () => {
 
     expect(navigation.replace).toHaveBeenCalledWith({
       pathname: '/resident/emergency-request/[requestId]',
-      params: { requestId: mockNewRequest.id, refreshed: 'true' }
+      params: { requestId: mockNewRequest.id, refreshed: 'true', updated: 'true' }
     });
   });
 
@@ -1255,7 +1259,7 @@ describe('ResidentEmergencyRequestEditScreen Persistence (LDFEW-345)', () => {
     // Rerender screen after error state update
     const screenAfterConflict = renderScreen();
     const text = extractScreenText(screenAfterConflict);
-    expect(text).toContain('This emergency request can no longer be edited because its status has changed.');
+    expect(text).toContain('This request can no longer be edited because its status has changed.');
 
     // Confirm Changes is disabled to prevent stale overwrites
     const disabledConfirm = findByAccessibilityLabel(screenAfterConflict, 'Confirm Changes');
@@ -1319,7 +1323,7 @@ describe('ResidentEmergencyRequestEditScreen Persistence (LDFEW-345)', () => {
 
     const screenAfter500 = renderScreen();
     expect(extractScreenText(screenAfter500)).toContain(
-      'SafeAlert could not save your changes. Your edits were preserved, so you can retry.'
+      "We couldn't update your request. Check your connection and try again."
     );
 
     // Button is not disabled for non-conflict errors, allowing retry
@@ -1378,11 +1382,11 @@ describe('ResidentEmergencyRequestEditScreen Persistence (LDFEW-345)', () => {
       onBackToEdit,
       onConfirmChanges,
       isConflictError: true,
-      submitError: 'This emergency request can no longer be edited because its status has changed.',
+      submitError: 'This request can no longer be edited because its status has changed.',
       onViewDetails
     });
     expect(extractScreenText(conflictView)).toContain(
-      'This emergency request can no longer be edited because its status has changed.'
+      'This request can no longer be edited because its status has changed.'
     );
     const viewDetails = findByAccessibilityLabel(conflictView, 'View latest request details');
     (viewDetails?.props.onPress ?? viewDetails?.props.onClick)?.();
@@ -1434,16 +1438,16 @@ describe('LDFEW-346: Refresh Resident Request Details after update', () => {
     const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
     await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
 
-    // Navigation replaced with refreshed: 'true' parameter
+    // Navigation replaced with refreshed: 'true' and updated: 'true' parameters
     expect(navigation.replace).toHaveBeenCalledWith({
       pathname: '/resident/emergency-request/[requestId]',
-      params: { requestId: mockNewRequest.id, refreshed: 'true' }
+      params: { requestId: mockNewRequest.id, refreshed: 'true', updated: 'true' }
     });
 
     // Stage 2: Details screen is mounted with the refreshed route parameter
     lifecycle.slots = [];
     lifecycle.cursor = 0;
-    lifecycle.params = { requestId: mockNewRequest.id, refreshed: 'true' };
+    lifecycle.params = { requestId: mockNewRequest.id, refreshed: 'true', updated: 'true' };
     vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: updatedRequest });
 
     renderDetailsScreen();
@@ -1460,6 +1464,8 @@ describe('LDFEW-346: Refresh Resident Request Details after update', () => {
     });
 
     const detailsText = extractScreenText(renderDetailsScreen());
+    // Directly verifies success message displayed on Request Details
+    expect(detailsText).toContain('Request updated successfully.');
     // Directly verifies updated fields: injuredPeople updated from 1 to 2
     expect(detailsText).toContain('Injured people 2');
     expect(detailsText).toContain('Flood Assistance');
@@ -1600,6 +1606,275 @@ describe('LDFEW-346: Refresh Resident Request Details after update', () => {
       expect(extractScreenText(renderDetailsScreen())).toContain('Injured people 2');
     });
     expect(getMyResponseRequestById).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('LDFEW-347: Add success, loading and error handling', () => {
+  const updatedRequest: SafeResponseRequest = {
+    ...mockNewRequest,
+    affectedPeople: 5,
+    injuredPeople: 2,
+    assistanceType: 'FLOOD_ASSISTANCE',
+    roadAccessibility: 'ACCESSIBLE',
+    description: 'Flooding reached ground floor, food spoiled and need clean water.',
+    specialRequirements: 'Baby food and blankets required.',
+    contact: {
+      name: 'Nimal Perera',
+      email: 'nimal@example.test',
+      phoneNumber: '0779998888'
+    },
+    updatedAt: '2026-09-29T10:00:00.000Z'
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id };
+    navigation.canGoBack.mockReturnValue(true);
+    auth.accessToken = 'resident-token';
+  });
+
+  it('1. Confirm Changes enters saving/loading state and disables action buttons while in flight', async () => {
+    let resolveApi: (value: { responseRequest: SafeResponseRequest }) => void = () => undefined;
+    const pendingPromise = new Promise<{ responseRequest: SafeResponseRequest }>((resolve) => {
+      resolveApi = resolve;
+    });
+    vi.mocked(updateResidentResponseRequest).mockReturnValue(pendingPromise);
+
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    const submitPromise = (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    const inFlightScreen = renderScreen();
+    // 1. Confirm Changes enters saving/loading state with friendly text "Saving changes..."
+    expect(extractScreenText(inFlightScreen)).toContain('Saving changes...');
+
+    // 2. Action buttons are disabled while saving
+    const inFlightConfirm = findByAccessibilityLabel(inFlightScreen, 'Confirm Changes');
+    expect(inFlightConfirm?.props.disabled).toBe(true);
+    const inFlightBack = findByAccessibilityLabel(inFlightScreen, 'Back to Edit');
+    expect(inFlightBack?.props.disabled).toBe(true);
+
+    // Complete saving
+    resolveApi({ responseRequest: updatedRequest });
+    await submitPromise;
+  });
+
+  it('2. Multiple rapid taps on Confirm Changes result in only ONE update request', async () => {
+    let resolveApi: (value: { responseRequest: SafeResponseRequest }) => void = () => undefined;
+    const pendingPromise = new Promise<{ responseRequest: SafeResponseRequest }>((resolve) => {
+      resolveApi = resolve;
+    });
+    vi.mocked(updateResidentResponseRequest).mockReturnValue(pendingPromise);
+
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    // First tap initiates update
+    const firstTap = (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+    // Immediate rapid subsequent taps while in flight
+    const secondTap = (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+    const thirdTap = (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    // 3. Mutex guard ensures only one update dispatch occurs
+    expect(updateResidentResponseRequest).toHaveBeenCalledTimes(1);
+
+    resolveApi({ responseRequest: updatedRequest });
+    await firstTap;
+    await secondTap;
+    await thirdTap;
+  });
+
+  it('3. Successful update shows success message and navigates to refreshed Request Details', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    vi.mocked(updateResidentResponseRequest).mockResolvedValueOnce({ responseRequest: updatedRequest });
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    // 4 & 5. Navigation replaced with refreshed: true and updated: true flags
+    expect(navigation.replace).toHaveBeenCalledWith({
+      pathname: '/resident/emergency-request/[requestId]',
+      params: { requestId: mockNewRequest.id, refreshed: 'true', updated: 'true' }
+    });
+
+    // Render Request Details with returned flags
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id, refreshed: 'true', updated: 'true' };
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: updatedRequest });
+
+    renderDetailsScreen();
+    lifecycle.effect?.();
+
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderDetailsScreen())).toContain('Request updated successfully.');
+    });
+
+    const detailsText = extractScreenText(renderDetailsScreen());
+    expect(detailsText).toContain('Request updated successfully.');
+    expect(detailsText).toContain('Injured people 2');
+    expect(detailsText).toContain('Flood Assistance');
+  });
+
+  it('4. Validation failure keeps entered values, shows friendly error, and prevents update submission', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Short emergency description')).toBeDefined();
+    });
+
+    // Enter invalid whitespace description
+    const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    descInput?.props.onChangeText?.('   ');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    // 6. Validation error prevents proceeding or submitting
+    expect(updateResidentResponseRequest).not.toHaveBeenCalled();
+    const screen = renderScreen();
+    expect(extractScreenText(screen)).toContain('Describe the emergency.');
+    expect(extractScreenText(screen)).toContain('Please correct the highlighted fields before continuing.');
+  });
+
+  it('5. Network/server failure shows friendly message, preserves in-memory edits, and re-enables Confirm Changes for retry', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    // 7. Network drop occurs (status 0 / NETWORK_ERROR)
+    vi.mocked(updateResidentResponseRequest).mockRejectedValueOnce(
+      new ApiClientError(0, 'NETWORK_ERROR', 'Network connection dropped')
+    );
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    const screenAfterNetworkError = renderScreen();
+    const errorText = extractScreenText(screenAfterNetworkError);
+    // User-friendly plain wording without technical stack traces
+    expect(errorText).toContain("We couldn't update your request. Check your connection and try again.");
+    expect(errorText).not.toContain('Network connection dropped');
+    expect(errorText).not.toContain('NETWORK_ERROR');
+
+    // 8 & 9. Edits are preserved and Confirm Changes is re-enabled for retry
+    const retryConfirm = findByAccessibilityLabel(screenAfterNetworkError, 'Confirm Changes');
+    expect(retryConfirm?.props.disabled).toBe(false);
+
+    // Can return to edit without losing changes
+    const backToEdit = findByAccessibilityLabel(screenAfterNetworkError, 'Back to Edit');
+    (backToEdit?.props.onPress ?? backToEdit?.props.onClick)?.();
+
+    const editScreen = renderScreen();
+    expect(extractScreenText(editScreen)).toContain('Edit Emergency Assistance Request');
+    const preservedDesc = findByAccessibilityLabel(editScreen, 'Short emergency description');
+    expect(preservedDesc?.props.value).toBe(mockNewRequest.description);
+
+    // Proceed to review and retry successfully
+    (findByAccessibilityLabel(editScreen, 'Review Changes')?.props.onPress ?? findByAccessibilityLabel(editScreen, 'Review Changes')?.props.onClick)?.();
+    vi.mocked(updateResidentResponseRequest).mockResolvedValueOnce({ responseRequest: updatedRequest });
+    const retryButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (retryButton?.props.onPress ?? retryButton?.props.onClick)?.();
+
+    expect(navigation.replace).toHaveBeenCalledWith({
+      pathname: '/resident/emergency-request/[requestId]',
+      params: { requestId: mockNewRequest.id, refreshed: 'true', updated: 'true' }
+    });
+  });
+
+  it('6. Lifecycle conflict (409) displays friendly message, prevents stale overwrite, and refreshes server status where edit capability disappears', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    // 10. Lifecycle race condition: responder accepted request while editing, backend returns 409
+    vi.mocked(updateResidentResponseRequest).mockRejectedValueOnce(
+      new ApiClientError(409, 'STATUS_CONFLICT', 'Request has been assigned to responder')
+    );
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    const conflictScreen = renderScreen();
+    const conflictText = extractScreenText(conflictScreen);
+    expect(conflictText).toContain('This request can no longer be edited because its status has changed.');
+    expect(conflictText).not.toContain('STATUS_CONFLICT');
+
+    // Confirm Changes is disabled to prevent stale overwrites
+    const disabledConfirm = findByAccessibilityLabel(conflictScreen, 'Confirm Changes');
+    expect(disabledConfirm?.props.disabled).toBe(true);
+
+    // View latest request details button is available
+    const viewDetailsButton = findByAccessibilityLabel(conflictScreen, 'View latest request details');
+    expect(viewDetailsButton).toBeDefined();
+
+    // 11 & 12. Tap View Request Details -> returns to Request Details and refetches server state
+    (viewDetailsButton?.props.onPress ?? viewDetailsButton?.props.onClick)?.();
+    expect(navigation.back).toHaveBeenCalled();
+
+    // Details screen renders the accepted/assigned request returned by backend
+    const assignedRequest: SafeResponseRequest = {
+      ...mockNewRequest,
+      status: 'ASSIGNED',
+      assignedResponderId: 'responder-1'
+    };
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id, refreshed: 'true' };
+    vi.mocked(getMyResponseRequestById).mockResolvedValueOnce({ responseRequest: assignedRequest });
+
+    renderDetailsScreen();
+    lifecycle.effect?.();
+
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderDetailsScreen())).toContain('Status:  Assigned');
+    });
+
+    const refreshedDetailsText = extractScreenText(renderDetailsScreen());
+    expect(refreshedDetailsText).toContain('Status:  Assigned');
+    // Edit action is no longer available when the lifecycle rules say editing is not allowed
+    expect(findByAccessibilityLabel(renderDetailsScreen(), 'Edit Request')).toBeNull();
+    expect(refreshedDetailsText).toContain('This request can no longer be edited because an Emergency Responder has already accepted it.');
   });
 });
 

@@ -9,19 +9,20 @@ export function parseResidentEmergencyRequestId(value: unknown): string | null {
 
 export function residentEmergencyRequestDetailsHref(
   value: unknown,
-  options?: { refreshed?: boolean | string }
+  options?: { refreshed?: boolean | string; updated?: boolean | string }
 ) {
   const requestId = parseResidentEmergencyRequestId(value);
   if (!requestId) return null;
+  const params: Record<string, string> = { requestId };
   if (options?.refreshed) {
-    return {
-      pathname: '/resident/emergency-request/[requestId]',
-      params: { requestId, refreshed: String(options.refreshed) }
-    } as const satisfies Href;
+    params.refreshed = String(options.refreshed);
+  }
+  if (options?.updated) {
+    params.updated = String(options.updated);
   }
   return {
     pathname: '/resident/emergency-request/[requestId]',
-    params: { requestId }
+    params
   } as const satisfies Href;
 }
 

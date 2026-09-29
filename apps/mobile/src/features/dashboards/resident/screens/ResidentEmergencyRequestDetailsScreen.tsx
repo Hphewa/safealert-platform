@@ -19,12 +19,23 @@ export type ResidentEmergencyRequestDetailsScreenProps = {
 
 export function ResidentEmergencyRequestDetailsScreen(props?: ResidentEmergencyRequestDetailsScreenProps) {
   const router = useRouter();
-  const searchParams = useLocalSearchParams<{ requestId?: string | string[]; refreshed?: string }>();
+  const searchParams = useLocalSearchParams<{
+    requestId?: string | string[];
+    refreshed?: string;
+    updated?: string;
+  }>();
   const requestId = props?.requestId ?? searchParams.requestId;
   const {
     request, error, refetch, isRefreshing, canRefetch, canCancelRequest, cancellationFeedback,
     isConfirmationOpen, isCancelling, openCancellationConfirmation, keepRequest, confirmCancellation
   } = useMyEmergencyRequestDetails(requestId, searchParams.refreshed);
+
+  // Show clear, accessible success feedback when returning after an emergency request update.
+  // Reuses the established feedback banner pattern for smooth and predictable mobile UX.
+  const updateFeedback = searchParams.updated === 'true'
+    ? { kind: 'success' as const, message: 'Request updated successfully.' }
+    : undefined;
+  const activeFeedback = updateFeedback ?? cancellationFeedback;
   const details = request ? presentResidentEmergencyRequestDetails(request) : null;
   // NEW-only visibility is a UX guard; the backend rechecks ownership and status
   // before persisting any future edit. Never navigate using a mismatched record.
@@ -84,13 +95,13 @@ export function ResidentEmergencyRequestDetailsScreen(props?: ResidentEmergencyR
               ))}
             </View>
           ))}
-          {cancellationFeedback ? (
+          {activeFeedback ? (
             <Text
               accessible
               accessibilityLiveRegion="polite"
-              style={[styles.feedback, cancellationFeedback.kind === 'success' ? styles.successFeedback : styles.errorFeedback]}
+              style={[styles.feedback, activeFeedback.kind === 'success' ? styles.successFeedback : styles.errorFeedback]}
             >
-              {cancellationFeedback.message}
+              {activeFeedback.message}
             </Text>
           ) : null}
           {editHref ? (
@@ -127,7 +138,7 @@ export function ResidentEmergencyRequestDetailsScreen(props?: ResidentEmergencyR
       ) : (
         <EmergencyRequestStatePanel
           title={error ? 'Unable to load request details' : 'Loading your emergency request details...'}
-          message={cancellationFeedback?.message ?? error ?? undefined}
+          message={activeFeedback?.message ?? error ?? undefined}
           loading={isRefreshing}
           onRetry={error && canRefetch ? () => void refetch() : undefined}
         />

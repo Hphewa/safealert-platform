@@ -387,9 +387,16 @@ export function ResidentEmergencyRequestEditScreen({
       : null;
 
   const returnToDetails = () => {
-    // Return safely without saving any changes to the backend.
+    // Return to Request Details screen without saving in-memory edits.
+    // If a conflict occurred, use replace with refreshed: true when history is absent,
+    // or router.back() to pop the edit screen off the stack so Request Details regains focus and refetches.
     if (router.canGoBack()) router.back();
-    else router.replace(residentEmergencyRequestDetailsHref(requestId) ?? '/resident/my-emergency-requests');
+    else {
+      router.replace(
+        residentEmergencyRequestDetailsHref(requestId, isConflictError ? { refreshed: true } : undefined) ??
+          '/resident/my-emergency-requests'
+      );
+    }
   };
 
   const handleBackToEdit = () => {
@@ -400,8 +407,9 @@ export function ResidentEmergencyRequestEditScreen({
   };
 
   const handleConfirmChanges = async () => {
-    // Hand off the reviewed changes for persistence to MongoDB via the backend update endpoint.
-    // Guard against concurrent/duplicate taps while submission is in-flight.
+    // Hand off the reviewed changes for persistence to MongoDB via the authenticated endpoint.
+    // Guard against rapid duplicate taps: synchronously check and set submitInFlightRef before
+    // React has a chance to trigger a re-render to disable the button.
     if (!currentForm || submitInFlightRef.current || isSubmitting) return;
 
     // Call onConfirmChanges callback prop if supplied (e.g. for testing/observation)
@@ -419,9 +427,10 @@ export function ResidentEmergencyRequestEditScreen({
     }
 
     // Defensive client-side validation check before network dispatch.
+    // If invalid, keep the Resident on the screen with edits preserved and clear guidance.
     const validationResult = validateResidentEmergencyRequestEditForm(currentForm);
     if (!validationResult.isValid) {
-      setSubmitError('Please correct the highlighted fields before saving.');
+      setSubmitError('Please check the information entered and try again.');
       return;
     }
 
@@ -455,6 +464,7 @@ export function ResidentEmergencyRequestEditScreen({
         : {})
     };
 
+    // Synchronous mutex lock prevents concurrent dispatch while asynchronous request is in flight.
     submitInFlightRef.current = true;
     setIsSubmitting(true);
     setSubmitError(null);
@@ -462,23 +472,31 @@ export function ResidentEmergencyRequestEditScreen({
 
     try {
       await updateResidentResponseRequest(normalizedRequestId, payload, accessToken);
-      // Clean navigation back to the request details screen with refreshed flag
-      // so Request Details immediately fetches the updated request from the backend
+      // Clean navigation back to the request details screen with refreshed and updated flags
+      // so Request Details immediately fetches the updated request from the backend and displays success feedback.
       router.replace(
-        residentEmergencyRequestDetailsHref(normalizedRequestId, { refreshed: true }) ??
+        residentEmergencyRequestDetailsHref(normalizedRequestId, { refreshed: true, updated: true }) ??
           '/resident/my-emergency-requests'
       );
     } catch (err) {
       if (err instanceof ApiClientError && err.status === 409) {
-        // Lifecycle conflict: request status changed (e.g. accepted by an Emergency Responder).
-        // Prevent stale edits from overwriting accepted emergencies.
+        // Lifecycle conflict: request status changed (e.g. accepted/dispatched by an Emergency Responder).
+        // The backend remains the authoritative source of truth. Lock confirm changes to prevent overwriting
+        // active responder operations, display a clear user-facing explanation on the review screen, and offer
+        // a direct action to view the latest request details.
         setIsConflictError(true);
         setSubmitError(
-          'This emergency request can no longer be edited because its status has changed.'
+          'This request can no longer be edited because its status has changed.'
         );
       } else if (err instanceof ApiClientError && err.status === 400) {
+        // Validation error: keep edits intact and display readable validation guidance.
         setSubmitError(
-          err.message || 'Some emergency request details are invalid. Please check the form and try again.'
+          err.message || 'Please check the information entered and try again.'
+        );
+      } else if (err instanceof ApiClientError && (err.status === 0 || err.code === 'NETWORK_ERROR')) {
+        // Network failure: preserve all user-entered details in memory and allow retry without data loss.
+        setSubmitError(
+          "We couldn't update your request. Check your connection and try again."
         );
       } else if (err instanceof ApiClientError && (err.status === 401 || err.status === 403)) {
         setSubmitError(
@@ -487,12 +505,14 @@ export function ResidentEmergencyRequestEditScreen({
       } else if (err instanceof ApiClientError && err.status === 404) {
         setSubmitError('Emergency request not found.');
       } else {
-        // Network or server failure: keep all in-memory form values intact so the user can retry.
+        // Server or unexpected failure: keep all in-memory form values intact so the user can retry.
+        // Never expose raw backend exceptions, stack traces, or technical IDs to the resident.
         setSubmitError(
-          'SafeAlert could not save your changes. Your edits were preserved, so you can retry.'
+          "We couldn't update your request. Check your connection and try again."
         );
       }
     } finally {
+      // Re-enable submission state on failure so the resident can correct issues and retry.
       submitInFlightRef.current = false;
       setIsSubmitting(false);
     }
