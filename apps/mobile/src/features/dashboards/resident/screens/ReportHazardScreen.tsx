@@ -4,13 +4,15 @@ import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View 
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 
+import photoEvidenceIcon from '../../../../../assets/evidence/photo-evidence.png';
+import voiceEvidenceIcon from '../../../../../assets/evidence/voice-evidence.png';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import {
-  captureCurrentLocation as captureCurrentDeviceLocation,
-  formatCoordinate
+  captureCurrentLocation as captureCurrentDeviceLocation
 } from '../../shared/currentLocation';
 import { LocationPreview } from '../../shared/maps/LocationPreview';
+import { reverseGeocodePlace } from '../../shared/maps/locationSearch';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { VoiceNoteRecorder } from '../../shared/voice/VoiceNoteRecorder';
 import type { LocalVoiceEvidence } from '../../shared/voice/voiceEvidence';
@@ -61,8 +63,8 @@ const severityOptions: Array<{
   {
     label: 'High',
     value: 'HIGH',
-    color: dashboardTheme.colors.high,
-    softColor: dashboardTheme.colors.highSoft,
+    color: dashboardTheme.colors.critical,
+    softColor: dashboardTheme.colors.criticalSoft,
     description: 'Serious danger or major disruption'
   }
 ];
@@ -71,6 +73,7 @@ export function ReportHazardScreen() {
   const router = useRouter();
   const { draft, setDraft, validation } = useReportHazardDraft();
   const [reviewAttempted, setReviewAttempted] = useState(false);
+  const [placeName, setPlaceName] = useState<string | null>(null);
   const canReviewReport = validation.isValid;
 
   const captureCurrentLocation = useCallback(async () => {
@@ -129,6 +132,36 @@ export function ReportHazardScreen() {
       void captureCurrentLocation();
     }
   }, [captureCurrentLocation, draft.location.status]);
+
+  useEffect(() => {
+    if (draft.location.status !== 'DETECTED') {
+      setPlaceName(null);
+      return;
+    }
+
+    let isCurrent = true;
+    setPlaceName(null);
+
+    void reverseGeocodePlace(draft.location.latitude, draft.location.longitude)
+      .then((nextPlaceName) => {
+        if (isCurrent) {
+          setPlaceName(nextPlaceName ?? 'Place unavailable');
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          setPlaceName('Place unavailable');
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [
+    draft.location.status,
+    draft.location.status === 'DETECTED' ? draft.location.latitude : null,
+    draft.location.status === 'DETECTED' ? draft.location.longitude : null
+  ]);
 
   const setHazardType = (hazardType: HazardType) => {
     setDraft((current) => ({
@@ -362,11 +395,12 @@ export function ReportHazardScreen() {
       </View>
 
       <View style={styles.locationPanel}>
-        <View style={styles.panelIcon}>
-          <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="locate-outline" size={20} />
-        </View>
-        <View style={styles.panelBody}>
-          <Text style={styles.panelTitle}>Report location</Text>
+        <View style={styles.locationHeader}>
+          <View style={styles.panelIcon}>
+            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="locate-outline" size={20} />
+          </View>
+          <View style={styles.panelBody}>
+            <Text style={styles.panelTitle}>Hazard location</Text>
           {draft.location.status === 'REQUESTING_PERMISSION' ? (
             <LocationStatusMessage message="Requesting location permission..." showSpinner />
           ) : null}
@@ -376,17 +410,27 @@ export function ReportHazardScreen() {
           {draft.location.status === 'DETECTED' ? (
             <View style={styles.detectedLocation}>
               <Text style={styles.detectedText}>Location detected</Text>
-              <Text style={styles.locationHintText}>We will attach this location to your report.</Text>
-              <Text style={styles.coordinateText}>
-                {formatCoordinate(draft.location.latitude)}, {formatCoordinate(draft.location.longitude)}
-              </Text>
+              <Text style={styles.locationPlaceText}>{placeName ?? 'Finding nearby place...'}</Text>
             </View>
           ) : null}
           {draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR' ? (
             <Text style={styles.errorText}>{draft.location.errorMessage}</Text>
           ) : null}
           <ValidationMessage message={reviewAttempted ? validation.errors.location : undefined} />
+          </View>
         </View>
+        {draft.location.status === 'DETECTED' ? (
+          <View style={styles.locationPreviewWrap}>
+            <LocationPreview
+              coordinates={{
+                latitude: draft.location.latitude,
+                longitude: draft.location.longitude
+              }}
+              height={128}
+              title="Hazard location"
+            />
+          </View>
+        ) : null}
         <View style={styles.locationActions}>
           {(draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR') && (
             <Pressable
@@ -397,7 +441,7 @@ export function ReportHazardScreen() {
               }}
               style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
             >
-              <Text style={styles.retryButtonText}>Retry</Text>
+              <Text style={styles.retryButtonText}>Retry location</Text>
             </Pressable>
           )}
           <Pressable
@@ -406,29 +450,24 @@ export function ReportHazardScreen() {
             onPress={() => router.push('/resident/adjust-report-location')}
             style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
           >
-            <Text style={styles.secondaryButtonText}>Adjust Location</Text>
+            <Text style={styles.secondaryButtonText}>Change location</Text>
           </Pressable>
         </View>
-        {draft.location.status === 'DETECTED' ? (
-          <View style={styles.locationPreviewWrap}>
-            <LocationPreview
-              coordinates={{
-                latitude: draft.location.latitude,
-                longitude: draft.location.longitude
-              }}
-              height={180}
-              title="Hazard location"
-            />
-          </View>
-        ) : null}
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Evidence</Text>
-        <Text style={styles.sectionHelper}>Add evidence only if it is safe to do so.</Text>
       </View>
 
       <View style={styles.photoPanel}>
+        <View style={styles.panelHeaderInline}>
+          <View style={styles.panelIcon}>
+            <Image accessibilityLabel="Photo evidence" source={photoEvidenceIcon} style={styles.evidenceIcon} />
+          </View>
+          <View style={styles.panelBody}>
+            <Text style={styles.panelTitle}>Photo evidence</Text>
+          </View>
+        </View>
         {draft.photoEvidence.status === 'LOCAL_SELECTED' ? (
           <Image
             accessibilityLabel="Selected hazard evidence preview"
@@ -440,29 +479,21 @@ export function ReportHazardScreen() {
             {draft.photoEvidence.status === 'REQUESTING_PERMISSION' || draft.photoEvidence.status === 'PICKING' ? (
               <ActivityIndicator color={dashboardTheme.colors.info} size="small" />
             ) : (
-              <DashboardGlyph color={dashboardTheme.colors.info} name="camera-outline" size={24} />
+              <DashboardGlyph color={dashboardTheme.colors.info} name="camera-outline" size={28} />
             )}
           </View>
         )}
-        <View style={styles.panelBody}>
-          <Text style={styles.panelTitle}>Photo evidence</Text>
+        <View style={styles.photoStatus}>
           {draft.photoEvidence.status === 'LOCAL_SELECTED' ? (
-            <View style={styles.detectedLocation}>
-              <Text style={styles.detectedText}>Photo ready</Text>
-              <Text style={styles.panelText}>{draft.photoEvidence.message}</Text>
-              <Text style={styles.secondaryHintText}>Photo stays on this device until you submit the report.</Text>
-            </View>
+            <Text style={styles.detectedText}>Photo ready</Text>
           ) : (
-            <Text
-              style={[
-                styles.panelText,
-                (draft.photoEvidence.status === 'PERMISSION_DENIED' ||
-                  draft.photoEvidence.status === 'ERROR') &&
-                  styles.errorText
-              ]}
-            >
-              {draft.photoEvidence.message ?? 'Add an optional photo if it is safe to do so.'}
-            </Text>
+            <ValidationMessage
+              message={
+                draft.photoEvidence.status === 'PERMISSION_DENIED' || draft.photoEvidence.status === 'ERROR'
+                  ? draft.photoEvidence.message ?? undefined
+                  : undefined
+              }
+            />
           )}
         </View>
         <View style={styles.photoActions}>
@@ -506,11 +537,11 @@ export function ReportHazardScreen() {
       <View style={styles.photoPanel}>
         <View style={styles.panelHeaderInline}>
           <View style={styles.panelIcon}>
-            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="mic-outline" size={20} />
+            <Image accessibilityLabel="Voice evidence" source={voiceEvidenceIcon} style={styles.evidenceIcon} />
           </View>
           <View style={styles.panelBody}>
-            <Text style={styles.panelTitle}>Voice note</Text>
-            <Text style={styles.panelText}>Optional. Record up to 3 minutes to describe what you see.</Text>
+            <Text style={styles.panelTitle}>Voice evidence</Text>
+            <Text style={styles.panelText}>Up to 3 minutes</Text>
           </View>
         </View>
         <VoiceNoteRecorder
@@ -730,16 +761,18 @@ const styles = StyleSheet.create({
     gap: 12
   },
   locationPanel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 12,
+    gap: 14,
     padding: 16,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.surface,
     ...cardShadow
+  },
+  locationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
   },
   photoPanel: {
     gap: 14,
@@ -757,6 +790,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 14,
     backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  evidenceIcon: {
+    width: 30,
+    height: 30,
+    resizeMode: 'contain'
   },
   panelBody: {
     flex: 1,
@@ -790,6 +828,12 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: dashboardTheme.colors.success
   },
+  locationPlaceText: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
   coordinateText: {
     fontSize: 12,
     lineHeight: 18,
@@ -820,14 +864,17 @@ const styles = StyleSheet.create({
   locationActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-end',
+    width: '100%',
+    justifyContent: 'flex-start',
     gap: 8
   },
   locationPreviewWrap: {
     width: '100%'
   },
   secondaryButton: {
+    flexGrow: 1,
     minHeight: 40,
+    alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
     borderWidth: 1,
@@ -869,6 +916,10 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.surfaceMuted
   },
+  photoStatus: {
+    minHeight: 20,
+    justifyContent: 'center'
+  },
   photoActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -882,8 +933,10 @@ const styles = StyleSheet.create({
   addPhotoButton: {
     flexGrow: 1,
     minHeight: 48,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.info,
     borderRadius: dashboardTheme.radius.sm,
@@ -897,8 +950,10 @@ const styles = StyleSheet.create({
   cameraButton: {
     flexGrow: 1,
     minHeight: 48,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.primary,
     borderRadius: dashboardTheme.radius.sm,
@@ -926,18 +981,18 @@ const styles = StyleSheet.create({
   },
   severityRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 10
   },
   severityOption: {
-    flexGrow: 1,
-    minHeight: 64,
-    minWidth: 104,
+    flex: 1,
+    minHeight: 78,
+    minWidth: 0,
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'flex-start',
     gap: 8,
-    paddingHorizontal: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.sm,

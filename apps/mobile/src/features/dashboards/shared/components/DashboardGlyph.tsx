@@ -1,4 +1,6 @@
-import { StyleSheet, Text } from 'react-native';
+import { Image, StyleSheet, Text } from 'react-native';
+
+import locationPinImage from '../../../../../assets/hazards/location-pin.png';
 
 type DashboardGlyphProps = {
   name: string;
@@ -13,7 +15,7 @@ const glyphMap: Record<string, string> = {
   'person-outline': 'PR',
   'person-circle-outline': 'PF',
   'warning-outline': 'HZ',
-  'checkmark-done-outline': 'OK',
+  'checkmark-done-outline': '✓',
   'help-buoy-outline': 'HP',
   'cloudy-rainy-outline': 'WX',
   'water-outline': 'FL',
@@ -39,8 +41,8 @@ const glyphMap: Record<string, string> = {
   'map-outline': 'MP',
   'camera-outline': 'PH',
   'refresh-outline': 'RF',
-  'play-outline': 'PL',
-  'pause-outline': 'PA',
+  'play-outline': '▶',
+  'pause-outline': '⏸',
   'log-out-outline': 'LG',
   'construct-outline': 'UI',
   'chevron-forward': '>',
@@ -48,6 +50,16 @@ const glyphMap: Record<string, string> = {
 };
 
 export function DashboardGlyph({ name, color, size = 18 }: DashboardGlyphProps) {
+  if (name === 'locate-outline') {
+    return (
+      <Image
+        accessibilityLabel="Location"
+        source={locationPinImage}
+        style={{ height: size + 8, width: size + 8 }}
+      />
+    );
+  }
+
   const glyph = glyphMap[name] ?? '*';
   const isSymbol = glyph.length === 1;
 

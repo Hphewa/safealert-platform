@@ -1,6 +1,5 @@
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { formatCoordinate } from '../currentLocation';
 import { dashboardTheme } from '../theme';
 import {
   isValidMapCoordinates,
@@ -23,7 +22,7 @@ export function LocationPicker({
   onConfirm,
   onCancel,
   title = 'Adjust Hazard Location',
-  instructions = 'Map selection is available in Expo Go. For web testing, enter coordinates manually.'
+  instructions = ''
 }: LocationPickerProps) {
   const selectedLocation = isValidMapCoordinates(value) ? value : null;
   const latitudeText = selectedLocation ? String(selectedLocation.latitude) : '';
@@ -53,19 +52,13 @@ export function LocationPicker({
     <View style={styles.container}>
       <View style={styles.copyBlock}>
         <Text style={styles.title}>{title}</Text>
-        <Text style={styles.instructions}>{instructions}</Text>
+        {instructions ? <Text style={styles.instructions}>{instructions}</Text> : null}
       </View>
       <View style={styles.fallbackPanel}>
         <Text style={styles.summaryTitle}>Selected hazard location</Text>
-        {selectedLocation ? (
-          <Text style={styles.summaryText}>
-            Latitude: {formatCoordinate(selectedLocation.latitude)}
-            {'\n'}
-            Longitude: {formatCoordinate(selectedLocation.longitude)}
-          </Text>
-        ) : (
-          <Text style={styles.summaryText}>Enter coordinates to test this flow on web.</Text>
-        )}
+        <Text style={styles.summaryText}>
+          {selectedLocation ? 'Location selected on the map.' : 'Select a location on the map.'}
+        </Text>
         <TextInput
           accessibilityLabel="Latitude"
           keyboardType="decimal-pad"

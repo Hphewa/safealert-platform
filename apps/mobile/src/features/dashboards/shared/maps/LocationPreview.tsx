@@ -1,6 +1,5 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { formatCoordinate } from '../currentLocation';
 import { dashboardTheme } from '../theme';
 import { isValidMapCoordinates, type MapCoordinates } from './types';
 
@@ -8,18 +7,15 @@ type LocationPreviewProps = {
   coordinates: MapCoordinates | null;
   title?: string;
   height?: number;
+  placeName?: string;
 };
 
-export function LocationPreview({ coordinates, title = 'Reported Location', height = 180 }: LocationPreviewProps) {
+export function LocationPreview({ coordinates, title = 'Reported Location', height = 180, placeName }: LocationPreviewProps) {
   return (
     <View style={[styles.previewFrame, { minHeight: height }]}>
-      <Text style={styles.title}>{title}</Text>
+      {title ? <Text style={styles.title}>{title}</Text> : null}
       {isValidMapCoordinates(coordinates) ? (
-        <Text style={styles.coordinateText}>
-          Latitude: {formatCoordinate(coordinates.latitude)}
-          {'\n'}
-          Longitude: {formatCoordinate(coordinates.longitude)}
-        </Text>
+        <Text style={styles.coordinateText}>{placeName ?? 'Location selected on the map.'}</Text>
       ) : (
         <Text style={styles.coordinateText}>Reported location is unavailable.</Text>
       )}

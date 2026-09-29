@@ -1,17 +1,41 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
+import hazardFallbackImage from '../../../../../assets/hazards/other.png';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { reverseGeocodePlace } from '../../shared/maps/locationSearch';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { residentBottomNavItems } from '../mockData';
 import { severityLabels, useReportHazardDraft } from '../reportDraft';
-import { hazardLabelForResident } from '../reports';
+import { hazardImageForResident, hazardLabelForResident, statusLabelForResident } from '../reports';
 import { residentReportStatusHref } from '../reports';
 
 export function ReportSubmittedScreen() {
   const router = useRouter();
   const { submittedReport } = useReportHazardDraft();
+  const [locationPlace, setLocationPlace] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!submittedReport) {
+      setLocationPlace(null);
+      return;
+    }
+
+    let isCurrent = true;
+    void reverseGeocodePlace(submittedReport.location.coordinates[1], submittedReport.location.coordinates[0]).then(
+      (place) => {
+        if (isCurrent) {
+          setLocationPlace(place ?? 'Location recorded');
+        }
+      }
+    );
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [submittedReport]);
 
   const trackReport = () => {
     if (submittedReport) {
@@ -35,23 +59,31 @@ export function ReportSubmittedScreen() {
           <DashboardGlyph color={dashboardTheme.colors.success} name="checkmark-done-outline" size={24} />
         </View>
         <Text style={styles.successTitle}>Report Submitted Successfully!</Text>
-        <Text style={styles.successText}>Your report has been sent for review.</Text>
+        <Text style={styles.successText}>Your report is now waiting for review.</Text>
       </View>
 
       {submittedReport ? (
         <>
           <View style={styles.statusCard}>
-            <Text style={styles.statusLabel}>Status</Text>
-            <Text style={styles.statusValue}>{submittedReport.status}</Text>
+            <Text style={styles.statusLabel}>Next step</Text>
+            <Text style={styles.statusValue}>{statusLabelForResident(submittedReport.status)}</Text>
+            <Text style={styles.statusHint}>You can follow progress from My Reports.</Text>
           </View>
 
           <View style={styles.summaryPanel}>
-            <Text style={styles.panelTitle}>Submission details</Text>
+            <View style={styles.summaryHeader}>
+              <Image
+                accessibilityLabel="Submitted hazard icon"
+                source={hazardImageForResident(submittedReport.hazardType) ?? hazardFallbackImage}
+                style={styles.hazardIcon}
+              />
+              <Text style={styles.panelTitle}>Submission details</Text>
+            </View>
             <SubmittedDetail label="Hazard" value={hazardLabelForResident(submittedReport.hazardType, submittedReport.otherHazardType)} />
             <SubmittedDetail label="Severity" value={severityLabels[submittedReport.severity]} />
             <SubmittedDetail
-              label="Selected location"
-              value={`${submittedReport.location.coordinates[1].toFixed(6)}, ${submittedReport.location.coordinates[0].toFixed(6)}`}
+              label="Location"
+              value={locationPlace ?? 'Finding location...'}
             />
           </View>
         </>
@@ -170,6 +202,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: dashboardTheme.colors.text
   },
+  statusHint: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: dashboardTheme.colors.muted
+  },
   summaryPanel: {
     gap: 12,
     padding: 16,
@@ -183,6 +220,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     color: dashboardTheme.colors.text
+  },
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
+  },
+  hazardIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: dashboardTheme.colors.primarySoft,
+    resizeMode: 'contain'
   },
   detailRow: {
     gap: 4,
