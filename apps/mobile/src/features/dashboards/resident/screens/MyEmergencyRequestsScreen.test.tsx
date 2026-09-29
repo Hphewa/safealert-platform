@@ -903,14 +903,18 @@ describe('Resident Edit Request entry (LDFEW-341)', () => {
     expect(cancelResidentResponseRequest).toHaveBeenCalledExactlyOnceWith(request.id, 'resident-token');
   });
 
-  it('registers a shell that reads the selected request and provides a return path without a form or mutation', async () => {
+  it('loads the existing request and renders the pre-filled edit form with a return path without mutation', async () => {
     expect(ResidentEmergencyRequestEditRoute().type).toBe(ResidentEmergencyRequestEditScreen);
     vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: request });
     expect(screenText(renderEditShell())).toContain('Loading your emergency request');
     lifecycle.effect();
-    await vi.waitFor(() => expect(screenText(renderEditShell())).toContain('Editing is coming soon'));
+    await vi.waitFor(() => expect(screenText(renderEditShell())).toContain('Edit Emergency Assistance Request'));
     expect(getMyResponseRequestById).toHaveBeenCalledExactlyOnceWith(request.id, 'resident-token');
-    expect(screenText(renderEditShell())).toContain('No changes have been made.');
+    expect(screenText(renderEditShell())).toContain('Medical Assistance');
+    expect(screenText(renderEditShell())).toContain('Saved emergency location');
+    expect(screenText(renderEditShell())).toContain('Affected people');
+    expect(screenText(renderEditShell())).toContain('Resident');
+    expect(screenText(renderEditShell())).not.toContain('Editing is coming soon');
     expect(press(renderEditShell(), 'Confirm Changes')).toBe(false);
     expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
     press(renderEditShell(), 'Back to Request Details');
