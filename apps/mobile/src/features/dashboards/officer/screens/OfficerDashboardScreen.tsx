@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 
@@ -17,6 +18,7 @@ import { mapSafeReportToOfficerGroupedReportSummary } from '../reports';
 
 export function OfficerDashboardScreen() {
   const { accessToken } = useAuth();
+  const router = useRouter();
   const loadReports = useCallback(async () => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
     return listPendingOfficerReports(accessToken);
@@ -31,7 +33,7 @@ export function OfficerDashboardScreen() {
 
   return (
     <DashboardScreen bottomNavItems={officerBottomNavItems}>
-      <DashboardHeader showLogoutButton title="Dashboard" trailingIcon="person-circle-outline" />
+      <DashboardHeader showLogoutButton title="Dashboard" trailingIcon="person-circle-outline" onTrailingPress={() => router.push('/officer/profile')} />
 
       {!loading && !error && data ? (
         <View style={styles.grid}>

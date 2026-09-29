@@ -42,7 +42,7 @@ export function OfficerMonitoringScreen() {
         <Text style={assessmentStyles.helper}>{item.newVerifiedReportsSinceAssessment} new verified {item.newVerifiedReportsSinceAssessment === 1 ? 'report' : 'reports'}</Text>
         {item.hasNewVerifiedEvidence ? <Text style={assessmentStyles.label}>NEW VERIFIED EVIDENCE</Text> : null}
         <Text style={assessmentStyles.helper}>Latest verified evidence: {item.latestVerifiedReportAt ? formatIncidentTime(item.latestVerifiedReportAt) : 'Time unavailable'}</Text>
-        <AssessmentButton label="View monitoring details" onPress={() => router.push({
+        <AssessmentButton label="View risk details" onPress={() => router.push({
           pathname: '/officer/monitoring/[incidentId]', params: { incidentId: item.incident.id }
         })} />
       </View>;

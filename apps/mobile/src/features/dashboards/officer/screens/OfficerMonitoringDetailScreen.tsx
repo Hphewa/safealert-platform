@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { canCreateWarning, type IncidentMonitoringDetailResponse } from '@safealert/contracts';
+import type { IncidentMonitoringDetailResponse } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { getIncidentMonitoringDetail } from '../api/incidentApi';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
@@ -68,14 +68,7 @@ export function OfficerMonitoringDetailScreen() {
         <AssessmentButton label="VIEW ASSESSMENT" onPress={() => router.push({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: currentActive.id } })} />
         <AssessmentButton label="REASSESS RISK" onPress={() => router.push({ pathname: '/officer/assessments/create', params: { assessmentId: currentActive.id } })} />
         <AssessmentButton label="CLOSE ASSESSMENT" onPress={() => router.push({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: currentActive.id } })} />
-        {canCreateWarning(currentActive.finalRiskLevel) ? <AssessmentButton label="CREATE WARNING" onPress={() => router.push({ pathname: '/officer/warnings/create', params: { assessmentId: currentActive.id } })} /> : null}
       </> : assessment ? <AssessmentButton label="VIEW HISTORY" onPress={() => router.push({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: assessment.id } })} /> : null}
-      {item.warnings.map((warning, index) => <View key={warning.id} style={assessmentStyles.card}>
-        <Text style={assessmentStyles.helper}>Warning {index + 1} status: {warning.status}</Text>
-        <AssessmentButton label={`VIEW WARNING ${index + 1}`} onPress={() => router.push({
-          pathname: '/officer/warnings/[warningId]', params: { warningId: warning.id }
-        })} />
-      </View>)}
       <AssessmentButton label="Refresh monitoring" secondary disabled={loading} onPress={() => void reload()} />
       {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
     </>}

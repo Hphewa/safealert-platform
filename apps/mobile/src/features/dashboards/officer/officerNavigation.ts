@@ -5,7 +5,7 @@ export const officerBottomNavItems: BottomNavItem[] = [
   { label: 'Reports', href: '/officer/reports', icon: 'document-text-outline' },
   { label: 'Assessments', href: '/officer/assessments', icon: 'shield-checkmark-outline' },
   { label: 'Monitoring', href: '/officer/monitoring', icon: 'eye-outline' },
-  { label: 'Profile', href: '/officer/profile', icon: 'person-outline' }
+  { label: 'Warnings', href: '/officer/warnings', icon: 'warning-outline' }
 ];
 
 export const officerQuickActions: QuickAction[] = [
