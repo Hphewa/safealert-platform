@@ -1,4 +1,4 @@
-import { RESPONSE_PROGRESS_SEQUENCE, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_EDITABLE_STATUS, RESPONSE_PROGRESS_SEQUENCE, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
 
 import { accessConditionLabels, emergencyAssistanceTypeLabels } from './emergencyAssistanceDraft';
 import { formatResidentReportDateTime } from './reports';
@@ -16,6 +16,16 @@ const residentRequestStatusLabels: Record<ResponseStatus, string> = {
 
 // Residents also see submission (NEW); subsequent stages reuse the responder's persisted lifecycle.
 const residentProgressSequence: readonly ResponseStatus[] = ['NEW', ...RESPONSE_PROGRESS_SEQUENCE];
+
+export function residentEmergencyRequestEditUnavailableMessage(status: unknown): string | null {
+  if (status === RESPONSE_EDITABLE_STATUS) return null;
+  if (RESPONSE_ACTIVE_ASSIGNED_STATUSES.some((activeStatus) => activeStatus === status)) {
+    return 'This request can no longer be edited because an Emergency Responder has already accepted it.';
+  }
+  if (status === 'COMPLETED') return 'Completed requests cannot be edited.';
+  if (status === 'CANCELLED') return 'Cancelled requests cannot be edited.';
+  return 'Editing is unavailable. Refresh this request to check its latest status.';
+}
 
 export type ResidentEmergencyRequestProgressStage = {
   status: ResponseStatus;

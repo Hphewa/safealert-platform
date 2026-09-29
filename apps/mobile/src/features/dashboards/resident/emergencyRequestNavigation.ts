@@ -14,3 +14,12 @@ export function residentEmergencyRequestDetailsHref(value: unknown) {
     params: { requestId }
   } as const satisfies Href : null;
 }
+
+export function residentEmergencyRequestEditHref(value: unknown) {
+  const requestId = parseResidentEmergencyRequestId(value);
+  // Carry only identity; the edit flow must read current owner-scoped server data.
+  return requestId ? {
+    pathname: '/resident/emergency-request/[requestId]/edit',
+    params: { requestId }
+  } as const satisfies Href : null;
+}
