@@ -142,9 +142,15 @@ export type WarningNotificationTarget =
   | { scope: 'DISTRICT'; district: WarningDistrict }
   | { scope: 'WHOLE_COUNTRY'; country?: typeof NOTIFICATION_COUNTRY };
 export const WARNING_FIELD_LIMITS = {
-  affectedArea: 300, requiredAction: 2000, unsafeRoads: 2000,
-  safeRoutes: 2000, message: 4000, attachmentUrl: 500, attachments: 5
+  affectedArea: 300, requiredAction: 500, unsafeRoads: 500,
+  safeRoutes: 500, message: 1000, attachmentUrl: 500, attachments: 5
 } as const;
+// Shared minimum lengths so the Warning form, the review gate, and the create
+// request schema enforce exactly the same input-quality rules.
+export const WARNING_REQUIRED_ACTION_MIN_LENGTH = 10;
+export const WARNING_UNSAFE_ROADS_MIN_LENGTH = 3;
+export const WARNING_SAFE_ROUTES_MIN_LENGTH = 3;
+export const WARNING_MESSAGE_MIN_LENGTH = 10;
 export type CreateWarningRequest = {
   assessmentId: string;
   affectedArea: string;

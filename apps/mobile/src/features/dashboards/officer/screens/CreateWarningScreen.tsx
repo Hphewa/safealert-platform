@@ -39,6 +39,10 @@ export function CreateWarningScreen() {
   }, [accessToken, assessmentId]);
   const resource = useAssessmentResource(load);
   const affectedArea = getWarningAffectedArea(resource.data);
+  // Review stays blocked until the shared validator accepts every required field,
+  // so the officer never reaches the review step with invalid warning text.
+  const reviewBlocked = !affectedArea ||
+    Object.keys(validateWarningForm({ ...form, affectedArea: affectedArea ?? '' })).length > 0;
   useFocusEffect(useCallback(() => {
     generation.current += 1;
     inFlight.current = false;
@@ -139,7 +143,7 @@ export function CreateWarningScreen() {
             {photoError ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{photoError}</Text> : null}
           </View>
           {Object.keys(errors).length ? <Text accessibilityRole="alert" style={assessmentStyles.error}>Check the highlighted fields before reviewing your warning.</Text> : null}
-          <AssessmentButton label="Review Warning" disabled={!affectedArea} onPress={startReview} />
+          <AssessmentButton label="Review Warning" disabled={reviewBlocked} onPress={startReview} />
         </>}
       </>}
   </WarningPage>;

@@ -3,7 +3,7 @@ import { StyleSheet, Text, TextInput, View } from 'react-native';
 import { WARNING_FIELD_LIMITS, type WarningRiskLevel } from '@safealert/contracts';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
-import { warningFields, type WarningForm, type WarningFormErrors } from '../warningForm';
+import { validateWarningForm, warningFields, type WarningForm, type WarningFormErrors } from '../warningForm';
 
 type EditableField = Exclude<keyof WarningForm, 'affectedArea' | 'attachments'>;
 
@@ -15,6 +15,11 @@ export function WarningInformationForm({ form, affectedArea, riskLevel, errors, 
   onChange: (field: EditableField, value: string) => void;
 }) {
   const [focused, setFocused] = useState<EditableField | null>(null);
+  const [touched, setTouched] = useState<Partial<Record<EditableField, boolean>>>({});
+  // Reuse the shared validator so the inline messages match the review gate,
+  // the API request schema, and the persisted model limits.
+  const liveErrors = validateWarningForm(form);
+  const markTouched = (field: EditableField) => setTouched((current) => ({ ...current, [field]: true }));
   return <View style={styles.card}>
     <View style={styles.headingRow}>
       <View style={styles.sectionNumber}><Text style={styles.sectionNumberText}>01</Text></View>
@@ -54,16 +59,33 @@ export function WarningInformationForm({ form, affectedArea, riskLevel, errors, 
       {warningFields.map((field) => {
         if (field.key === 'affectedArea') return null;
         const isRoadField = field.key === 'unsafeRoads' || field.key === 'safeRoutes';
+        const max = WARNING_FIELD_LIMITS[field.key];
+        const value = form[field.key];
+        // Submitted errors stay visible; otherwise show live feedback once a field was left.
+        const error = errors[field.key] ?? (touched[field.key] ? liveErrors[field.key] : undefined);
+        const measured = value.trim().length;
         return <View key={field.key} style={[styles.field, isRoadField && styles.roadField]}>
           <Text style={styles.label}>{field.label}{field.required ? <Text style={styles.required}> *</Text> : <Text style={styles.optional}> (optional)</Text>}</Text>
           <TextInput accessibilityLabel={`${field.label}${field.required ? ' (required)' : ''}`}
-            value={form[field.key]} multiline maxLength={WARNING_FIELD_LIMITS[field.key]}
+            accessibilityHint={field.required
+              ? `Required. Enter ${field.min} to ${max} characters.`
+              : `Optional. Enter ${field.min} to ${max} characters when provided.`}
+            value={value} multiline
             placeholder={field.placeholder} placeholderTextColor={dashboardTheme.colors.muted}
-            onChangeText={(value) => onChange(field.key, value)}
-            onFocus={() => setFocused(field.key)} onBlur={() => setFocused(null)}
+            onChangeText={(next) => onChange(field.key, next)}
+            onFocus={() => setFocused(field.key)} onBlur={() => { setFocused(null); markTouched(field.key); }}
             style={[styles.input, field.key === 'message' && styles.message,
-              focused === field.key && styles.focusedInput, !!errors[field.key] && styles.invalidInput]} />
-          {errors[field.key] ? <Text accessibilityRole="alert" style={styles.error}>{errors[field.key]}</Text> : null}
+              focused === field.key && styles.focusedInput, !!error && styles.invalidInput]} />
+          <View style={styles.fieldMeta}>
+            <Text style={styles.hint}>{field.required
+              ? `Required. ${field.min} to ${max} characters.`
+              : `Optional. ${field.min} to ${max} characters when provided.`}</Text>
+            <Text accessibilityLabel={`${field.label} character count`}
+              style={[styles.counter, measured > max && styles.counterOver]}>
+              {`${measured}/${max}`}
+            </Text>
+          </View>
+          {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         </View>;
       })}
     </View>
@@ -106,5 +128,9 @@ const styles = StyleSheet.create({
   message: { minHeight: 132 },
   focusedInput: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.surface },
   invalidInput: { borderColor: dashboardTheme.colors.critical },
+  fieldMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
+  hint: { flexShrink: 1, color: dashboardTheme.colors.muted, fontSize: 12, lineHeight: 18 },
+  counter: { color: dashboardTheme.colors.muted, fontSize: 12, fontWeight: '700' },
+  counterOver: { color: dashboardTheme.colors.critical },
   error: { fontSize: 13, lineHeight: 20, color: dashboardTheme.colors.critical }
 });

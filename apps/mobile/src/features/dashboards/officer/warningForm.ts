@@ -1,6 +1,10 @@
 import {
   WARNING_ATTACHMENT_REFERENCE_PATTERN,
   WARNING_FIELD_LIMITS,
+  WARNING_MESSAGE_MIN_LENGTH,
+  WARNING_REQUIRED_ACTION_MIN_LENGTH,
+  WARNING_SAFE_ROUTES_MIN_LENGTH,
+  WARNING_UNSAFE_ROADS_MIN_LENGTH,
   type CreateWarningRequest,
   type RiskAssessmentResponse
 } from '@safealert/contracts';
@@ -18,11 +22,11 @@ export function getWarningAffectedArea(context: RiskAssessmentResponse | null): 
 }
 
 export const warningFields = [
-  { key: 'affectedArea', label: 'Affected Area', required: true, placeholder: 'e.g. Riverside village, lower valley' },
-  { key: 'requiredAction', label: 'Required Action', required: true, placeholder: 'Describe what people should do' },
-  { key: 'unsafeRoads', label: 'Unsafe Roads', required: true, placeholder: 'List unsafe roads, or enter None known' },
-  { key: 'safeRoutes', label: 'Safe Routes', required: false, placeholder: 'Describe safe alternative routes, if known' },
-  { key: 'message', label: 'Reason / Message', required: true, placeholder: 'Explain the warning and give clear safety instructions' }
+  { key: 'affectedArea', label: 'Affected Area', required: true, min: 1, placeholder: 'e.g. Riverside village, lower valley' },
+  { key: 'requiredAction', label: 'Required Action', required: true, min: WARNING_REQUIRED_ACTION_MIN_LENGTH, placeholder: 'Describe what people should do' },
+  { key: 'unsafeRoads', label: 'Unsafe Roads', required: true, min: WARNING_UNSAFE_ROADS_MIN_LENGTH, placeholder: 'List unsafe roads, or enter None known' },
+  { key: 'safeRoutes', label: 'Safe Routes', required: false, min: WARNING_SAFE_ROUTES_MIN_LENGTH, placeholder: 'Describe safe alternative routes, if known' },
+  { key: 'message', label: 'Reason / Message', required: true, min: WARNING_MESSAGE_MIN_LENGTH, placeholder: 'Explain the warning and give clear safety instructions' }
 ] as const;
 type WarningTextFieldKey = (typeof warningFields)[number]['key'];
 export type WarningForm = Record<WarningTextFieldKey, string> & {
@@ -33,13 +37,20 @@ export const initialWarningForm: WarningForm = {
   affectedArea: '', requiredAction: '', unsafeRoads: '', safeRoutes: '', message: '', attachments: ''
 };
 
+// Mirrors the server-side createWarningSchema: required fields must contain more
+// than whitespace, every value is measured after trimming, and optional values are
+// only length-checked when provided. Entered values are never truncated.
 export function validateWarningForm(form: WarningForm): WarningFormErrors {
   const errors: WarningFormErrors = {};
   for (const field of warningFields) {
     const value = form[field.key].trim();
-    if (field.required && !value) errors[field.key] = `${field.label} is required.`;
-    else if (value.length > WARNING_FIELD_LIMITS[field.key]) {
-      errors[field.key] = `${field.label} must be at most ${WARNING_FIELD_LIMITS[field.key]} characters.`;
+    const max = WARNING_FIELD_LIMITS[field.key];
+    if (!value) {
+      if (field.required) errors[field.key] = `${field.label} is required.`;
+    } else if (value.length < field.min) {
+      errors[field.key] = `Enter at least ${field.min} characters for ${field.label}.`;
+    } else if (value.length > max) {
+      errors[field.key] = `Keep ${field.label} to ${max} characters or fewer.`;
     }
   }
   const attachments = parseAttachmentReferences(form.attachments);
