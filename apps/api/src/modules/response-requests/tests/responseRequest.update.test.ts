@@ -9,6 +9,7 @@ import { signAccessToken } from '../../auth/services/token.service.js';
 import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
 import { InMemoryResponseRequestRepository } from '../repositories/inMemoryResponseRequest.repository.js';
 import { MongooseResponseRequestRepository } from '../repositories/mongooseResponseRequest.repository.js';
+import { ResponseRequestService } from '../services/responseRequest.service.js';
 
 const requestId = '507f1f77bcf86cd799439011';
 const residentId = '507f1f77bcf86cd799439012';
@@ -43,7 +44,7 @@ function context(overrides: Partial<SafeResponseRequest> = {}) {
   repository.seedResponseRequest(original);
   const freshApp = () => createApp({ config, authRepository: new InMemoryAuthRepository(), responseRequestRepository: repository });
   const token = (id = residentId, role: UserRole = 'RESIDENT') => signAccessToken(config, { id, role });
-  return { repository, original, app: freshApp(), freshApp, token };
+  return { config, repository, original, app: freshApp(), freshApp, token };
 }
 
 afterEach(() => vi.restoreAllMocks());
@@ -192,6 +193,154 @@ describe('LDFEW-338 Resident update API', () => {
       status: action === 'accept' ? 'ASSIGNED' : 'CANCELLED', injuredPeople: original.injuredPeople,
       description: original.description
     });
+  });
+});
+
+describe('LDFEW-339 authenticated Resident ownership', () => {
+  const otherResidentId = '507f1f77bcf86cd799439014';
+  const otherRequestId = '507f1f77bcf86cd799439015';
+  const notFoundError = { error: { code: 'REQUEST_NOT_FOUND', message: 'Emergency request not found.' } };
+
+  function twoResidents() {
+    const current = context();
+    const otherRequest = { ...current.original, id: otherRequestId, residentId: otherResidentId };
+    current.repository.seedResponseRequest(otherRequest);
+    return { ...current, otherRequest };
+  }
+
+  it.each([
+    { actor: residentId, target: requestId, allowed: true },
+    { actor: residentId, target: otherRequestId, allowed: false },
+    { actor: otherResidentId, target: otherRequestId, allowed: true },
+    { actor: otherResidentId, target: requestId, allowed: false }
+  ])('enforces ownership for $actor editing $target', async ({ actor, target, allowed }) => {
+    const { app, token, repository, original, otherRequest } = twoResidents();
+    const lookup = vi.spyOn(repository, 'findResponseRequestById');
+    const update = vi.spyOn(repository, 'updateResidentResponseRequest');
+    const response = await request(app).patch(`${basePath}/mine/${target}`)
+      .auth(token(actor), { type: 'bearer' }).send(editableInput());
+
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(target, actor);
+    expect(response.status).toBe(allowed ? 200 : 404);
+    if (allowed) {
+      expect(update).toHaveBeenCalledExactlyOnceWith(target, actor, editableInput());
+      expect(response.body.responseRequest).toEqual({
+        ...(target === requestId ? original : otherRequest), ...editableInput(), updatedAt: expect.any(String)
+      });
+    } else {
+      expect(response.body).toEqual(notFoundError);
+      expect(update).not.toHaveBeenCalled();
+    }
+    // Verify both stored records, including the untouched neighbour and all
+    // owner/lifecycle fields, rather than trusting the update response alone.
+    for (const stored of [original, otherRequest]) {
+      const expected = allowed && target === stored.id
+        ? { ...stored, ...editableInput(), updatedAt: expect.any(String) } : stored;
+      expect(await repository.findResponseRequestById(stored.id, stored.residentId)).toEqual(expected);
+    }
+  });
+
+  it.each(['expired', 'wrong signing key', 'tampered subject'] as const)(
+    'rejects %s credentials before any request lookup', async (kind) => {
+      const { app, config, token, repository } = context();
+      let credential: string;
+      if (kind === 'tampered subject') {
+        // A changed JWT subject is not trusted unless its signature also verifies.
+        const parts = token(otherResidentId).split('.');
+        const forgedPayload = Buffer.from(JSON.stringify({ sub: residentId, role: 'RESIDENT' })).toString('base64url');
+        credential = `${parts[0]}.${forgedPayload}.${parts[2]}`;
+      } else {
+        credential = signAccessToken({
+          ...config,
+          ...(kind === 'expired' ? { jwtAccessExpiresIn: '-1s' } : { jwtAccessSecret: 'wrong-test-signing-key' })
+        }, { id: residentId, role: 'RESIDENT' });
+      }
+      const lookup = vi.spyOn(repository, 'findResponseRequestById');
+      const update = vi.spyOn(repository, 'updateResidentResponseRequest');
+      const response = await request(app).patch(editPath).auth(credential, { type: 'bearer' }).send(editableInput());
+      expect(response.status).toBe(401);
+      expect(response.body).toEqual({ error: { code: 'INVALID_TOKEN', message: 'Invalid authentication token.' } });
+      expect(lookup).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(USER_ROLES.filter((role) => role !== 'RESIDENT'))(
+    'blocks %s before reading private request data, even with an injected Resident role', async (role) => {
+      const { app, token, repository } = context();
+      const lookup = vi.spyOn(repository, 'findResponseRequestById');
+      const update = vi.spyOn(repository, 'updateResidentResponseRequest');
+      const response = await request(app).patch(editPath).auth(token(residentId, role), { type: 'bearer' })
+        .send({ ...editableInput(), role: 'RESIDENT', residentId });
+      expect(response.status).toBe(403);
+      expect(response.body).toEqual({ error: { code: 'FORBIDDEN', message: 'You are not allowed to perform this action.' } });
+      expect(lookup).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['residentId', 'userId', 'ownerId', 'owner'])(
+    'rejects injected %s in body and query without transferring or bypassing ownership', async (field) => {
+      const { app, token, repository, original, otherRequest } = twoResidents();
+      const update = vi.spyOn(repository, 'updateResidentResponseRequest');
+      for (const target of [requestId, otherRequestId]) {
+        for (const transport of ['body', 'query']) {
+          const operation = request(app).patch(`${basePath}/mine/${target}`).auth(token(), { type: 'bearer' });
+          const response = transport === 'body'
+            ? await operation.send({ ...editableInput(), [field]: otherResidentId })
+            : await operation.query({ [field]: otherResidentId }).send(editableInput());
+          expect(response.status).toBe(400);
+          expect(response.body.error.code).toBe('VALIDATION_ERROR');
+          expect(JSON.stringify(response.body)).not.toContain(otherResidentId);
+        }
+      }
+      expect(update).not.toHaveBeenCalled();
+      expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(original);
+      expect(await repository.findResponseRequestById(otherRequestId, otherResidentId)).toEqual(otherRequest);
+    }
+  );
+
+  it('does not treat identity headers as authentication or an ownership override', async () => {
+    const { app, token, repository, original } = context();
+    const update = vi.spyOn(repository, 'updateResidentResponseRequest');
+    const unauthenticated = await request(app).patch(editPath)
+      .set('X-User-Id', residentId).set('X-User-Role', 'RESIDENT').send(editableInput());
+    expect(unauthenticated.status).toBe(401);
+    expect(unauthenticated.body).toEqual({ error: { code: 'UNAUTHORIZED', message: 'Authentication is required.' } });
+    const impersonation = await request(app).patch(editPath).auth(token(otherResidentId), { type: 'bearer' })
+      .set('X-User-Id', residentId).send(editableInput());
+    expect(impersonation.status).toBe(404);
+    expect(impersonation.body).toEqual(notFoundError);
+    expect(update).not.toHaveBeenCalled();
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(original);
+  });
+
+  it.each([
+    { actor: null, statusCode: 401 },
+    { actor: undefined, statusCode: 401 },
+    { actor: { id: '', role: 'RESIDENT' as const }, statusCode: 401 },
+    { actor: { id: ' ', role: 'RESIDENT' as const }, statusCode: 401 },
+    ...USER_ROLES.filter((role) => role !== 'RESIDENT').map((role) => ({ actor: { id: residentId, role }, statusCode: 403 }))
+  ])('fails closed for invalid direct-service actor %#', async ({ actor, statusCode }) => {
+    const { repository } = context();
+    const lookup = vi.spyOn(repository, 'findResponseRequestById');
+    const update = vi.spyOn(repository, 'updateResidentResponseRequest');
+    await expect(new ResponseRequestService(repository).updateResidentResponseRequest(requestId, actor, editableInput()))
+      .rejects.toMatchObject({ statusCode });
+    expect(lookup).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('scopes the MongoDB lookup by verified owner and never attempts a write on an ownership miss', async () => {
+    const query = ResponseRequestModel.findOne();
+    vi.spyOn(query, 'exec').mockResolvedValue(null);
+    const lookup = vi.spyOn(ResponseRequestModel, 'findOne').mockReturnValueOnce(query);
+    const update = vi.spyOn(ResponseRequestModel, 'findOneAndUpdate');
+    const service = new ResponseRequestService(new MongooseResponseRequestRepository());
+    await expect(service.updateResidentResponseRequest(requestId, { id: otherResidentId, role: 'RESIDENT' }, editableInput()))
+      .rejects.toMatchObject({ statusCode: 404, code: 'REQUEST_NOT_FOUND' });
+    expect(lookup).toHaveBeenCalledExactlyOnceWith({ _id: requestId, residentId: otherResidentId });
+    expect(update).not.toHaveBeenCalled();
   });
 });
 

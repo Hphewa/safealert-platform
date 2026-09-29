@@ -16,6 +16,7 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
 
   async updateResidentResponseRequest(responseRequestId: string, residentId: string, input: UpdateResponseRequestRequest) {
     const fields = residentEditableFields(input);
+    // residentId is the authenticated actor passed separately from editable input.
     // Ownership and NEW must still match at write time, even if a responder
     // accepted the request after the Resident opened or submitted the edit form.
     const responseRequest = await ResponseRequestModel.findOneAndUpdate(

@@ -96,7 +96,8 @@ export class ResponseRequestService {
     }
 
     const requestId = responseRequestId.toLowerCase();
-    // Reuse the owner-scoped tracking lookup without revealing another Resident's request.
+    // Scope by the verified actor before checking lifecycle: another Resident's
+    // request must look absent, without disclosing its existence or status.
     const current = await this.repository.findResponseRequestById(requestId, actor.id);
     if (!current) {
       throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
