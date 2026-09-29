@@ -21,6 +21,7 @@ export class InMemoryReportRepository implements ReportRepository {
       id: crypto.randomBytes(12).toString('hex'),
       residentId: input.residentId,
       hazardType: input.hazardType,
+      ...(input.otherHazardType ? { otherHazardType: input.otherHazardType } : {}),
       description: input.description,
       severity: input.severity,
       location: input.location,
@@ -103,6 +104,7 @@ export class InMemoryReportRepository implements ReportRepository {
       .map(({ report, distanceKm }) => ({
         id: report.id,
         hazardType: report.hazardType,
+        ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
         description: report.description,
         severity: report.severity,
         location: report.location,
@@ -125,6 +127,7 @@ export class InMemoryReportRepository implements ReportRepository {
     return {
       id: report.id,
       hazardType: report.hazardType,
+      ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
       description: report.description,
       severity: report.severity,
       location: report.location,

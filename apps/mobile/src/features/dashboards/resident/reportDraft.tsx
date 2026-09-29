@@ -84,6 +84,7 @@ export type VoiceEvidenceState =
 
 export type ReportHazardDraft = {
   hazardType: HazardType | null;
+  otherHazardType?: string;
   location: ReportLocationState;
   photoEvidence: PhotoEvidenceState;
   voiceEvidence: VoiceEvidenceState;
@@ -92,7 +93,7 @@ export type ReportHazardDraft = {
 };
 
 export type ReportHazardValidationErrors = Partial<
-  Record<'hazardType' | 'location' | 'severity' | 'description', string>
+  Record<'hazardType' | 'otherHazardType' | 'location' | 'severity' | 'description', string>
 >;
 
 export type ReportHazardValidationResult = {
@@ -123,12 +124,13 @@ export const hazardTypeLabels: Record<HazardType, string> = {
 
 export const severityLabels: Record<HazardSeverity, string> = {
   LOW: 'Low',
-  MODERATE: 'Moderate',
+  MODERATE: 'Medium',
   HIGH: 'High'
 };
 
 const initialReportHazardDraft: ReportHazardDraft = {
   hazardType: null,
+  otherHazardType: '',
   location: {
     status: 'REQUESTING_PERMISSION',
     latitude: null,
@@ -187,6 +189,10 @@ export function validateReportHazardDraft(draft: ReportHazardDraft): ReportHazar
 
   if (!draft.hazardType) {
     errors.hazardType = 'Select a hazard type.';
+  }
+
+  if (draft.hazardType === 'OTHER' && (draft.otherHazardType ?? '').trim().length < 2) {
+    errors.otherHazardType = 'Tell us what type of hazard this is.';
   }
 
   if (draft.location.status !== 'DETECTED') {

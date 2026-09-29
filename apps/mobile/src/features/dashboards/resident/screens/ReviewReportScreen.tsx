@@ -14,11 +14,11 @@ import { createResidentReport } from '../api/reportApi';
 import { uploadReportEvidence } from '../api/mediaApi';
 import { residentBottomNavItems } from '../mockData';
 import {
-  hazardTypeLabels,
   severityLabels,
   useReportHazardDraft,
   type ReportHazardDraft
 } from '../reportDraft';
+import { hazardLabelForResident } from '../reports';
 import {
   beginReportSubmission,
   canSubmitReport,
@@ -163,7 +163,7 @@ export function ReviewReportScreen() {
         <View style={styles.detailGrid}>
           <ReviewDetail
             label="Hazard type"
-            value={draft.hazardType ? hazardTypeLabels[draft.hazardType] : 'Not selected'}
+            value={draft.hazardType ? hazardLabelForResident(draft.hazardType, draft.otherHazardType) : 'Not selected'}
           />
           <ReviewDetail
             label="Severity"

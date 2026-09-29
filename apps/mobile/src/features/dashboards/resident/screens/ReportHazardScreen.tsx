@@ -1,4 +1,5 @@
 ﻿import { useCallback, useEffect } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -15,6 +16,7 @@ import { VoiceNoteRecorder } from '../../shared/voice/VoiceNoteRecorder';
 import type { LocalVoiceEvidence } from '../../shared/voice/voiceEvidence';
 import { residentBottomNavItems } from '../mockData';
 import { SelectableCard } from '../components/SelectableCard';
+import { hazardImageForResident } from '../reports';
 import {
   descriptionMaxLength,
   type HazardSeverity,
@@ -50,7 +52,7 @@ const severityOptions: Array<{
     description: 'Limited impact'
   },
   {
-    label: 'Moderate',
+    label: 'Medium',
     value: 'MODERATE',
     color: dashboardTheme.colors.moderate,
     softColor: dashboardTheme.colors.moderateSoft,
@@ -68,6 +70,7 @@ const severityOptions: Array<{
 export function ReportHazardScreen() {
   const router = useRouter();
   const { draft, setDraft, validation } = useReportHazardDraft();
+  const [reviewAttempted, setReviewAttempted] = useState(false);
   const canReviewReport = validation.isValid;
 
   const captureCurrentLocation = useCallback(async () => {
@@ -128,7 +131,15 @@ export function ReportHazardScreen() {
   }, [captureCurrentLocation, draft.location.status]);
 
   const setHazardType = (hazardType: HazardType) => {
-    setDraft((current) => ({ ...current, hazardType }));
+    setDraft((current) => ({
+      ...current,
+      hazardType,
+      ...(hazardType === 'OTHER' ? {} : { otherHazardType: '' })
+    }));
+  };
+
+  const setOtherHazardType = (otherHazardType: string) => {
+    setDraft((current) => ({ ...current, otherHazardType }));
   };
 
   const setSeverity = (severity: HazardSeverity) => {
@@ -281,6 +292,7 @@ export function ReportHazardScreen() {
   };
 
   const reviewReport = () => {
+    setReviewAttempted(true);
     if (!canReviewReport) {
       return;
     }
@@ -309,7 +321,7 @@ export function ReportHazardScreen() {
         <View accessibilityRole="radiogroup" style={styles.optionGrid}>
           {hazardTypeOptions.map((option) => (
             <SelectableCard
-              icon={option.icon}
+              imageSource={hazardImageForResident(option.value)}
               key={option.value}
               label={option.label}
               onSelect={setHazardType}
@@ -318,7 +330,35 @@ export function ReportHazardScreen() {
             />
           ))}
         </View>
-        <ValidationMessage message={validation.errors.hazardType} />
+        <ValidationMessage message={reviewAttempted ? validation.errors.hazardType : undefined} />
+        {draft.hazardType === 'OTHER' ? (
+          <View style={styles.otherHazardSection}>
+            <Text style={styles.fieldLabel}>What type of hazard?</Text>
+            <View style={styles.suggestionRow}>
+              {['Tsunami', 'Earthquake', 'Strong winds', 'Fire'].map((suggestion) => (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Use ${suggestion}`}
+                  key={suggestion}
+                  onPress={() => setOtherHazardType(suggestion)}
+                  style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                >
+                  <Text style={styles.suggestionChipText}>{suggestion}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              accessibilityLabel="Other hazard type"
+              maxLength={80}
+              onChangeText={setOtherHazardType}
+              placeholder="Or type another hazard"
+              placeholderTextColor={dashboardTheme.colors.muted}
+              style={styles.otherHazardInput}
+              value={draft.otherHazardType ?? ''}
+            />
+            <ValidationMessage message={reviewAttempted ? validation.errors.otherHazardType : undefined} />
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.locationPanel}>
@@ -326,7 +366,7 @@ export function ReportHazardScreen() {
           <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="locate-outline" size={20} />
         </View>
         <View style={styles.panelBody}>
-          <Text style={styles.panelTitle}>Location</Text>
+          <Text style={styles.panelTitle}>Report location</Text>
           {draft.location.status === 'REQUESTING_PERMISSION' ? (
             <LocationStatusMessage message="Requesting location permission..." showSpinner />
           ) : null}
@@ -335,8 +375,8 @@ export function ReportHazardScreen() {
           ) : null}
           {draft.location.status === 'DETECTED' ? (
             <View style={styles.detectedLocation}>
-              <Text style={styles.detectedText}>Detected current location</Text>
-              <Text style={styles.locationHintText}>Adjust the pin if the hazard is somewhere else.</Text>
+              <Text style={styles.detectedText}>Location detected</Text>
+              <Text style={styles.locationHintText}>We will attach this location to your report.</Text>
               <Text style={styles.coordinateText}>
                 {formatCoordinate(draft.location.latitude)}, {formatCoordinate(draft.location.longitude)}
               </Text>
@@ -345,7 +385,7 @@ export function ReportHazardScreen() {
           {draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR' ? (
             <Text style={styles.errorText}>{draft.location.errorMessage}</Text>
           ) : null}
-          <ValidationMessage message={validation.errors.location} />
+          <ValidationMessage message={reviewAttempted ? validation.errors.location : undefined} />
         </View>
         <View style={styles.locationActions}>
           {(draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR') && (
@@ -470,7 +510,7 @@ export function ReportHazardScreen() {
           </View>
           <View style={styles.panelBody}>
             <Text style={styles.panelTitle}>Voice note</Text>
-            <Text style={styles.panelText}>Optional. Record up to 60 seconds to describe what you see.</Text>
+            <Text style={styles.panelText}>Optional. Record up to 3 minutes to describe what you see.</Text>
           </View>
         </View>
         <VoiceNoteRecorder
@@ -512,11 +552,30 @@ export function ReportHazardScreen() {
             );
           })}
         </View>
-        <ValidationMessage message={validation.errors.severity} />
+        <ValidationMessage message={reviewAttempted ? validation.errors.severity : undefined} />
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>What can you see?</Text>
+        <View style={styles.suggestionRow}>
+          {(draft.hazardType === 'FLOOD'
+            ? ['Water is covering part of the road.', 'Water is entering homes.', 'The water level is rising quickly.']
+            : draft.hazardType === 'BLOCKED_ROAD'
+              ? ['Vehicles cannot pass through this road.', 'Debris is covering the road.', 'A fallen tree is blocking the road.']
+              : draft.hazardType === 'LANDSLIDE'
+                ? ['Soil and rocks are covering the road.', 'The slope has collapsed.', 'More movement is still visible.']
+                : ['There is visible damage in this area.', 'People may need help at this location.']).map((suggestion) => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Use description: ${suggestion}`}
+              key={suggestion}
+              onPress={() => setDescription(suggestion)}
+              style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+            >
+              <Text style={styles.suggestionChipText}>{suggestion}</Text>
+            </Pressable>
+          ))}
+        </View>
         <TextInput
           accessibilityLabel="What can you see?"
           maxLength={descriptionMaxLength}
@@ -532,22 +591,22 @@ export function ReportHazardScreen() {
         <Text style={styles.characterCount}>
           {draft.description.trim().length}/{descriptionMaxLength}
         </Text>
-        <ValidationMessage message={validation.errors.description} />
+        <ValidationMessage message={reviewAttempted ? validation.errors.description : undefined} />
       </View>
 
       <Pressable
         accessibilityLabel="Review hazard report"
         accessibilityRole="button"
-        accessibilityState={{ disabled: !canReviewReport }}
-        disabled={!canReviewReport}
+        accessibilityState={{ disabled: draft.location.status === 'LOCATING' }}
+        disabled={draft.location.status === 'LOCATING'}
         onPress={reviewReport}
         style={({ pressed }) => [
           styles.reviewButton,
-          !canReviewReport && styles.reviewButtonDisabled,
-          pressed && canReviewReport && styles.pressed
+          draft.location.status === 'LOCATING' && styles.reviewButtonDisabled,
+          pressed && draft.location.status !== 'LOCATING' && styles.pressed
         ]}
       >
-        <Text style={[styles.reviewButtonText, !canReviewReport && styles.reviewButtonTextDisabled]}>
+        <Text style={[styles.reviewButtonText, draft.location.status === 'LOCATING' && styles.reviewButtonTextDisabled]}>
           Review Report
         </Text>
       </Pressable>
@@ -626,6 +685,43 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  fieldLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  otherHazardSection: {
+    gap: 10,
+    paddingTop: 4
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8
+  },
+  suggestionChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  suggestionChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  otherHazardInput: {
+    minHeight: 48,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface,
+    fontSize: 15,
     color: dashboardTheme.colors.text
   },
   optionGrid: {

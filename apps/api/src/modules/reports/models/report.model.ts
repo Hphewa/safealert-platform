@@ -179,6 +179,11 @@ const reportSchema = new mongoose.Schema(
       required: true,
       enum: HAZARD_TYPES
     },
+    otherHazardType: {
+      type: String,
+      trim: true,
+      maxlength: 80
+    },
     description: {
       type: String,
       required: true,
@@ -280,6 +285,7 @@ export function toSafeReport(report: ReportDocument): SafeReport {
       ? { communityReportClusterId: report.communityReportClusterId.toString() }
       : {}),
     hazardType: report.hazardType,
+    ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
     description: report.description,
     severity: report.severity,
     location: {

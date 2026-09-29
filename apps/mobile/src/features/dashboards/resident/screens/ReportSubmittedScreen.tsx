@@ -5,7 +5,8 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { residentBottomNavItems } from '../mockData';
-import { hazardTypeLabels, severityLabels, useReportHazardDraft } from '../reportDraft';
+import { severityLabels, useReportHazardDraft } from '../reportDraft';
+import { hazardLabelForResident } from '../reports';
 import { residentReportStatusHref } from '../reports';
 
 export function ReportSubmittedScreen() {
@@ -46,7 +47,7 @@ export function ReportSubmittedScreen() {
 
           <View style={styles.summaryPanel}>
             <Text style={styles.panelTitle}>Submission details</Text>
-            <SubmittedDetail label="Hazard" value={hazardTypeLabels[submittedReport.hazardType]} />
+            <SubmittedDetail label="Hazard" value={hazardLabelForResident(submittedReport.hazardType, submittedReport.otherHazardType)} />
             <SubmittedDetail label="Severity" value={severityLabels[submittedReport.severity]} />
             <SubmittedDetail
               label="Selected location"

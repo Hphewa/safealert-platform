@@ -4,6 +4,11 @@ import type { Href } from 'expo-router';
 
 import type { BadgeTone, DashboardIconName } from '../shared/types';
 
+import floodHazardImage from '../../../../assets/hazards/flood.png';
+import blockedRoadHazardImage from '../../../../assets/hazards/blocked-road.png';
+import landslideHazardImage from '../../../../assets/hazards/landslide.png';
+import otherHazardImage from '../../../../assets/hazards/other.png';
+
 export type ResidentReportFilterKey = 'all' | 'pending' | 'verified' | 'rejected' | 'cancelled';
 
 export const residentReportTabs: ReadonlyArray<{
@@ -32,7 +37,7 @@ export function filterResidentReports(reports: SafeReport[], filter: ResidentRep
   }
 }
 
-export function hazardLabelForResident(hazardType: HazardType) {
+export function hazardLabelForResident(hazardType: HazardType, otherHazardType?: string) {
   switch (hazardType) {
     case 'FLOOD':
       return 'Flood';
@@ -41,7 +46,7 @@ export function hazardLabelForResident(hazardType: HazardType) {
     case 'LANDSLIDE':
       return 'Landslide';
     case 'OTHER':
-      return 'Other Hazard';
+      return otherHazardType?.trim() || 'Other Hazard';
   }
 }
 
@@ -55,6 +60,19 @@ export function hazardIconForResident(hazardType: HazardType): DashboardIconName
       return 'leaf-outline';
     case 'OTHER':
       return 'alert-circle-outline';
+  }
+}
+
+export function hazardImageForResident(hazardType: HazardType) {
+  switch (hazardType) {
+    case 'FLOOD':
+      return floodHazardImage;
+    case 'BLOCKED_ROAD':
+      return blockedRoadHazardImage;
+    case 'LANDSLIDE':
+      return landslideHazardImage;
+    case 'OTHER':
+      return otherHazardImage;
   }
 }
 

@@ -44,6 +44,18 @@ describe('validateReportHazardDraft', () => {
     expect(result.errors.description).toBe(`Enter at least ${descriptionMinLength} characters.`);
   });
 
+  it('requires a specific hazard name when Other is selected', () => {
+    const missingName = validateReportHazardDraft({ ...validDraft, hazardType: 'OTHER', otherHazardType: '' });
+    expect(missingName.errors.otherHazardType).toBe('Tell us what type of hazard this is.');
+
+    const namedHazard = validateReportHazardDraft({
+      ...validDraft,
+      hazardType: 'OTHER',
+      otherHazardType: 'Earthquake'
+    });
+    expect(namedHazard.isValid).toBe(true);
+  });
+
   it('reports field-specific errors before the review screen', () => {
     const result = validateReportHazardDraft({
       ...validDraft,

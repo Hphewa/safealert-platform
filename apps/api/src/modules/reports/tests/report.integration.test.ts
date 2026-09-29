@@ -296,6 +296,7 @@ describe('report API', () => {
         .send({
           ...validReportPayload,
           hazardType,
+          ...(hazardType === 'OTHER' ? { otherHazardType: 'Damaged building' } : {}),
           description: `${hazardType} hazard reported near the main road.`
         });
 

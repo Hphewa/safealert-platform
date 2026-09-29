@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -25,7 +26,7 @@ import {
   formatResidentReportCount,
   formatResidentReportLocation,
   formatResidentReportSubmittedAt,
-  hazardIconForResident,
+  hazardImageForResident,
   hazardLabelForResident,
   residentReportTabs,
   severityToneForResident,
@@ -241,7 +242,7 @@ function ResidentReportCard({ report }: { report: SafeReport }) {
 
       <View style={styles.cardMainRow}>
         <View style={styles.reportIconWrap}>
-          <DashboardGlyph color={dashboardTheme.colors.info} name={hazardIconForResident(report.hazardType)} size={20} />
+          <Image accessibilityLabel={`${hazardLabel} hazard icon`} source={hazardImageForResident(report.hazardType)} style={styles.reportIconImage} />
         </View>
         <View style={styles.reportBody}>
           <Text style={styles.reportTitle}>{hazardLabel}</Text>
@@ -509,6 +510,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 16,
     backgroundColor: dashboardTheme.colors.infoSoft
+  },
+  reportIconImage: {
+    width: 46,
+    height: 46,
+    resizeMode: 'contain'
   },
   reportBody: {
     flex: 1,

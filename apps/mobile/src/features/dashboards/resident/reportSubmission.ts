@@ -84,6 +84,7 @@ export async function submitResidentReportDraft({
 
   const payload: CreateReportRequest = {
     hazardType: draft.hazardType,
+    ...((draft.otherHazardType ?? '').trim() ? { otherHazardType: draft.otherHazardType?.trim() } : {}),
     severity: draft.severity,
     description: draft.description.trim(),
     location: {

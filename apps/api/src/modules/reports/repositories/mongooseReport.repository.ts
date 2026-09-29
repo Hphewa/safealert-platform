@@ -90,6 +90,7 @@ export class MongooseReportRepository implements ReportRepository {
           _id: 0,
           id: { $toString: '$_id' },
           hazardType: 1,
+          otherHazardType: 1,
           description: 1,
           severity: 1,
           location: 1,
@@ -131,6 +132,7 @@ export class MongooseReportRepository implements ReportRepository {
     return {
       id: safeReport.id,
       hazardType: safeReport.hazardType,
+      ...(safeReport.otherHazardType ? { otherHazardType: safeReport.otherHazardType } : {}),
       description: safeReport.description,
       severity: safeReport.severity,
       location: safeReport.location,

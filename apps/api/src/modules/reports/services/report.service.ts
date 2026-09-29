@@ -54,6 +54,7 @@ export class ReportService {
     let report = await this.repository.createReport({
       residentId,
       hazardType: input.hazardType,
+      ...(input.otherHazardType ? { otherHazardType: input.otherHazardType } : {}),
       description: input.description,
       severity: input.severity,
       location: input.location,
@@ -196,6 +197,7 @@ export class ReportService {
         id: report.id,
         ...(report.communityReportClusterId ? { communityReportClusterId: report.communityReportClusterId } : {}),
         hazardType: report.hazardType,
+        ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
         description: report.description,
         severity: report.severity,
         location: report.location,
