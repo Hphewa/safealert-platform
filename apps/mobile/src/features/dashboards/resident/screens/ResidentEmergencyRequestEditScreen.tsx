@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   EMERGENCY_ASSISTANCE_TYPES,
   RESPONSE_EDITABLE_STATUS,
@@ -64,6 +64,152 @@ export type ResidentEmergencyRequestEditForm = {
     phoneNumber: string;
   };
 };
+
+export type ResidentEmergencyRequestValidationErrors = Partial<
+  Record<
+    | 'assistanceType'
+    | 'affectedPeopleCount'
+    | 'location'
+    | 'injuredCount'
+    | 'vulnerablePeople'
+    | 'roadAccessibility'
+    | 'contactDetails'
+    | 'emergencyDescription'
+    | 'specialRequirements',
+    string
+  >
+>;
+
+export type ResidentEmergencyRequestValidationResult = {
+  errors: ResidentEmergencyRequestValidationErrors;
+  isValid: boolean;
+};
+
+// Reuse create-request business rules so editing cannot persist values that a newly submitted request would reject.
+export function validateResidentEmergencyRequestEditForm(
+  form: ResidentEmergencyRequestEditForm
+): ResidentEmergencyRequestValidationResult {
+  const errors: ResidentEmergencyRequestValidationErrors = {};
+
+  // 1. Required Assistance Type validation
+  if (!form.assistanceType || !EMERGENCY_ASSISTANCE_TYPES.includes(form.assistanceType)) {
+    errors.assistanceType = 'Select an assistance type.';
+  }
+
+  // 2. Affected people numeric validation: must be an integer >= 1.
+  if (
+    typeof form.affectedPeopleCount !== 'number' ||
+    Number.isNaN(form.affectedPeopleCount) ||
+    !Number.isInteger(form.affectedPeopleCount)
+  ) {
+    errors.affectedPeopleCount = 'Enter a valid whole number.';
+  } else if (form.affectedPeopleCount < 0) {
+    errors.affectedPeopleCount = 'Number of people cannot be negative.';
+  } else if (form.affectedPeopleCount < 1) {
+    errors.affectedPeopleCount = 'Enter the number of affected people.';
+  }
+
+  // 3. Location coordinate bounds validation: must be finite and within valid geographic limits.
+  const hasValidCoordinates =
+    typeof form.latitude === 'number' &&
+    typeof form.longitude === 'number' &&
+    Number.isFinite(form.latitude) &&
+    Number.isFinite(form.longitude) &&
+    form.latitude >= -90 &&
+    form.latitude <= 90 &&
+    form.longitude >= -180 &&
+    form.longitude <= 180;
+
+  if (!hasValidCoordinates) {
+    errors.location = 'Valid emergency location coordinates are required.';
+  }
+
+  // 4. Injured people count & cross-field relationship validation:
+  // Injured count must be a non-negative whole number, cannot exceed affected people,
+  // and must be 0 if medical assistance is not required.
+  if (
+    typeof form.injuredCount !== 'number' ||
+    Number.isNaN(form.injuredCount) ||
+    !Number.isInteger(form.injuredCount)
+  ) {
+    errors.injuredCount = 'Enter a valid whole number.';
+  } else if (form.injuredCount < 0) {
+    errors.injuredCount = 'Injured people cannot be a negative number.';
+  } else if (!form.requiresMedicalAssistance && form.injuredCount !== 0) {
+    errors.injuredCount = 'Set injured people to 0 when no medical assistance is required.';
+  } else if (
+    Number.isInteger(form.affectedPeopleCount) &&
+    form.affectedPeopleCount >= 1 &&
+    form.injuredCount > form.affectedPeopleCount
+  ) {
+    errors.injuredCount = 'Injured people cannot exceed the total affected people.';
+  }
+
+  // 5. Vulnerable people counts validation: all categories must be non-negative whole numbers.
+  const vulnerableValues = [
+    form.vulnerablePeople?.children,
+    form.vulnerablePeople?.elderlyPeople,
+    form.vulnerablePeople?.personsWithDisabilities,
+    form.vulnerablePeople?.pregnantPersons
+  ];
+
+  const hasNegativeVulnerable = vulnerableValues.some(
+    (count) => typeof count === 'number' && count < 0
+  );
+  const hasNonIntegerVulnerable = vulnerableValues.some(
+    (count) => typeof count !== 'number' || Number.isNaN(count) || !Number.isInteger(count)
+  );
+
+  if (hasNegativeVulnerable) {
+    errors.vulnerablePeople = 'Vulnerable-person counts cannot be negative.';
+  } else if (hasNonIntegerVulnerable) {
+    errors.vulnerablePeople = 'Vulnerable-person counts must be whole numbers.';
+  }
+
+  // 6. Required Road Accessibility selection validation
+  if (!form.roadAccessibility || !ROAD_ACCESSIBILITIES.includes(form.roadAccessibility)) {
+    errors.roadAccessibility = 'Select the current road/access condition.';
+  }
+
+  // 7. Contact Details validation: name/email are account-derived, phone number is editable.
+  // Validate phone format using standard telecom characters (7-32 characters, min 7 digits).
+  const trimmedName = form.contact?.name?.trim() ?? '';
+  const trimmedEmail = form.contact?.email?.trim() ?? '';
+  const trimmedPhone = form.contact?.phoneNumber?.trim() ?? '';
+
+  if (!trimmedName || !trimmedEmail) {
+    errors.contactDetails = 'Your account contact information is required.';
+  } else if (!trimmedPhone) {
+    errors.contactDetails = 'Enter a contact phone number.';
+  } else {
+    const digitsOnly = trimmedPhone.replace(/\D/g, '');
+    const hasValidPhoneFormat = /^[\d\s+\-()]{7,32}$/.test(trimmedPhone);
+    if (!hasValidPhoneFormat || digitsOnly.length < 7) {
+      errors.contactDetails = 'Enter a valid phone number.';
+    }
+  }
+
+  // 8. Description validation: required, non-whitespace, 3-character minimum, and 500-char max.
+  const trimmedDescription = form.description?.trim() ?? '';
+  if (!trimmedDescription) {
+    errors.emergencyDescription = 'Describe the emergency.';
+  } else if (trimmedDescription.length < 3) {
+    errors.emergencyDescription = 'Description must be at least 3 characters.';
+  } else if (trimmedDescription.length > emergencyDescriptionMaxLength) {
+    errors.emergencyDescription = `Keep the description under ${emergencyDescriptionMaxLength} characters.`;
+  }
+
+  // 9. Special requirements validation: optional field, enforces 300-char max limit if provided.
+  const trimmedSpecialRequirements = form.specialRequirements?.trim() ?? '';
+  if (trimmedSpecialRequirements.length > specialRequirementsMaxLength) {
+    errors.specialRequirements = `Keep special requirements under ${specialRequirementsMaxLength} characters.`;
+  }
+
+  return {
+    errors,
+    isValid: Object.keys(errors).length === 0
+  };
+}
 
 // Map persisted backend data into local editable form state.
 // Preserves saved coordinates and defaults missing/invalid values defensively.
@@ -149,7 +295,13 @@ export function mapRequestToEditForm(request: SafeResponseRequest): ResidentEmer
   };
 }
 
-export function ResidentEmergencyRequestEditScreen() {
+type ResidentEmergencyRequestEditScreenProps = {
+  onValidContinue?: (form: ResidentEmergencyRequestEditForm) => void;
+};
+
+export function ResidentEmergencyRequestEditScreen({
+  onValidContinue
+}: ResidentEmergencyRequestEditScreenProps = {}) {
   const router = useRouter();
   const { requestId } = useLocalSearchParams<{ requestId?: string | string[] }>();
   // Retrieve the existing request using the owner-scoped hook.
@@ -161,6 +313,9 @@ export function ResidentEmergencyRequestEditScreen() {
   // One-time initialization ensures that subsequent rerenders or background data refreshes
   // do NOT overwrite the Resident's in-progress edits.
   const [initializedRequestId, setInitializedRequestId] = useState<string | null>(null);
+  // Track whether the Resident has attempted to continue.
+  // Avoids showing a wall of red validation errors before any user interaction.
+  const [hasAttemptedContinue, setHasAttemptedContinue] = useState(false);
 
   // Frontend status checks guard the edit UI for smooth UX, but backend authorization
   // and lifecycle enforcement from LDFEW-340 remain the final authority during any future mutation.
@@ -176,6 +331,18 @@ export function ResidentEmergencyRequestEditScreen() {
     setFormData(initialForm);
     currentForm = initialForm;
   }
+
+  // Real-time validation computation: updates automatically as the Resident modifies fields,
+  // ensuring that stale errors clear immediately upon correction without requiring another tap.
+  const validation = useMemo(
+    () => (currentForm ? validateResidentEmergencyRequestEditForm(currentForm) : { errors: {}, isValid: true }),
+    [currentForm]
+  );
+  const errors = hasAttemptedContinue ? validation.errors : {};
+  const generalError =
+    hasAttemptedContinue && !validation.isValid
+      ? 'Please correct the highlighted fields before continuing.'
+      : null;
 
   const returnToDetails = () => {
     // Return safely without saving any changes to the backend.
@@ -240,14 +407,48 @@ export function ResidentEmergencyRequestEditScreen() {
     });
   };
 
+  const trimContactPhoneNumber = () => {
+    if (!currentForm) return;
+    setFormData({
+      ...currentForm,
+      contact: {
+        ...currentForm.contact,
+        phoneNumber: currentForm.contact.phoneNumber.trim()
+      }
+    });
+  };
+
   const setEmergencyDescription = (description: string) => {
     if (!currentForm) return;
     setFormData({ ...currentForm, description });
   };
 
+  const trimEmergencyDescription = () => {
+    if (!currentForm) return;
+    setFormData({ ...currentForm, description: currentForm.description.trim() });
+  };
+
   const setSpecialRequirements = (specialRequirements: string) => {
     if (!currentForm) return;
     setFormData({ ...currentForm, specialRequirements });
+  };
+
+  const trimSpecialRequirements = () => {
+    if (!currentForm) return;
+    setFormData({ ...currentForm, specialRequirements: currentForm.specialRequirements.trim() });
+  };
+
+  // Attempt to continue: validates the form. If invalid, keeps the Resident on screen
+  // and highlights errors. If valid, gates progression toward the next local step (LDFEW-344)
+  // without calling backend mutation APIs.
+  const handleContinue = () => {
+    setHasAttemptedContinue(true);
+    if (!currentForm) return;
+    const result = validateResidentEmergencyRequestEditForm(currentForm);
+    if (!result.isValid) {
+      return;
+    }
+    onValidContinue?.(currentForm);
   };
 
   return (
@@ -286,6 +487,13 @@ export function ResidentEmergencyRequestEditScreen() {
             </Text>
           </View>
 
+          {generalError ? (
+            <View accessibilityLiveRegion="polite" style={styles.generalErrorBanner}>
+              <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={20} />
+              <Text style={styles.generalErrorText}>{generalError}</Text>
+            </View>
+          ) : null}
+
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Assistance Type</Text>
             <View accessibilityRole="radiogroup" style={styles.optionGrid}>
@@ -300,6 +508,7 @@ export function ResidentEmergencyRequestEditScreen() {
                 />
               ))}
             </View>
+            <ValidationMessage message={errors.assistanceType} />
           </View>
 
           <View style={styles.panel}>
@@ -320,6 +529,7 @@ export function ResidentEmergencyRequestEditScreen() {
                 </View>
               </View>
             </View>
+            <ValidationMessage message={errors.location} />
           </View>
 
           <View style={styles.section}>
@@ -333,6 +543,7 @@ export function ResidentEmergencyRequestEditScreen() {
               onChange={updateAffectedPeopleCount}
               value={currentForm.affectedPeopleCount}
             />
+            <ValidationMessage message={errors.affectedPeopleCount} />
           </View>
 
           <View style={styles.section}>
@@ -363,6 +574,7 @@ export function ResidentEmergencyRequestEditScreen() {
                 value={currentForm.injuredCount}
               />
             ) : null}
+            <ValidationMessage message={errors.injuredCount} />
           </View>
 
           <View style={styles.section}>
@@ -401,6 +613,7 @@ export function ResidentEmergencyRequestEditScreen() {
                 value={currentForm.vulnerablePeople.pregnantPersons}
               />
             </View>
+            <ValidationMessage message={errors.vulnerablePeople} />
           </View>
 
           <View style={styles.section}>
@@ -415,6 +628,7 @@ export function ResidentEmergencyRequestEditScreen() {
                 />
               ))}
             </View>
+            <ValidationMessage message={errors.roadAccessibility} />
           </View>
 
           <View style={styles.panel}>
@@ -441,12 +655,14 @@ export function ResidentEmergencyRequestEditScreen() {
             <TextInput
               accessibilityLabel="Contact phone number"
               keyboardType="phone-pad"
+              onBlur={trimContactPhoneNumber}
               onChangeText={setContactPhoneNumber}
               placeholder="Enter a response contact phone number."
               placeholderTextColor={dashboardTheme.colors.muted}
               style={styles.contactInput}
               value={currentForm.contact.phoneNumber}
             />
+            <ValidationMessage message={errors.contactDetails} />
           </View>
 
           <View style={styles.section}>
@@ -455,6 +671,7 @@ export function ResidentEmergencyRequestEditScreen() {
               accessibilityLabel="Short emergency description"
               maxLength={emergencyDescriptionMaxLength}
               multiline
+              onBlur={trimEmergencyDescription}
               onChangeText={setEmergencyDescription}
               placeholder="Briefly explain what is happening and what help is needed."
               placeholderTextColor={dashboardTheme.colors.muted}
@@ -465,6 +682,7 @@ export function ResidentEmergencyRequestEditScreen() {
             <Text style={styles.characterCount}>
               {currentForm.description.trim().length}/{emergencyDescriptionMaxLength}
             </Text>
+            <ValidationMessage message={errors.emergencyDescription} />
           </View>
 
           <View style={styles.section}>
@@ -473,6 +691,7 @@ export function ResidentEmergencyRequestEditScreen() {
               accessibilityLabel="Special requirements"
               maxLength={specialRequirementsMaxLength}
               multiline
+              onBlur={trimSpecialRequirements}
               onChangeText={setSpecialRequirements}
               placeholder="Optional notes about medicine, transport, shelter, mobility, or access needs."
               placeholderTextColor={dashboardTheme.colors.muted}
@@ -483,7 +702,17 @@ export function ResidentEmergencyRequestEditScreen() {
             <Text style={styles.characterCount}>
               {currentForm.specialRequirements.trim().length}/{specialRequirementsMaxLength}
             </Text>
+            <ValidationMessage message={errors.specialRequirements} />
           </View>
+
+          <Pressable
+            accessibilityLabel="Review Changes"
+            accessibilityRole="button"
+            onPress={handleContinue}
+            style={({ pressed }) => [styles.continueButton, pressed && styles.pressed]}
+          >
+            <Text style={styles.continueButtonText}>Review Changes</Text>
+          </Pressable>
         </>
       )}
 
@@ -522,6 +751,15 @@ function ChoiceButton({
     >
       <Text style={[styles.choiceButtonText, selected && styles.choiceButtonTextSelected]}>{label}</Text>
     </Pressable>
+  );
+}
+
+function ValidationMessage({ message }: { message?: string }) {
+  if (!message) return null;
+  return (
+    <Text accessibilityLiveRegion="polite" style={styles.validationText}>
+      {message}
+    </Text>
   );
 }
 
@@ -574,6 +812,43 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: dashboardTheme.colors.muted
+  },
+  generalErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.critical,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.criticalSoft
+  },
+  generalErrorText: {
+    flex: 1,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+    color: dashboardTheme.colors.critical
+  },
+  validationText: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '700',
+    color: dashboardTheme.colors.critical
+  },
+  continueButton: {
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.primary
+  },
+  continueButtonText: {
+    fontSize: 16,
+    lineHeight: 24,
+    fontWeight: '800',
+    color: '#ffffff'
   },
   section: {
     gap: 12
@@ -759,13 +1034,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: 12,
     borderRadius: dashboardTheme.radius.sm,
-    backgroundColor: dashboardTheme.colors.primary
+    backgroundColor: dashboardTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border
   },
   backButtonText: {
     fontSize: 16,
     lineHeight: 24,
     fontWeight: '800',
-    color: dashboardTheme.colors.surface
+    color: dashboardTheme.colors.text
   },
   pressed: {
     opacity: 0.82

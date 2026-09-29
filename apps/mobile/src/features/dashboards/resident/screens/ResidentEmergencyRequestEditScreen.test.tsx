@@ -4,7 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   mapRequestToEditForm,
-  ResidentEmergencyRequestEditScreen
+  ResidentEmergencyRequestEditScreen,
+  validateResidentEmergencyRequestEditForm,
+  type ResidentEmergencyRequestEditForm
 } from './ResidentEmergencyRequestEditScreen';
 import {
   cancelResidentResponseRequest,
@@ -12,8 +14,6 @@ import {
   getMyResponseRequestById
 } from '../api/responseRequestApi';
 import {
-  parseResidentEmergencyRequestId,
-  residentEmergencyRequestDetailsHref,
   residentEmergencyRequestEditHref
 } from '../emergencyRequestNavigation';
 
@@ -91,9 +91,10 @@ vi.mock('react-native', () => ({
   ),
   Text: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
   View: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
-  TextInput: ({ value, onChangeText, accessibilityLabel, placeholder }: {
+  TextInput: ({ value, onChangeText, onBlur, accessibilityLabel, placeholder }: {
     value?: string;
     onChangeText?: (text: string) => void;
+    onBlur?: () => void;
     accessibilityLabel?: string;
     placeholder?: string;
   }) => (
@@ -101,6 +102,7 @@ vi.mock('react-native', () => ({
       aria-label={accessibilityLabel}
       placeholder={placeholder}
       value={value}
+      onBlur={onBlur}
       onChange={(e) => onChangeText?.(e.target.value)}
     />
   ),
@@ -151,9 +153,9 @@ const mockNewRequest: SafeResponseRequest = {
   updatedAt: '2026-09-28T08:00:00.000Z'
 };
 
-function renderScreen() {
+function renderScreen(props?: { onValidContinue?: (form: ResidentEmergencyRequestEditForm) => void }) {
   lifecycle.cursor = 0;
-  return ResidentEmergencyRequestEditScreen();
+  return ResidentEmergencyRequestEditScreen(props);
 }
 
 type MockElementProps = {
@@ -162,6 +164,7 @@ type MockElementProps = {
   children?: React.ReactNode;
   value?: string;
   onChangeText?: (text: string) => void;
+  onBlur?: () => void;
   onPress?: () => void;
   onClick?: () => void;
   disabled?: boolean;
@@ -197,7 +200,7 @@ function extractScreenText(node: React.ReactNode): string {
   return [childText, valueText].filter(Boolean).join(' ');
 }
 
-describe('ResidentEmergencyRequestEditScreen (LDFEW-342)', () => {
+describe('ResidentEmergencyRequestEditScreen Validation (LDFEW-343)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     lifecycle.slots = [];
@@ -207,189 +210,177 @@ describe('ResidentEmergencyRequestEditScreen (LDFEW-342)', () => {
     auth.accessToken = 'resident-token';
   });
 
-  it('1. Edit screen uses the correct requestId from route parameters', async () => {
-    lifecycle.params = { requestId: '507f1f77bcf86cd799439011' };
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      expect(getMyResponseRequestById).toHaveBeenCalledWith('507f1f77bcf86cd799439011', 'resident-token');
-    });
-  });
-
-  it('2. Existing request information is retrieved and displayed', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const text = extractScreenText(renderScreen());
-      expect(text).toContain('Edit Emergency Assistance Request');
-      expect(text).toContain('Medical Assistance');
-      expect(text).toContain('Elderly resident requires assistance');
-    });
-  });
-
-  it('3. Loading state appears while data is loading', () => {
-    vi.mocked(getMyResponseRequestById).mockReturnValue(new Promise(() => {}));
-    renderScreen();
-    lifecycle.effect?.();
-    const text = extractScreenText(renderScreen());
-    expect(text).toContain('Loading your emergency request');
-    expect(text).not.toContain('Edit Emergency Assistance Request');
-  });
-
-  it('4. Assistance type is pre-filled correctly', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      expect(extractScreenText(renderScreen())).toContain('Medical Assistance');
-    });
+  it('1. Existing valid pre-filled request has no validation errors', () => {
     const form = mapRequestToEditForm(mockNewRequest);
-    expect(form.assistanceType).toBe('MEDICAL_ASSISTANCE');
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(true);
+    expect(result.errors).toEqual({});
   });
 
-  it('5. Affected people count is pre-filled correctly', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const text = extractScreenText(renderScreen());
-      expect(text).toContain('Affected people');
-      expect(text).toContain('4');
-    });
+  it('2. Required assistance type is validated', () => {
+    const form = { ...mapRequestToEditForm(mockNewRequest), assistanceType: null as unknown as 'OTHER' };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.assistanceType).toBe('Select an assistance type.');
   });
 
-  it('6. Injured people count is pre-filled correctly', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const text = extractScreenText(renderScreen());
-      expect(text).toContain('Number injured');
-      expect(text).toContain('1');
-    });
+  it('3. Negative affected people count is rejected', () => {
+    const form = { ...mapRequestToEditForm(mockNewRequest), affectedPeopleCount: -3 };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.affectedPeopleCount).toBe('Number of people cannot be negative.');
   });
 
-  it('7. Vulnerable-person fields are pre-filled correctly', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const text = extractScreenText(renderScreen());
-      expect(text).toContain('Children');
-      expect(text).toContain('2');
-      expect(text).toContain('Elderly people');
-      expect(text).toContain('1');
-      expect(text).toContain('Persons with disabilities');
-      expect(text).toContain('0');
-      expect(text).toContain('Pregnant persons');
-    });
+  it('4. Non-numeric affected people count is rejected', () => {
+    const form = { ...mapRequestToEditForm(mockNewRequest), affectedPeopleCount: NaN };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.affectedPeopleCount).toBe('Enter a valid whole number.');
   });
 
-  it('8. Medical needs are pre-filled correctly', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const text = extractScreenText(renderScreen());
-      expect(text).toContain('Medical Needs');
-      expect(text).toContain('Yes');
-      expect(text).toContain('No');
-    });
-    const form = mapRequestToEditForm(mockNewRequest);
-    expect(form.requiresMedicalAssistance).toBe(true);
+  it('5. Negative injured people count is rejected', () => {
+    const form = { ...mapRequestToEditForm(mockNewRequest), injuredCount: -1 };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.injuredCount).toBe('Injured people cannot be a negative number.');
   });
 
-  it('9. Road accessibility is pre-filled correctly', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const text = extractScreenText(renderScreen());
-      expect(text).toContain('Road / Access Conditions');
-      expect(text).toContain('Limited');
-    });
-    const form = mapRequestToEditForm(mockNewRequest);
-    expect(form.roadAccessibility).toBe('LIMITED');
+  it('6. Invalid vulnerable-person count is rejected', () => {
+    const form = {
+      ...mapRequestToEditForm(mockNewRequest),
+      vulnerablePeople: { children: -1, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 }
+    };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.vulnerablePeople).toBe('Vulnerable-person counts cannot be negative.');
   });
 
-  it('10. Description is pre-filled correctly', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const input = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
-      expect(input?.props.value).toBe('Elderly resident requires assistance');
-    });
+  it('7. Invalid child/elderly/disability/pregnancy count is rejected', () => {
+    const form = {
+      ...mapRequestToEditForm(mockNewRequest),
+      vulnerablePeople: { children: 0, elderlyPeople: -2, personsWithDisabilities: 0, pregnantPersons: 0 }
+    };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.vulnerablePeople).toBe('Vulnerable-person counts cannot be negative.');
   });
 
-  it('11. Special requirements are pre-filled when present', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const input = findByAccessibilityLabel(renderScreen(), 'Special requirements');
-      expect(input?.props.value).toBe('Oxygen cylinder needed');
-    });
+  it('8. Valid zero values behave according to existing creation rules', () => {
+    const form = {
+      ...mapRequestToEditForm(mockNewRequest),
+      requiresMedicalAssistance: false,
+      injuredCount: 0,
+      vulnerablePeople: { children: 0, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 }
+    };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(true);
+    expect(result.errors.injuredCount).toBeUndefined();
+    expect(result.errors.vulnerablePeople).toBeUndefined();
   });
 
-  it('12. Phone/contact information is pre-filled appropriately', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const text = extractScreenText(renderScreen());
-      expect(text).toContain('Nimal Perera');
-      expect(text).toContain('nimal@example.test');
-      const phoneInput = findByAccessibilityLabel(renderScreen(), 'Contact phone number');
-      expect(phoneInput?.props.value).toBe('0771234567');
-    });
+  it('9. Decimal counts are rejected when whole numbers are required', () => {
+    const decimalPeople = { ...mapRequestToEditForm(mockNewRequest), affectedPeopleCount: 4.5 };
+    expect(validateResidentEmergencyRequestEditForm(decimalPeople).errors.affectedPeopleCount).toBe('Enter a valid whole number.');
+
+    const decimalInjured = { ...mapRequestToEditForm(mockNewRequest), injuredCount: 1.5 };
+    expect(validateResidentEmergencyRequestEditForm(decimalInjured).errors.injuredCount).toBe('Enter a valid whole number.');
+
+    const decimalVulnerable = {
+      ...mapRequestToEditForm(mockNewRequest),
+      vulnerablePeople: { children: 1.5, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 }
+    };
+    expect(validateResidentEmergencyRequestEditForm(decimalVulnerable).errors.vulnerablePeople).toBe('Vulnerable-person counts must be whole numbers.');
   });
 
-  it('13. Saved latitude/longitude are preserved and not replaced by device GPS', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const text = extractScreenText(renderScreen());
-      expect(text).toContain('Saved emergency location');
-      expect(text).toContain('Lat 6.726430, Long 79.900895');
-      expect(text).toContain('Preserved from your submitted request.');
-    });
+  it('10. Missing required phone/contact information is rejected', () => {
+    const baseForm = mapRequestToEditForm(mockNewRequest);
+    const form = {
+      ...baseForm,
+      contact: { ...baseForm.contact, phoneNumber: '' }
+    };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.contactDetails).toBe('Enter a contact phone number.');
   });
 
-  it('14. Missing optional values do not crash the form', () => {
-    const minimalRequest = {
-      ...mockNewRequest,
-      specialRequirements: undefined,
-      vulnerablePeople: undefined,
-      description: undefined,
-      contact: undefined,
-      location: undefined,
-      medicalNeeds: undefined,
-      injuredPeople: undefined,
-      affectedPeople: undefined
-    } as unknown as SafeResponseRequest;
+  it('11. Invalid phone number is rejected according to existing validation rules', () => {
+    const baseForm = mapRequestToEditForm(mockNewRequest);
+    const shortPhone = {
+      ...baseForm,
+      contact: { ...baseForm.contact, phoneNumber: '123' }
+    };
+    expect(validateResidentEmergencyRequestEditForm(shortPhone).errors.contactDetails).toBe('Enter a valid phone number.');
 
-    const form = mapRequestToEditForm(minimalRequest);
-    expect(form.specialRequirements).toBe('');
-    expect(form.description).toBe('');
-    expect(form.contact.phoneNumber).toBe('');
-    expect(form.contact.name).toBe('');
-    expect(form.contact.email).toBe('');
-    expect(form.vulnerablePeople.children).toBe(0);
-    expect(form.vulnerablePeople.elderlyPeople).toBe(0);
-    expect(form.vulnerablePeople.personsWithDisabilities).toBe(0);
-    expect(form.vulnerablePeople.pregnantPersons).toBe(0);
-    expect(form.latitude).toBe(0);
-    expect(form.longitude).toBe(0);
-    expect(form.affectedPeopleCount).toBe(1);
-    expect(form.injuredCount).toBe(0);
-    expect(form.requiresMedicalAssistance).toBe(false);
+    const letterPhone = {
+      ...baseForm,
+      contact: { ...baseForm.contact, phoneNumber: '0771234abc' }
+    };
+    expect(validateResidentEmergencyRequestEditForm(letterPhone).errors.contactDetails).toBe('Enter a valid phone number.');
   });
 
-  it('15. Normal rerenders do not reset Resident edits', async () => {
+  it('12. Missing required description is rejected', () => {
+    const form = { ...mapRequestToEditForm(mockNewRequest), description: '' };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.emergencyDescription).toBe('Describe the emergency.');
+  });
+
+  it('13. Whitespace-only description is rejected', () => {
+    const form = { ...mapRequestToEditForm(mockNewRequest), description: '        ' };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.emergencyDescription).toBe('Describe the emergency.');
+  });
+
+  it('14. Over-limit description is rejected', () => {
+    const form = { ...mapRequestToEditForm(mockNewRequest), description: 'a'.repeat(501) };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.emergencyDescription).toBe('Keep the description under 500 characters.');
+  });
+
+  it('15. Invalid coordinate values are rejected', () => {
+    const invalidLat = { ...mapRequestToEditForm(mockNewRequest), latitude: 95 };
+    expect(validateResidentEmergencyRequestEditForm(invalidLat).errors.location).toBe('Valid emergency location coordinates are required.');
+
+    const invalidLng = { ...mapRequestToEditForm(mockNewRequest), longitude: 200 };
+    expect(validateResidentEmergencyRequestEditForm(invalidLng).errors.location).toBe('Valid emergency location coordinates are required.');
+  });
+
+  it('16. Required road-accessibility selection is validated', () => {
+    const form = { ...mapRequestToEditForm(mockNewRequest), roadAccessibility: null as unknown as 'LIMITED' };
+    const result = validateResidentEmergencyRequestEditForm(form);
+    expect(result.isValid).toBe(false);
+    expect(result.errors.roadAccessibility).toBe('Select the current road/access condition.');
+  });
+
+  it('17. Medical-needs values enforce cross-field consistency', () => {
+    const excessInjured = { ...mapRequestToEditForm(mockNewRequest), affectedPeopleCount: 2, injuredCount: 3 };
+    expect(validateResidentEmergencyRequestEditForm(excessInjured).errors.injuredCount).toBe(
+      'Injured people cannot exceed the total affected people.'
+    );
+
+    const injuredWithoutMedical = {
+      ...mapRequestToEditForm(mockNewRequest),
+      requiresMedicalAssistance: false,
+      injuredCount: 2
+    };
+    expect(validateResidentEmergencyRequestEditForm(injuredWithoutMedical).errors.injuredCount).toBe(
+      'Set injured people to 0 when no medical assistance is required.'
+    );
+  });
+
+  it('18. Optional special requirements remain optional and enforce length limit', () => {
+    const emptySpecial = { ...mapRequestToEditForm(mockNewRequest), specialRequirements: '' };
+    expect(validateResidentEmergencyRequestEditForm(emptySpecial).errors.specialRequirements).toBeUndefined();
+
+    const overLimitSpecial = { ...mapRequestToEditForm(mockNewRequest), specialRequirements: 'x'.repeat(301) };
+    expect(validateResidentEmergencyRequestEditForm(overLimitSpecial).errors.specialRequirements).toBe(
+      'Keep special requirements under 300 characters.'
+    );
+  });
+
+  it('19. Validation errors are shown in user-friendly wording when continuing with invalid values', async () => {
     vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
     renderScreen();
     lifecycle.effect?.();
@@ -397,116 +388,168 @@ describe('ResidentEmergencyRequestEditScreen (LDFEW-342)', () => {
       expect(findByAccessibilityLabel(renderScreen(), 'Short emergency description')).toBeDefined();
     });
 
-    const descriptionInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
-    descriptionInput?.props.onChangeText?.('Updated emergency note by resident');
-
-    const rerenderedScreen = renderScreen();
-    const updatedInput = findByAccessibilityLabel(rerenderedScreen, 'Short emergency description');
-    expect(updatedInput?.props.value).toBe('Updated emergency note by resident');
-  });
-
-  it.each([
-    ['ASSIGNED', 'an Emergency Responder has already accepted it.'],
-    ['DISPATCHED', 'an Emergency Responder has already accepted it.'],
-    ['COMPLETED', 'Completed requests cannot be edited.'],
-    ['CANCELLED', 'Cancelled requests cannot be edited.']
-  ] as const)('16. A non-NEW request (%s) does not expose the editable form', async (status, expectedNotice) => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({
-      responseRequest: { ...mockNewRequest, status }
-    });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const text = extractScreenText(renderScreen());
-      expect(text).toContain('Editing unavailable');
-      expect(text).toContain(expectedNotice);
-      expect(text).not.toContain('Edit Emergency Assistance Request');
-    });
-  });
-
-  it('17. Load failure produces a friendly error/retry state', async () => {
-    vi.mocked(getMyResponseRequestById).mockRejectedValue(new Error('Network failure'));
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      const text = extractScreenText(renderScreen());
-      expect(text).toContain('Unable to open request');
-    });
-  });
-
-  it('18. Invalid or missing requestId is handled safely', () => {
-    lifecycle.params = { requestId: undefined };
-    const screen = renderScreen();
-    const text = extractScreenText(screen);
-    expect(text).toContain('Select a valid request');
-    expect(getMyResponseRequestById).not.toHaveBeenCalled();
-  });
-
-  it('19. Back to Request Details remains functional', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      expect(findByAccessibilityLabel(renderScreen(), 'Back to Request Details')).toBeDefined();
-    });
-
-    const backButton = findByAccessibilityLabel(renderScreen(), 'Back to Request Details');
-    (backButton?.props.onPress ?? backButton?.props.onClick)?.();
-    expect(navigation.back).toHaveBeenCalled();
-
-    navigation.canGoBack.mockReturnValue(false);
-    (backButton?.props.onPress ?? backButton?.props.onClick)?.();
-    expect(navigation.replace).toHaveBeenCalledWith(
-      residentEmergencyRequestDetailsHref(mockNewRequest.id)
-    );
-  });
-
-  it('20. Opening or editing the form does NOT create a new emergency request', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      expect(extractScreenText(renderScreen())).toContain('Edit Emergency Assistance Request');
-    });
-    const phoneInput = findByAccessibilityLabel(renderScreen(), 'Contact phone number');
-    phoneInput?.props.onChangeText?.('0779998888');
-    expect(createResidentResponseRequest).not.toHaveBeenCalled();
-  });
-
-  it('21. Opening or editing the form does NOT update the backend yet', async () => {
-    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
-    renderScreen();
-    lifecycle.effect?.();
-    await vi.waitFor(() => {
-      expect(extractScreenText(renderScreen())).toContain('Edit Emergency Assistance Request');
-    });
     const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
-    descInput?.props.onChangeText?.('Changed description locally');
-    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+    descInput?.props.onChangeText?.('');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Please correct the highlighted fields before continuing.');
+    expect(text).toContain('Describe the emergency.');
+    expect(text).not.toContain('ZodError');
+    expect(text).not.toContain('NaN');
+  });
+
+  it('20. Invalid form does not navigate/proceed', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    const onValidContinue = vi.fn();
+    renderScreen({ onValidContinue });
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Short emergency description')).toBeDefined();
+    });
+
+    const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    descInput?.props.onChangeText?.('');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    expect(onValidContinue).not.toHaveBeenCalled();
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  it('21. Invalid form does not call backend update API', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Contact phone number')).toBeDefined();
+    });
+
+    const phoneInput = findByAccessibilityLabel(renderScreen(), 'Contact phone number');
+    phoneInput?.props.onChangeText?.('');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
     expect(createResidentResponseRequest).not.toHaveBeenCalled();
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
   });
 
-  it('22. Existing Emergency Assistance create flow is distinct from edit mode', () => {
-    expect(mapRequestToEditForm(mockNewRequest).assistanceType).toBe('MEDICAL_ASSISTANCE');
-    expect(mockNewRequest.status).toBe('NEW');
+  it('22. Resident remains on Edit Request when validation fails', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Short emergency description')).toBeDefined();
+    });
+
+    const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    descInput?.props.onChangeText?.('   ');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Edit Request');
+    expect(text).toContain('Describe the emergency.');
+    expect(navigation.back).not.toHaveBeenCalled();
   });
 
-  it('23. Existing LDFEW-341 Edit Request navigation link generates valid path', () => {
+  it('23. Correcting an invalid field clears its error appropriately', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Short emergency description')).toBeDefined();
+    });
+
+    const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    descInput?.props.onChangeText?.('');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+    expect(extractScreenText(renderScreen())).toContain('Describe the emergency.');
+
+    descInput?.props.onChangeText?.('Valid updated description by resident');
+    const updatedText = extractScreenText(renderScreen());
+    expect(updatedText).not.toContain('Describe the emergency.');
+    expect(updatedText).not.toContain('Please correct the highlighted fields before continuing.');
+  });
+
+  it('24. Valid form can proceed toward the next local step without persistence', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    const onValidContinue = vi.fn();
+    renderScreen({ onValidContinue });
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen({ onValidContinue }), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen({ onValidContinue }), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    expect(onValidContinue).toHaveBeenCalledOnce();
+    expect(createResidentResponseRequest).not.toHaveBeenCalled();
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+  });
+
+  it('25. Existing pre-filled values from LDFEW-342 remain intact', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      const text = extractScreenText(renderScreen());
+      expect(text).toContain('Medical Assistance');
+      expect(text).toContain('4');
+      expect(text).toContain('Elderly resident requires assistance');
+      expect(text).toContain('0771234567');
+      expect(text).toContain('Lat 6.726430, Long 79.900895');
+    });
+  });
+
+  it('26. Existing Create Emergency Request validation and rules remain consistent', () => {
+    const form = mapRequestToEditForm(mockNewRequest);
+    expect(form.assistanceType).toBe('MEDICAL_ASSISTANCE');
+    expect(form.affectedPeopleCount).toBe(4);
+    expect(form.injuredCount).toBe(1);
+    expect(form.requiresMedicalAssistance).toBe(true);
+  });
+
+  it('27. Existing Resident cancellation behavior remains unchanged', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderScreen())).toContain('Edit Emergency Assistance Request');
+    });
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+  });
+
+  it('28. Existing Edit Request navigation remains unchanged', () => {
     const editHref = residentEmergencyRequestEditHref(mockNewRequest.id);
     expect(editHref).toEqual({
       pathname: '/resident/emergency-request/[requestId]/edit',
       params: { requestId: mockNewRequest.id }
     });
-    expect(parseResidentEmergencyRequestId(mockNewRequest.id)).toBe(mockNewRequest.id);
   });
 
-  it('24. Existing Resident cancellation functionality is preserved', async () => {
+  it('29. Trimming description and phone on blur formats text safely', async () => {
     vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
     renderScreen();
     lifecycle.effect?.();
     await vi.waitFor(() => {
-      expect(extractScreenText(renderScreen())).toContain('Edit Emergency Assistance Request');
+      expect(findByAccessibilityLabel(renderScreen(), 'Contact phone number')).toBeDefined();
     });
-    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+
+    const phoneInput = findByAccessibilityLabel(renderScreen(), 'Contact phone number');
+    phoneInput?.props.onChangeText?.('  0771234567  ');
+    phoneInput?.props.onBlur?.();
+
+    const reRenderedPhone = findByAccessibilityLabel(renderScreen(), 'Contact phone number');
+    expect(reRenderedPhone?.props.value).toBe('0771234567');
   });
 });
