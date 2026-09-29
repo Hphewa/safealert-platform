@@ -12,8 +12,10 @@ import {
 import {
   cancelResidentResponseRequest,
   createResidentResponseRequest,
-  getMyResponseRequestById
+  getMyResponseRequestById,
+  updateResidentResponseRequest
 } from '../api/responseRequestApi';
+import { ApiClientError } from '../../../../services/api/client';
 import {
   residentEmergencyRequestEditHref,
   residentEmergencyRequestReviewHref
@@ -125,7 +127,8 @@ vi.mock('../api/responseRequestApi', () => ({
   getMyResponseRequestById: vi.fn(),
   createResidentResponseRequest: vi.fn(),
   cancelResidentResponseRequest: vi.fn(),
-  listMyResponseRequests: vi.fn()
+  listMyResponseRequests: vi.fn(),
+  updateResidentResponseRequest: vi.fn()
 }));
 
 const mockNewRequest: SafeResponseRequest = {
@@ -569,6 +572,7 @@ describe('ResidentEmergencyRequestEditScreen Review Changes (LDFEW-344)', () => 
     lifecycle.params = { requestId: mockNewRequest.id };
     navigation.canGoBack.mockReturnValue(true);
     auth.accessToken = 'resident-token';
+    vi.mocked(updateResidentResponseRequest).mockResolvedValue({ responseRequest: mockNewRequest });
   });
 
   it('1. Valid edit form can open Review Changes', async () => {
@@ -1042,3 +1046,338 @@ describe('ResidentEmergencyRequestEditScreen Review Changes (LDFEW-344)', () => 
     expect(onConfirmChanges).toHaveBeenCalledWith(form);
   });
 });
+
+describe('ResidentEmergencyRequestEditScreen Persistence (LDFEW-345)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id };
+    navigation.canGoBack.mockReturnValue(true);
+    auth.accessToken = 'resident-token';
+    vi.mocked(updateResidentResponseRequest).mockResolvedValue({ responseRequest: mockNewRequest });
+  });
+
+  it('1. Confirm Changes calls updateResidentResponseRequest with validated edited values and accessToken', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    descInput?.props.onChangeText?.('Updated flood situation assistance notes');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    expect(updateResidentResponseRequest).toHaveBeenCalledOnce();
+    expect(updateResidentResponseRequest).toHaveBeenCalledWith(
+      mockNewRequest.id,
+      expect.objectContaining({
+        assistanceType: 'MEDICAL_ASSISTANCE',
+        description: 'Updated flood situation assistance notes',
+        affectedPeople: 4,
+        injuredPeople: 1,
+        medicalNeeds: true,
+        roadAccessibility: 'LIMITED',
+        location: {
+          type: 'Point',
+          coordinates: [79.900895, 6.726430]
+        }
+      }),
+      'resident-token'
+    );
+  });
+
+  it('2. Payload strictly whitelists only allowed fields and never sends database/lifecycle metadata', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    expect(updateResidentResponseRequest).toHaveBeenCalledOnce();
+    const sentPayload = vi.mocked(updateResidentResponseRequest).mock.calls[0][1];
+    const allowedKeys = [
+      'assistanceType',
+      'location',
+      'affectedPeople',
+      'medicalNeeds',
+      'injuredPeople',
+      'vulnerablePeople',
+      'roadAccessibility',
+      'contact',
+      'description',
+      'specialRequirements'
+    ];
+    const sentKeys = Object.keys(sentPayload);
+    for (const key of sentKeys) {
+      expect(allowedKeys).toContain(key);
+    }
+    // Explicitly verify forbidden fields are absent
+    expect(sentPayload).not.toHaveProperty('id');
+    expect(sentPayload).not.toHaveProperty('residentId');
+    expect(sentPayload).not.toHaveProperty('status');
+    expect(sentPayload).not.toHaveProperty('assignedResponderId');
+    expect(sentPayload).not.toHaveProperty('declinedByResponderIds');
+    expect(sentPayload).not.toHaveProperty('createdAt');
+    expect(sentPayload).not.toHaveProperty('updatedAt');
+  });
+
+  it('3. Successful update navigates to request details via router.replace', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    expect(navigation.replace).toHaveBeenCalledWith({
+      pathname: '/resident/emergency-request/[requestId]',
+      params: { requestId: mockNewRequest.id }
+    });
+  });
+
+  it('4. Duplicate click protection: rapid double-tap calls updateResidentResponseRequest only once', async () => {
+    let resolveApi: (value: { responseRequest: SafeResponseRequest }) => void = () => undefined;
+    const pendingPromise = new Promise<{ responseRequest: SafeResponseRequest }>((resolve) => {
+      resolveApi = resolve;
+    });
+    vi.mocked(updateResidentResponseRequest).mockReturnValue(pendingPromise);
+
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    // First click initiates submission
+    const firstCall = (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+    // Immediate second click while in-flight
+    const secondCall = (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    expect(updateResidentResponseRequest).toHaveBeenCalledTimes(1);
+
+    // Resolve in-flight request
+    resolveApi({ responseRequest: mockNewRequest });
+    await firstCall;
+    await secondCall;
+  });
+
+  it('5. In-flight submission disables action buttons and displays saving indicator', async () => {
+    let resolveApi: (value: { responseRequest: SafeResponseRequest }) => void = () => undefined;
+    const pendingPromise = new Promise<{ responseRequest: SafeResponseRequest }>((resolve) => {
+      resolveApi = resolve;
+    });
+    vi.mocked(updateResidentResponseRequest).mockReturnValue(pendingPromise);
+
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    void (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    // While saving is active
+    const screenDuringSave = renderScreen();
+    const text = extractScreenText(screenDuringSave);
+    expect(text).toContain('Saving changes...');
+
+    const backButton = findByAccessibilityLabel(screenDuringSave, 'Back to Edit');
+    expect(backButton?.props.disabled).toBe(true);
+
+    const savingConfirmButton = findByAccessibilityLabel(screenDuringSave, 'Confirm Changes');
+    expect(savingConfirmButton?.props.disabled).toBe(true);
+
+    // Clean up pending promise
+    resolveApi({ responseRequest: mockNewRequest });
+    await vi.waitFor(() => {
+      expect(navigation.replace).toHaveBeenCalled();
+    });
+  });
+
+  it('6. Lifecycle / Concurrency conflict (409) displays error and prevents stale overwrite', async () => {
+    vi.mocked(updateResidentResponseRequest).mockRejectedValueOnce(
+      new ApiClientError(409, 'INVALID_EDIT_STATUS', 'This request can no longer be edited because its status has changed.')
+    );
+
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    // Rerender screen after error state update
+    const screenAfterConflict = renderScreen();
+    const text = extractScreenText(screenAfterConflict);
+    expect(text).toContain('This emergency request can no longer be edited because its status has changed.');
+
+    // Confirm Changes is disabled to prevent stale overwrites
+    const disabledConfirm = findByAccessibilityLabel(screenAfterConflict, 'Confirm Changes');
+    expect(disabledConfirm?.props.disabled).toBe(true);
+
+    // View Details button is offered
+    const viewDetailsButton = findByAccessibilityLabel(screenAfterConflict, 'View latest request details');
+    expect(viewDetailsButton).toBeDefined();
+    (viewDetailsButton?.props.onPress ?? viewDetailsButton?.props.onClick)?.();
+    expect(navigation.back).toHaveBeenCalled();
+  });
+
+  it('7. Validation error (400) preserves form state and allows returning to edit', async () => {
+    vi.mocked(updateResidentResponseRequest).mockRejectedValueOnce(
+      new ApiClientError(400, 'VALIDATION_ERROR', 'Injured people cannot exceed total affected people.')
+    );
+
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    const screenAfterError = renderScreen();
+    expect(extractScreenText(screenAfterError)).toContain('Injured people cannot exceed total affected people.');
+
+    // Resident can tap Back to Edit to fix values without losing data
+    const backToEdit = findByAccessibilityLabel(screenAfterError, 'Back to Edit');
+    (backToEdit?.props.onPress ?? backToEdit?.props.onClick)?.();
+
+    const editScreen = renderScreen();
+    expect(extractScreenText(editScreen)).toContain('Edit Emergency Assistance Request');
+    const descInput = findByAccessibilityLabel(editScreen, 'Short emergency description');
+    expect(descInput?.props.value).toBe(mockNewRequest.description);
+  });
+
+  it('8. Server error (500) preserves edits and allows retry', async () => {
+    vi.mocked(updateResidentResponseRequest).mockRejectedValueOnce(
+      new ApiClientError(500, 'SERVER_ERROR', 'Internal server error')
+    );
+
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    const screenAfter500 = renderScreen();
+    expect(extractScreenText(screenAfter500)).toContain(
+      'SafeAlert could not save your changes. Your edits were preserved, so you can retry.'
+    );
+
+    // Button is not disabled for non-conflict errors, allowing retry
+    const retryConfirm = findByAccessibilityLabel(screenAfter500, 'Confirm Changes');
+    expect(retryConfirm?.props.disabled).toBe(false);
+
+    // Retry succeeds
+    vi.mocked(updateResidentResponseRequest).mockResolvedValueOnce({ responseRequest: mockNewRequest });
+    await (retryConfirm?.props.onPress ?? retryConfirm?.props.onClick)?.();
+    expect(navigation.replace).toHaveBeenCalled();
+  });
+
+  it('9. Missing authentication displays session error without calling endpoint', async () => {
+    auth.accessToken = null;
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    await (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    expect(updateResidentResponseRequest).not.toHaveBeenCalled();
+    expect(extractScreenText(renderScreen())).toContain(
+      'Your resident session is unavailable. Please log in again.'
+    );
+  });
+
+  it('10. Standalone ResidentEmergencyRequestReviewView handles isSubmitting, error, and conflict states', () => {
+    const form = mapRequestToEditForm(mockNewRequest);
+    const onBackToEdit = vi.fn();
+    const onConfirmChanges = vi.fn();
+    const onViewDetails = vi.fn();
+
+    // 10a: Loading state
+    const submittingView = ResidentEmergencyRequestReviewView({
+      form,
+      onBackToEdit,
+      onConfirmChanges,
+      isSubmitting: true
+    });
+    expect(extractScreenText(submittingView)).toContain('Saving changes...');
+    const backBtn = findByAccessibilityLabel(submittingView, 'Back to Edit');
+    expect(backBtn?.props.disabled).toBe(true);
+    const confirmBtn = findByAccessibilityLabel(submittingView, 'Confirm Changes');
+    expect(confirmBtn?.props.disabled).toBe(true);
+
+    // 10b: Conflict error state
+    const conflictView = ResidentEmergencyRequestReviewView({
+      form,
+      onBackToEdit,
+      onConfirmChanges,
+      isConflictError: true,
+      submitError: 'This emergency request can no longer be edited because its status has changed.',
+      onViewDetails
+    });
+    expect(extractScreenText(conflictView)).toContain(
+      'This emergency request can no longer be edited because its status has changed.'
+    );
+    const viewDetails = findByAccessibilityLabel(conflictView, 'View latest request details');
+    (viewDetails?.props.onPress ?? viewDetails?.props.onClick)?.();
+    expect(onViewDetails).toHaveBeenCalledOnce();
+  });
+});
+

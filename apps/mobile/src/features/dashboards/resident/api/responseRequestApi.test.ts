@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SafeResponseRequest } from '@safealert/contracts';
 
 import { apiBaseUrl } from '../../../../services/api/client';
-import { cancelResidentResponseRequest, getMyResponseRequestById, listMyResponseRequests } from './responseRequestApi';
+import {
+  cancelResidentResponseRequest,
+  getMyResponseRequestById,
+  listMyResponseRequests,
+  updateResidentResponseRequest
+} from './responseRequestApi';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -161,3 +166,78 @@ describe('resident single emergency request API', () => {
     await expect(getMyResponseRequestById(requestId, 'resident-token')).rejects.toMatchObject({ status });
   });
 });
+
+describe('resident update emergency request API', () => {
+  const requestId = '507f1f77bcf86cd799439011';
+  const updatePayload = {
+    assistanceType: 'MEDICAL_ASSISTANCE' as const,
+    location: { type: 'Point' as const, coordinates: [79.8612, 6.9271] as [number, number] },
+    affectedPeople: 2,
+    medicalNeeds: true,
+    injuredPeople: 1,
+    vulnerablePeople: { children: 0, elderlyPeople: 1, personsWithDisabilities: 0, pregnantPersons: 0 },
+    roadAccessibility: 'LIMITED' as const,
+    contact: { name: 'Resident', phoneNumber: '+94-77-555-1234' },
+    description: 'Updated assistance details.'
+  };
+
+  it('PATCHes the owner-scoped mine endpoint with payload and existing token', async () => {
+    const response = { responseRequest: { id: requestId, ...updatePayload } };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(response));
+    vi.stubGlobal('fetch', fetchMock);
+
+    expect(await updateResidentResponseRequest(requestId.toUpperCase(), updatePayload, 'resident-token')).toEqual(response);
+    expect(fetchMock).toHaveBeenCalledExactlyOnceWith(`${apiBaseUrl}/response-requests/mine/${requestId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer resident-token' },
+      body: JSON.stringify(updatePayload)
+    });
+  });
+
+  it.each(['', '  ', 'invalid-id', '../attack', `${requestId}?residentId=other`])(
+    'rejects malformed target request ID before transport: %s',
+    async (id) => {
+      const fetchMock = vi.fn<typeof fetch>();
+      vi.stubGlobal('fetch', fetchMock);
+      await expect(updateResidentResponseRequest(id, updatePayload, 'resident-token')).rejects.toMatchObject({
+        code: 'INVALID_REQUEST_ID'
+      });
+      expect(fetchMock).not.toHaveBeenCalled();
+    }
+  );
+
+  it('does not send request without authentication', async () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(updateResidentResponseRequest(requestId, updatePayload, ' ')).rejects.toMatchObject({
+      status: 401
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it.each([null, {}, { responseRequest: null }, { responseRequest: { id: '507f1f77bcf86cd799439012' } }])(
+    'rejects missing or mismatched response data: %j',
+    async (response) => {
+      vi.stubGlobal('fetch', vi.fn<typeof fetch>().mockResolvedValue(Response.json(response)));
+      await expect(updateResidentResponseRequest(requestId, updatePayload, 'resident-token')).rejects.toMatchObject({
+        code: 'INVALID_RESPONSE'
+      });
+    }
+  );
+
+  it.each([400, 401, 403, 404, 409, 500])(
+    'preserves backend error status (%s) without modifying request state',
+    async (status) => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn<typeof fetch>().mockResolvedValue(
+          Response.json({ error: { code: 'UPDATE_FAILED', message: 'Failed' } }, { status })
+        )
+      );
+      await expect(updateResidentResponseRequest(requestId, updatePayload, 'resident-token')).rejects.toMatchObject({
+        status
+      });
+    }
+  );
+});
+

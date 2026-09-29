@@ -3,7 +3,9 @@ import type {
   CreateResponseRequestRequest,
   CreateResponseRequestResponse,
   GetResidentResponseRequestResponse,
-  GetResidentResponseRequestsResponse
+  GetResidentResponseRequestsResponse,
+  UpdateResponseRequestRequest,
+  UpdateResponseRequestResponse
 } from '@safealert/contracts';
 import { EMERGENCY_ASSISTANCE_TYPES, ROAD_ACCESSIBILITIES } from '@safealert/contracts';
 
@@ -93,3 +95,34 @@ export function createResidentResponseRequest(
     body: input
   });
 }
+
+export async function updateResidentResponseRequest(
+  requestId: string,
+  input: UpdateResponseRequestRequest,
+  accessToken: string
+) {
+  if (!accessToken?.trim()) {
+    throw new ApiClientError(401, 'UNAUTHORIZED', 'Authentication is required.');
+  }
+  const normalizedId = parseResidentEmergencyRequestId(requestId);
+  if (!normalizedId) {
+    throw new ApiClientError(400, 'INVALID_REQUEST_ID', 'Select a valid emergency request.');
+  }
+
+  // The authenticated backend scopes /mine to the token's resident; no client-selected owner is sent.
+  const response = await apiRequest<UpdateResponseRequestResponse>(
+    `/response-requests/mine/${encodeURIComponent(normalizedId)}`,
+    {
+      method: 'PATCH',
+      accessToken,
+      body: input
+    }
+  );
+
+  if (parseResidentEmergencyRequestId(response?.responseRequest?.id) !== normalizedId) {
+    throw new ApiClientError(502, 'INVALID_RESPONSE', 'Unable to confirm emergency request update.');
+  }
+
+  return response;
+}
+

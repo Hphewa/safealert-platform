@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   EMERGENCY_ASSISTANCE_TYPES,
   RESPONSE_EDITABLE_STATUS,
@@ -6,10 +6,14 @@ import {
   type EmergencyAssistanceType,
   type RoadAccessibility,
   type SafeResponseRequest,
+  type UpdateResponseRequestRequest,
   type VulnerablePeopleCounts
 } from '@safealert/contracts';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { ApiClientError } from '../../../../services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
@@ -19,13 +23,17 @@ import type { DashboardIconName } from '../../shared/types';
 import { CounterField } from '../components/CounterField';
 import { EmergencyRequestStatePanel } from '../components/EmergencyRequestStatePanel';
 import { SelectableCard } from '../components/SelectableCard';
+import { updateResidentResponseRequest } from '../api/responseRequestApi';
 import {
   accessConditionLabels,
   emergencyAssistanceTypeLabels,
   emergencyDescriptionMaxLength,
   specialRequirementsMaxLength
 } from '../emergencyAssistanceDraft';
-import { residentEmergencyRequestDetailsHref } from '../emergencyRequestNavigation';
+import {
+  parseResidentEmergencyRequestId,
+  residentEmergencyRequestDetailsHref
+} from '../emergencyRequestNavigation';
 import { residentEmergencyRequestEditUnavailableMessage } from '../emergencyRequestPresentation';
 import { residentBottomNavItems } from '../mockData';
 import { useMyEmergencyRequestDetails } from '../useMyEmergencyRequestDetails';
@@ -311,6 +319,10 @@ export type ResidentEmergencyRequestReviewViewProps = {
   form: ResidentEmergencyRequestEditForm;
   onBackToEdit: () => void;
   onConfirmChanges?: (form: ResidentEmergencyRequestEditForm) => void;
+  isSubmitting?: boolean;
+  submitError?: string | null;
+  isConflictError?: boolean;
+  onViewDetails?: () => void;
 };
 
 export function ResidentEmergencyRequestEditScreen({
@@ -320,6 +332,7 @@ export function ResidentEmergencyRequestEditScreen({
   onConfirmChanges
 }: ResidentEmergencyRequestEditScreenProps = {}) {
   const router = useRouter();
+  const { accessToken } = useAuth();
   const params = useLocalSearchParams<{ requestId?: string | string[]; step?: string | string[] }>();
   const requestId = requestIdProp ?? params.requestId;
   // Retrieve the existing request using the owner-scoped hook.
@@ -340,6 +353,11 @@ export function ResidentEmergencyRequestEditScreen({
   const [step, setStep] = useState<'edit' | 'review'>(
     initialStep ?? (initialStepParam === 'review' ? 'review' : 'edit')
   );
+  // Submission, conflict, and error state for LDFEW-345 persistence.
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [isConflictError, setIsConflictError] = useState(false);
+  const submitInFlightRef = useRef(false);
 
   // Frontend status checks guard the edit UI for smooth UX, but backend authorization
   // and lifecycle enforcement from LDFEW-340 remain the final authority during any future mutation.
@@ -376,20 +394,113 @@ export function ResidentEmergencyRequestEditScreen({
 
   const handleBackToEdit = () => {
     // Return from review mode to edit mode. The in-memory form state remains intact.
+    setSubmitError(null);
+    setIsConflictError(false);
     setStep('edit');
   };
 
-  const handleConfirmChanges = () => {
-    // Hand off the reviewed changes for persistence.
-    // LDFEW-344 focuses on the review step and confirmation seam;
-    // backend update persistence is explicitly handled in LDFEW-345.
-    if (!currentForm) return;
+  const handleConfirmChanges = async () => {
+    // Hand off the reviewed changes for persistence to MongoDB via the backend update endpoint.
+    // Guard against concurrent/duplicate taps while submission is in-flight.
+    if (!currentForm || submitInFlightRef.current || isSubmitting) return;
+
+    // Call onConfirmChanges callback prop if supplied (e.g. for testing/observation)
     onConfirmChanges?.(currentForm);
+
+    if (!accessToken) {
+      setSubmitError('Your resident session is unavailable. Please log in again.');
+      return;
+    }
+
+    const normalizedRequestId = parseResidentEmergencyRequestId(requestId);
+    if (!normalizedRequestId) {
+      setSubmitError('Select a valid emergency request to update.');
+      return;
+    }
+
+    // Defensive client-side validation check before network dispatch.
+    const validationResult = validateResidentEmergencyRequestEditForm(currentForm);
+    if (!validationResult.isValid) {
+      setSubmitError('Please correct the highlighted fields before saving.');
+      return;
+    }
+
+    // Strictly whitelisted payload: only fields defined in UpdateResponseRequestRequest.
+    // Database and internal lifecycle attributes (residentId, status, assignedResponderId, timestamps)
+    // must never be sent from the mobile client.
+    const payload: UpdateResponseRequestRequest = {
+      assistanceType: currentForm.assistanceType,
+      location: {
+        type: 'Point',
+        coordinates: [currentForm.longitude, currentForm.latitude]
+      },
+      affectedPeople: currentForm.affectedPeopleCount,
+      medicalNeeds: currentForm.requiresMedicalAssistance,
+      injuredPeople: currentForm.injuredCount,
+      vulnerablePeople: {
+        children: currentForm.vulnerablePeople.children,
+        elderlyPeople: currentForm.vulnerablePeople.elderlyPeople,
+        personsWithDisabilities: currentForm.vulnerablePeople.personsWithDisabilities,
+        pregnantPersons: currentForm.vulnerablePeople.pregnantPersons
+      },
+      roadAccessibility: currentForm.roadAccessibility,
+      contact: {
+        name: currentForm.contact.name.trim(),
+        phoneNumber: currentForm.contact.phoneNumber.trim(),
+        ...(currentForm.contact.email.trim() ? { email: currentForm.contact.email.trim() } : {})
+      },
+      description: currentForm.description.trim(),
+      ...(currentForm.specialRequirements.trim()
+        ? { specialRequirements: currentForm.specialRequirements.trim() }
+        : {})
+    };
+
+    submitInFlightRef.current = true;
+    setIsSubmitting(true);
+    setSubmitError(null);
+    setIsConflictError(false);
+
+    try {
+      await updateResidentResponseRequest(normalizedRequestId, payload, accessToken);
+      // Clean navigation back to the request details screen with updated information
+      router.replace(
+        residentEmergencyRequestDetailsHref(normalizedRequestId) ?? '/resident/my-emergency-requests'
+      );
+    } catch (err) {
+      if (err instanceof ApiClientError && err.status === 409) {
+        // Lifecycle conflict: request status changed (e.g. accepted by an Emergency Responder).
+        // Prevent stale edits from overwriting accepted emergencies.
+        setIsConflictError(true);
+        setSubmitError(
+          'This emergency request can no longer be edited because its status has changed.'
+        );
+      } else if (err instanceof ApiClientError && err.status === 400) {
+        setSubmitError(
+          err.message || 'Some emergency request details are invalid. Please check the form and try again.'
+        );
+      } else if (err instanceof ApiClientError && (err.status === 401 || err.status === 403)) {
+        setSubmitError(
+          'Your session is not authorized to edit this emergency request. Please log in again.'
+        );
+      } else if (err instanceof ApiClientError && err.status === 404) {
+        setSubmitError('Emergency request not found.');
+      } else {
+        // Network or server failure: keep all in-memory form values intact so the user can retry.
+        setSubmitError(
+          'SafeAlert could not save your changes. Your edits were preserved, so you can retry.'
+        );
+      }
+    } finally {
+      submitInFlightRef.current = false;
+      setIsSubmitting(false);
+    }
   };
 
   const handleHeaderBack = () => {
     if (step === 'review') {
       // In review mode, navigating back returns to the edit form with all edits preserved.
+      setSubmitError(null);
+      setIsConflictError(false);
       setStep('edit');
       return;
     }
@@ -495,6 +606,8 @@ export function ResidentEmergencyRequestEditScreen({
       return;
     }
     // Form is valid. Advance to review step while keeping edited form data intact in memory.
+    setSubmitError(null);
+    setIsConflictError(false);
     onValidContinue?.(currentForm);
     setStep('review');
   };
@@ -533,6 +646,10 @@ export function ResidentEmergencyRequestEditScreen({
           form={currentForm}
           onBackToEdit={handleBackToEdit}
           onConfirmChanges={handleConfirmChanges}
+          isSubmitting={isSubmitting}
+          submitError={submitError}
+          isConflictError={isConflictError}
+          onViewDetails={returnToDetails}
         />
       ) : (
         <>
@@ -792,14 +909,17 @@ export function ResidentEmergencyRequestEditScreen({
 export function ResidentEmergencyRequestReviewView({
   form,
   onBackToEdit,
-  onConfirmChanges
+  onConfirmChanges,
+  isSubmitting = false,
+  submitError = null,
+  isConflictError = false,
+  onViewDetails
 }: ResidentEmergencyRequestReviewViewProps) {
   // Confirm Changes hand-off:
-  // LDFEW-344 validates and presents the read-only review summary.
-  // Actual backend persistence is explicitly deferred to LDFEW-345.
-  // We notify parent callers/props if provided, without invoking any mutation endpoints
-  // or displaying misleading success banners prematurely.
+  // Dispatches form updates to MongoDB via the authenticated endpoint in LDFEW-345.
+  // Guard against rapid duplicate taps while submission is in-flight or if status conflict occurred.
   const handleConfirm = () => {
+    if (isSubmitting || isConflictError) return;
     onConfirmChanges?.(form);
   };
 
@@ -901,22 +1021,67 @@ export function ResidentEmergencyRequestReviewView({
         </Text>
       </SummaryPanel>
 
+      {submitError ? (
+        <View accessibilityLiveRegion="polite" style={styles.errorBanner}>
+          <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={20} />
+          <View style={styles.errorTextContainer}>
+            <Text style={styles.errorText}>{submitError}</Text>
+            {isConflictError && onViewDetails ? (
+              <Pressable
+                accessibilityLabel="View latest request details"
+                accessibilityRole="button"
+                onPress={onViewDetails}
+                style={({ pressed }) => [styles.viewDetailsButton, pressed && styles.pressed]}
+              >
+                <Text style={styles.viewDetailsButtonText}>View Request Details</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        </View>
+      ) : null}
+
       <View style={styles.reviewActionRow}>
         <Pressable
           accessibilityLabel="Back to Edit"
           accessibilityRole="button"
+          disabled={isSubmitting}
           onPress={onBackToEdit}
-          style={({ pressed }) => [styles.backToEditButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.backToEditButton,
+            isSubmitting && styles.actionButtonDisabled,
+            pressed && !isSubmitting && styles.pressed
+          ]}
         >
-          <Text style={styles.backToEditButtonText}>Back to Edit</Text>
+          <Text style={[styles.backToEditButtonText, isSubmitting && styles.actionButtonTextDisabled]}>
+            Back to Edit
+          </Text>
         </Pressable>
         <Pressable
           accessibilityLabel="Confirm Changes"
           accessibilityRole="button"
+          disabled={isSubmitting || isConflictError}
           onPress={handleConfirm}
-          style={({ pressed }) => [styles.confirmChangesButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.confirmChangesButton,
+            (isSubmitting || isConflictError) && styles.confirmChangesButtonDisabled,
+            pressed && !isSubmitting && !isConflictError && styles.pressed
+          ]}
         >
-          <Text style={styles.confirmChangesButtonText}>Confirm Changes</Text>
+          {isSubmitting ? (
+            <View style={styles.loadingRow}>
+              <ActivityIndicator color="#ffffff" size="small" />
+              <Text style={styles.confirmChangesButtonText}>Saving changes...</Text>
+            </View>
+          ) : (
+            <Text
+              style={[
+                styles.confirmChangesButtonText,
+                isConflictError && styles.confirmChangesButtonTextDisabled
+              ]}
+            >
+              Confirm Changes
+            </Text>
+          )}
         </Pressable>
       </View>
     </>
@@ -1375,7 +1540,65 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#ffffff'
   },
+  confirmChangesButtonDisabled: {
+    backgroundColor: dashboardTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border
+  },
+  confirmChangesButtonTextDisabled: {
+    color: dashboardTheme.colors.muted
+  },
+  actionButtonDisabled: {
+    borderColor: dashboardTheme.colors.border,
+    backgroundColor: dashboardTheme.colors.surfaceMuted,
+    opacity: 0.6
+  },
+  actionButtonTextDisabled: {
+    color: dashboardTheme.colors.muted
+  },
+  loadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8
+  },
+  errorBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.critical,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.criticalSoft
+  },
+  errorTextContainer: {
+    flex: 1,
+    gap: 8
+  },
+  errorText: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+    color: dashboardTheme.colors.critical
+  },
+  viewDetailsButton: {
+    alignSelf: 'flex-start',
+    minHeight: 36,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.primary,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  viewDetailsButtonText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
+  },
   pressed: {
     opacity: 0.82
   }
 });
+
