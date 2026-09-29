@@ -23,3 +23,13 @@ export function residentEmergencyRequestEditHref(value: unknown) {
     params: { requestId }
   } as const satisfies Href : null;
 }
+
+export function residentEmergencyRequestReviewHref(value: unknown) {
+  const requestId = parseResidentEmergencyRequestId(value);
+  // Carry identity and target review step for deep linking and testing.
+  return requestId ? {
+    pathname: '/resident/emergency-request/[requestId]/edit',
+    params: { requestId, step: 'review' }
+  } as const satisfies Href : null;
+}
+

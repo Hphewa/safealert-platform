@@ -19,7 +19,12 @@ import type { DashboardIconName } from '../../shared/types';
 import { CounterField } from '../components/CounterField';
 import { EmergencyRequestStatePanel } from '../components/EmergencyRequestStatePanel';
 import { SelectableCard } from '../components/SelectableCard';
-import { emergencyDescriptionMaxLength, specialRequirementsMaxLength } from '../emergencyAssistanceDraft';
+import {
+  accessConditionLabels,
+  emergencyAssistanceTypeLabels,
+  emergencyDescriptionMaxLength,
+  specialRequirementsMaxLength
+} from '../emergencyAssistanceDraft';
 import { residentEmergencyRequestDetailsHref } from '../emergencyRequestNavigation';
 import { residentEmergencyRequestEditUnavailableMessage } from '../emergencyRequestPresentation';
 import { residentBottomNavItems } from '../mockData';
@@ -295,15 +300,28 @@ export function mapRequestToEditForm(request: SafeResponseRequest): ResidentEmer
   };
 }
 
-type ResidentEmergencyRequestEditScreenProps = {
+export type ResidentEmergencyRequestEditScreenProps = {
+  requestId?: string;
+  initialStep?: 'edit' | 'review';
   onValidContinue?: (form: ResidentEmergencyRequestEditForm) => void;
+  onConfirmChanges?: (form: ResidentEmergencyRequestEditForm) => void;
+};
+
+export type ResidentEmergencyRequestReviewViewProps = {
+  form: ResidentEmergencyRequestEditForm;
+  onBackToEdit: () => void;
+  onConfirmChanges?: (form: ResidentEmergencyRequestEditForm) => void;
 };
 
 export function ResidentEmergencyRequestEditScreen({
-  onValidContinue
+  requestId: requestIdProp,
+  initialStep,
+  onValidContinue,
+  onConfirmChanges
 }: ResidentEmergencyRequestEditScreenProps = {}) {
   const router = useRouter();
-  const { requestId } = useLocalSearchParams<{ requestId?: string | string[] }>();
+  const params = useLocalSearchParams<{ requestId?: string | string[]; step?: string | string[] }>();
+  const requestId = requestIdProp ?? params.requestId;
   // Retrieve the existing request using the owner-scoped hook.
   const { request, error, refetch, isRefreshing, canRefetch } = useMyEmergencyRequestDetails(requestId);
 
@@ -316,6 +334,12 @@ export function ResidentEmergencyRequestEditScreen({
   // Track whether the Resident has attempted to continue.
   // Avoids showing a wall of red validation errors before any user interaction.
   const [hasAttemptedContinue, setHasAttemptedContinue] = useState(false);
+  // Track whether the resident is currently editing or reviewing their changes.
+  // Keeping step state local ensures that moving between edit and review retains all unsaved edits in memory.
+  const initialStepParam = Array.isArray(params.step) ? params.step[0] : params.step;
+  const [step, setStep] = useState<'edit' | 'review'>(
+    initialStep ?? (initialStepParam === 'review' ? 'review' : 'edit')
+  );
 
   // Frontend status checks guard the edit UI for smooth UX, but backend authorization
   // and lifecycle enforcement from LDFEW-340 remain the final authority during any future mutation.
@@ -348,6 +372,28 @@ export function ResidentEmergencyRequestEditScreen({
     // Return safely without saving any changes to the backend.
     if (router.canGoBack()) router.back();
     else router.replace(residentEmergencyRequestDetailsHref(requestId) ?? '/resident/my-emergency-requests');
+  };
+
+  const handleBackToEdit = () => {
+    // Return from review mode to edit mode. The in-memory form state remains intact.
+    setStep('edit');
+  };
+
+  const handleConfirmChanges = () => {
+    // Hand off the reviewed changes for persistence.
+    // LDFEW-344 focuses on the review step and confirmation seam;
+    // backend update persistence is explicitly handled in LDFEW-345.
+    if (!currentForm) return;
+    onConfirmChanges?.(currentForm);
+  };
+
+  const handleHeaderBack = () => {
+    if (step === 'review') {
+      // In review mode, navigating back returns to the edit form with all edits preserved.
+      setStep('edit');
+      return;
+    }
+    returnToDetails();
   };
 
   // Field change handlers modify only local component state.
@@ -439,8 +485,8 @@ export function ResidentEmergencyRequestEditScreen({
   };
 
   // Attempt to continue: validates the form. If invalid, keeps the Resident on screen
-  // and highlights errors. If valid, gates progression toward the next local step (LDFEW-344)
-  // without calling backend mutation APIs.
+  // and highlights errors. If valid, advances to the Review Changes step (LDFEW-344)
+  // while preserving all in-progress edits in local state.
   const handleContinue = () => {
     setHasAttemptedContinue(true);
     if (!currentForm) return;
@@ -448,7 +494,9 @@ export function ResidentEmergencyRequestEditScreen({
     if (!result.isValid) {
       return;
     }
+    // Form is valid. Advance to review step while keeping edited form data intact in memory.
     onValidContinue?.(currentForm);
+    setStep('review');
   };
 
   return (
@@ -457,12 +505,14 @@ export function ResidentEmergencyRequestEditScreen({
         <Pressable
           accessibilityLabel="Go back"
           accessibilityRole="button"
-          onPress={returnToDetails}
+          onPress={handleHeaderBack}
           style={({ pressed }) => [styles.headerBackButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
         </Pressable>
-        <Text accessibilityRole="header" style={styles.headerTitle}>Edit Request</Text>
+        <Text accessibilityRole="header" style={styles.headerTitle}>
+          {step === 'review' ? 'Review Changes' : 'Edit Request'}
+        </Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -477,6 +527,12 @@ export function ResidentEmergencyRequestEditScreen({
         <EmergencyRequestStatePanel
           title="Editing unavailable"
           message={unavailableMessage ?? 'This request cannot be edited.'}
+        />
+      ) : step === 'review' ? (
+        <ResidentEmergencyRequestReviewView
+          form={currentForm}
+          onBackToEdit={handleBackToEdit}
+          onConfirmChanges={handleConfirmChanges}
         />
       ) : (
         <>
@@ -716,15 +772,194 @@ export function ResidentEmergencyRequestEditScreen({
         </>
       )}
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Back to Request Details"
-        onPress={returnToDetails}
-        style={({ pressed }) => [styles.backButtonBottom, pressed && styles.pressed]}
-      >
-        <Text style={styles.backButtonText}>Back to Request Details</Text>
-      </Pressable>
+      {step === 'edit' || !request || unavailableMessage || !currentForm ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to Request Details"
+          onPress={returnToDetails}
+          style={({ pressed }) => [styles.backButtonBottom, pressed && styles.pressed]}
+        >
+          <Text style={styles.backButtonText}>Back to Request Details</Text>
+        </Pressable>
+      ) : null}
     </DashboardScreen>
+  );
+}
+
+// Read-only Review Changes view (LDFEW-344).
+// Presents the resident's current in-memory edits before confirmation.
+// Read-only controls prevent accidental inline edits during the review phase.
+export function ResidentEmergencyRequestReviewView({
+  form,
+  onBackToEdit,
+  onConfirmChanges
+}: ResidentEmergencyRequestReviewViewProps) {
+  // Confirm Changes hand-off:
+  // LDFEW-344 validates and presents the read-only review summary.
+  // Actual backend persistence is explicitly deferred to LDFEW-345.
+  // We notify parent callers/props if provided, without invoking any mutation endpoints
+  // or displaying misleading success banners prematurely.
+  const handleConfirm = () => {
+    onConfirmChanges?.(form);
+  };
+
+  return (
+    <>
+      <View style={styles.introPanel}>
+        <Text style={styles.introTitle}>Review Changes</Text>
+        <Text style={styles.introText}>
+          Review your updated emergency assistance information before confirming.
+        </Text>
+      </View>
+
+      <SummaryPanel icon="help-buoy-outline" title="Assistance Type">
+        <Text style={styles.primaryValue}>
+          {emergencyAssistanceTypeLabels[form.assistanceType] ?? form.assistanceType}
+        </Text>
+      </SummaryPanel>
+
+      <SummaryPanel icon="locate-outline" title="Emergency Location">
+        <View style={styles.detectedLocation}>
+          <Text style={styles.detectedText}>Saved emergency location</Text>
+          <Text style={styles.coordinateText}>
+            {`Latitude ${formatCoordinate(form.latitude) || form.latitude.toFixed(6)}`}
+          </Text>
+          <Text style={styles.coordinateText}>
+            {`Longitude ${formatCoordinate(form.longitude) || form.longitude.toFixed(6)}`}
+          </Text>
+          <Text style={styles.helperNote}>Preserved from your submitted request.</Text>
+        </View>
+      </SummaryPanel>
+
+      <SummaryPanel icon="people-outline" title="People">
+        <View style={styles.detailGrid}>
+          <ReviewDetail label="Affected people" value={String(form.affectedPeopleCount)} />
+          <ReviewDetail label="Injured people" value={String(form.injuredCount)} />
+        </View>
+      </SummaryPanel>
+
+      <SummaryPanel icon="medical-outline" title="Medical Needs">
+        <View style={styles.detailGrid}>
+          <ReviewDetail
+            label="Medical assistance"
+            value={form.requiresMedicalAssistance ? 'Yes' : 'No'}
+          />
+          <ReviewDetail
+            label="Relevant details"
+            value={
+              form.requiresMedicalAssistance
+                ? form.injuredCount > 0
+                  ? `${form.injuredCount} injured people reported`
+                  : 'Immediate medical attention required'
+                : 'No medical assistance requested'
+            }
+          />
+        </View>
+      </SummaryPanel>
+
+      <SummaryPanel icon="accessibility-outline" title="Vulnerable People">
+        <View style={styles.detailGrid}>
+          <ReviewDetail label="Children" value={String(form.vulnerablePeople.children)} />
+          <ReviewDetail label="Elderly people" value={String(form.vulnerablePeople.elderlyPeople)} />
+          <ReviewDetail
+            label="Persons with disabilities"
+            value={String(form.vulnerablePeople.personsWithDisabilities)}
+          />
+          <ReviewDetail
+            label="Pregnant persons"
+            value={String(form.vulnerablePeople.pregnantPersons)}
+          />
+        </View>
+      </SummaryPanel>
+
+      <SummaryPanel icon="trail-sign-outline" title="Road / Access Condition">
+        <Text style={styles.primaryValue}>
+          {accessConditionLabels[form.roadAccessibility] ?? form.roadAccessibility}
+        </Text>
+      </SummaryPanel>
+
+      <SummaryPanel icon="person-outline" title="Contact Details">
+        <View style={styles.detailStack}>
+          <ReviewLine label="Resident name" value={form.contact.name || 'Not available'} />
+          <ReviewLine label="Account email" value={form.contact.email || 'Not available'} />
+          <ReviewLine
+            label="Response phone"
+            value={form.contact.phoneNumber.trim() || 'Not provided'}
+          />
+        </View>
+      </SummaryPanel>
+
+      <SummaryPanel icon="document-text-outline" title="Emergency Description">
+        <Text style={styles.descriptionText}>
+          {form.description.trim() || 'No description entered.'}
+        </Text>
+      </SummaryPanel>
+
+      <SummaryPanel icon="chatbubble-ellipses-outline" title="Special Requirements">
+        <Text style={styles.descriptionText}>
+          {form.specialRequirements.trim() || 'None'}
+        </Text>
+      </SummaryPanel>
+
+      <View style={styles.reviewActionRow}>
+        <Pressable
+          accessibilityLabel="Back to Edit"
+          accessibilityRole="button"
+          onPress={onBackToEdit}
+          style={({ pressed }) => [styles.backToEditButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.backToEditButtonText}>Back to Edit</Text>
+        </Pressable>
+        <Pressable
+          accessibilityLabel="Confirm Changes"
+          accessibilityRole="button"
+          onPress={handleConfirm}
+          style={({ pressed }) => [styles.confirmChangesButton, pressed && styles.pressed]}
+        >
+          <Text style={styles.confirmChangesButtonText}>Confirm Changes</Text>
+        </Pressable>
+      </View>
+    </>
+  );
+}
+
+function SummaryPanel({
+  icon,
+  title,
+  children
+}: {
+  icon: DashboardIconName;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.summaryPanel}>
+      <View style={styles.panelHeader}>
+        <View style={styles.panelIcon}>
+          <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name={icon} size={20} />
+        </View>
+        <Text style={styles.panelTitle}>{title}</Text>
+      </View>
+      {children}
+    </View>
+  );
+}
+
+function ReviewDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.detailItem}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text style={styles.detailValue}>{value}</Text>
+    </View>
+  );
+}
+
+function ReviewLine({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.lineItem}>
+      <Text style={styles.lineLabel}>{label}</Text>
+      <Text style={styles.lineValue}>{value}</Text>
+    </View>
   );
 }
 
@@ -1043,6 +1278,102 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '800',
     color: dashboardTheme.colors.text
+  },
+  summaryPanel: {
+    gap: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.surface,
+    ...cardShadow
+  },
+  primaryValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  detailGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10
+  },
+  detailItem: {
+    flexGrow: 1,
+    minWidth: 130,
+    gap: 4,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  detailLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: dashboardTheme.colors.muted
+  },
+  detailValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  detailStack: {
+    gap: 10
+  },
+  lineItem: {
+    gap: 4
+  },
+  lineLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: dashboardTheme.colors.muted
+  },
+  lineValue: {
+    fontSize: 15,
+    lineHeight: 21,
+    color: dashboardTheme.colors.text
+  },
+  descriptionText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: dashboardTheme.colors.text
+  },
+  reviewActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginTop: 8
+  },
+  backToEditButton: {
+    flexGrow: 1,
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.primary,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  backToEditButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  confirmChangesButton: {
+    flexGrow: 1,
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.primary
+  },
+  confirmChangesButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#ffffff'
   },
   pressed: {
     opacity: 0.82

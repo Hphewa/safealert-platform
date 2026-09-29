@@ -5,8 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   mapRequestToEditForm,
   ResidentEmergencyRequestEditScreen,
+  ResidentEmergencyRequestReviewView,
   validateResidentEmergencyRequestEditForm,
-  type ResidentEmergencyRequestEditForm
+  type ResidentEmergencyRequestEditScreenProps
 } from './ResidentEmergencyRequestEditScreen';
 import {
   cancelResidentResponseRequest,
@@ -14,7 +15,8 @@ import {
   getMyResponseRequestById
 } from '../api/responseRequestApi';
 import {
-  residentEmergencyRequestEditHref
+  residentEmergencyRequestEditHref,
+  residentEmergencyRequestReviewHref
 } from '../emergencyRequestNavigation';
 
 const lifecycle = vi.hoisted(() => ({
@@ -153,7 +155,7 @@ const mockNewRequest: SafeResponseRequest = {
   updatedAt: '2026-09-28T08:00:00.000Z'
 };
 
-function renderScreen(props?: { onValidContinue?: (form: ResidentEmergencyRequestEditForm) => void }) {
+function renderScreen(props?: ResidentEmergencyRequestEditScreenProps) {
   lifecycle.cursor = 0;
   return ResidentEmergencyRequestEditScreen(props);
 }
@@ -184,6 +186,11 @@ function findByAccessibilityLabel(node: React.ReactNode, label: string): React.R
   }
   if (node.props.accessibilityLabel === label || node.props['aria-label'] === label) {
     return node;
+  }
+  if (typeof node.type === 'function') {
+    const rendered = (node.type as (props: unknown) => React.ReactNode)(node.props);
+    const found = findByAccessibilityLabel(rendered, label);
+    if (found) return found;
   }
   return findByAccessibilityLabel(node.props.children, label);
 }
@@ -551,5 +558,487 @@ describe('ResidentEmergencyRequestEditScreen Validation (LDFEW-343)', () => {
 
     const reRenderedPhone = findByAccessibilityLabel(renderScreen(), 'Contact phone number');
     expect(reRenderedPhone?.props.value).toBe('0771234567');
+  });
+});
+
+describe('ResidentEmergencyRequestEditScreen Review Changes (LDFEW-344)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lifecycle.slots = [];
+    lifecycle.cursor = 0;
+    lifecycle.params = { requestId: mockNewRequest.id };
+    navigation.canGoBack.mockReturnValue(true);
+    auth.accessToken = 'resident-token';
+  });
+
+  it('1. Valid edit form can open Review Changes', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Review Changes');
+    expect(text).toContain('Review your updated emergency assistance information before confirming.');
+    expect(findByAccessibilityLabel(renderScreen(), 'Back to Edit')).toBeDefined();
+    expect(findByAccessibilityLabel(renderScreen(), 'Confirm Changes')).toBeDefined();
+  });
+
+  it('2. Invalid edit form cannot open Review Changes and displays errors', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Short emergency description')).toBeDefined();
+    });
+
+    const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    descInput?.props.onChangeText?.('');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Please correct the highlighted fields before continuing.');
+    expect(text).toContain('Describe the emergency.');
+    expect(text).toContain('Edit Emergency Assistance Request');
+    expect(findByAccessibilityLabel(renderScreen(), 'Confirm Changes')).toBeNull();
+  });
+
+  it('3. Review screen displays edited assistance type with friendly label', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Flood Assistance')).toBeDefined();
+    });
+
+    const floodOption = findByAccessibilityLabel(renderScreen(), 'Flood Assistance');
+    (floodOption?.props.onPress ?? floodOption?.props.onClick)?.();
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Flood Assistance');
+    expect(text).not.toContain('FLOOD_ASSISTANCE');
+  });
+
+  it('4. Review screen displays edited affected people count', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Increase affected people')).toBeDefined();
+    });
+
+    const increaseAffected1 = findByAccessibilityLabel(renderScreen(), 'Increase affected people');
+    (increaseAffected1?.props.onPress ?? increaseAffected1?.props.onClick)?.();
+    const increaseAffected2 = findByAccessibilityLabel(renderScreen(), 'Increase affected people');
+    (increaseAffected2?.props.onPress ?? increaseAffected2?.props.onClick)?.();
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Affected people 6');
+  });
+
+  it('5. Review screen displays edited injured people count', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Increase injured people')).toBeDefined();
+    });
+
+    const increaseInjured = findByAccessibilityLabel(renderScreen(), 'Increase injured people');
+    (increaseInjured?.props.onPress ?? increaseInjured?.props.onClick)?.();
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Injured people 2');
+  });
+
+  it('6. Review screen displays vulnerable-person values', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Increase Children')).toBeDefined();
+    });
+
+    const increaseChildren = findByAccessibilityLabel(renderScreen(), 'Increase Children');
+    (increaseChildren?.props.onPress ?? increaseChildren?.props.onClick)?.();
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Children 3');
+    expect(text).toContain('Elderly people 1');
+    expect(text).toContain('Persons with disabilities 0');
+    expect(text).toContain('Pregnant persons 0');
+  });
+
+  it('7. Review screen displays edited medical needs', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'No')).toBeDefined();
+    });
+
+    const noButton = findByAccessibilityLabel(renderScreen(), 'No');
+    (noButton?.props.onPress ?? noButton?.props.onClick)?.();
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Medical assistance No');
+    expect(text).toContain('No medical assistance requested');
+  });
+
+  it('8. Review screen displays road accessibility with friendly label', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Blocked')).toBeDefined();
+    });
+
+    const blockedButton = findByAccessibilityLabel(renderScreen(), 'Blocked');
+    (blockedButton?.props.onPress ?? blockedButton?.props.onClick)?.();
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Blocked');
+    expect(text).not.toContain('BLOCKED');
+  });
+
+  it('9. Review screen displays edited description', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Short emergency description')).toBeDefined();
+    });
+
+    const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    descInput?.props.onChangeText?.('Water level rising fast, family on the roof');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Water level rising fast, family on the roof');
+  });
+
+  it('10. Review screen displays special requirements', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Special requirements')).toBeDefined();
+    });
+
+    const specialInput = findByAccessibilityLabel(renderScreen(), 'Special requirements');
+    specialInput?.props.onChangeText?.('Wheelchair and clean water required');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Wheelchair and clean water required');
+  });
+
+  it('11. Review screen displays edited contact phone', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Contact phone number')).toBeDefined();
+    });
+
+    const phoneInput = findByAccessibilityLabel(renderScreen(), 'Contact phone number');
+    phoneInput?.props.onChangeText?.('0779876543');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('0779876543');
+  });
+
+  it('12. Review screen displays saved emergency location appropriately', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Saved emergency location');
+    expect(text).toContain('Latitude 6.726430');
+    expect(text).toContain('Longitude 79.900895');
+    expect(text).toContain('Preserved from your submitted request.');
+  });
+
+  it('13. Review screen uses friendly labels rather than raw enum values', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Medical Assistance');
+    expect(text).toContain('Limited');
+    expect(text).not.toContain('MEDICAL_ASSISTANCE');
+    expect(text).not.toContain('LIMITED');
+  });
+
+  it('14. Optional empty special requirements render safely as None', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Special requirements')).toBeDefined();
+    });
+
+    const specialInput = findByAccessibilityLabel(renderScreen(), 'Special requirements');
+    specialInput?.props.onChangeText?.('');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('None');
+    expect(text).not.toContain('undefined');
+    expect(text).not.toContain('null');
+    expect(text).not.toContain('[object Object]');
+  });
+
+  it('15. Review screen is read-only and does not display TextInputs', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    expect(findByAccessibilityLabel(renderScreen(), 'Short emergency description')).toBeNull();
+    expect(findByAccessibilityLabel(renderScreen(), 'Contact phone number')).toBeNull();
+    expect(findByAccessibilityLabel(renderScreen(), 'Special requirements')).toBeNull();
+  });
+
+  it('16. Back to Edit returns to edit form', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const backButton = findByAccessibilityLabel(renderScreen(), 'Back to Edit');
+    (backButton?.props.onPress ?? backButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).toContain('Edit Emergency Assistance Request');
+    expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+  });
+
+  it('17. Back to Edit preserves all edited values', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Increase affected people')).toBeDefined();
+    });
+
+    const increaseAffected1 = findByAccessibilityLabel(renderScreen(), 'Increase affected people');
+    (increaseAffected1?.props.onPress ?? increaseAffected1?.props.onClick)?.();
+    const increaseAffected2 = findByAccessibilityLabel(renderScreen(), 'Increase affected people');
+    (increaseAffected2?.props.onPress ?? increaseAffected2?.props.onClick)?.();
+
+    const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    descInput?.props.onChangeText?.('Water is rising quickly, help urgently needed');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const reviewText = extractScreenText(renderScreen());
+    expect(reviewText).toContain('Affected people 6');
+    expect(reviewText).toContain('Water is rising quickly, help urgently needed');
+
+    const backButton = findByAccessibilityLabel(renderScreen(), 'Back to Edit');
+    (backButton?.props.onPress ?? backButton?.props.onClick)?.();
+
+    const formText = extractScreenText(renderScreen());
+    expect(formText).toContain('6');
+    expect(formText).toContain('Water is rising quickly, help urgently needed');
+    const preservedInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    expect(preservedInput?.props.value).toBe('Water is rising quickly, help urgently needed');
+  });
+
+  it('18. Header back button in review mode returns to edit preserving values', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const descInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    descInput?.props.onChangeText?.('New emergency update notes');
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    expect(extractScreenText(renderScreen())).toContain('Review Changes');
+
+    const headerBack = findByAccessibilityLabel(renderScreen(), 'Go back');
+    (headerBack?.props.onPress ?? headerBack?.props.onClick)?.();
+
+    expect(extractScreenText(renderScreen())).toContain('Edit Emergency Assistance Request');
+    const preservedInput = findByAccessibilityLabel(renderScreen(), 'Short emergency description');
+    expect(preservedInput?.props.value).toBe('New emergency update notes');
+  });
+
+  it('19. Review Changes does not call backend update or mutation APIs', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    expect(createResidentResponseRequest).not.toHaveBeenCalled();
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+  });
+
+  it('20. Confirm Changes connects to confirmation seam without persisting yet', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    const onConfirmChanges = vi.fn();
+    renderScreen({ onConfirmChanges });
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen({ onConfirmChanges }), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen({ onConfirmChanges }), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen({ onConfirmChanges }), 'Confirm Changes');
+    (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    expect(onConfirmChanges).toHaveBeenCalledOnce();
+    expect(onConfirmChanges.mock.calls[0][0].affectedPeopleCount).toBe(4);
+    expect(createResidentResponseRequest).not.toHaveBeenCalled();
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+  });
+
+  it('21. No success message falsely claims the request was updated', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
+    renderScreen();
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')).toBeDefined();
+    });
+
+    const reviewButton = findByAccessibilityLabel(renderScreen(), 'Review Changes');
+    (reviewButton?.props.onPress ?? reviewButton?.props.onClick)?.();
+
+    const confirmButton = findByAccessibilityLabel(renderScreen(), 'Confirm Changes');
+    (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+
+    const text = extractScreenText(renderScreen());
+    expect(text).not.toContain('Request updated successfully');
+    expect(text).not.toContain('Changes saved');
+  });
+
+  it('22. residentEmergencyRequestReviewHref produces valid href', () => {
+    const reviewHref = residentEmergencyRequestReviewHref(mockNewRequest.id);
+    expect(reviewHref).toEqual({
+      pathname: '/resident/emergency-request/[requestId]/edit',
+      params: { requestId: mockNewRequest.id, step: 'review' }
+    });
+  });
+
+  it('23. Non-editable request does not enter review mode', async () => {
+    const assignedRequest = { ...mockNewRequest, status: 'ASSIGNED' as const };
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: assignedRequest });
+    renderScreen({ initialStep: 'review' });
+    lifecycle.effect?.();
+    await vi.waitFor(() => {
+      expect(extractScreenText(renderScreen({ initialStep: 'review' }))).toContain('Editing unavailable');
+    });
+    expect(findByAccessibilityLabel(renderScreen({ initialStep: 'review' }), 'Confirm Changes')).toBeNull();
+    expect(findByAccessibilityLabel(renderScreen({ initialStep: 'review' }), 'Review Changes')).toBeNull();
+  });
+
+  it('24. Standalone ResidentEmergencyRequestReviewView renders all read-only fields accurately', () => {
+    const form = mapRequestToEditForm(mockNewRequest);
+    const onBackToEdit = vi.fn();
+    const onConfirmChanges = vi.fn();
+    const element = ResidentEmergencyRequestReviewView({
+      form,
+      onBackToEdit,
+      onConfirmChanges
+    });
+
+    const text = extractScreenText(element);
+    expect(text).toContain('Review Changes');
+    expect(text).toContain('Medical Assistance');
+    expect(text).toContain('Saved emergency location');
+    expect(text).toContain('Affected people 4');
+    expect(text).toContain('Injured people 1');
+    expect(text).toContain('Medical assistance Yes');
+    expect(text).toContain('1 injured people reported');
+    expect(text).toContain('Children 2');
+    expect(text).toContain('Elderly people 1');
+    expect(text).toContain('Persons with disabilities 0');
+    expect(text).toContain('Pregnant persons 0');
+    expect(text).toContain('Limited');
+    expect(text).toContain('Nimal Perera');
+    expect(text).toContain('0771234567');
+    expect(text).toContain('Elderly resident requires assistance');
+    expect(text).toContain('Oxygen cylinder needed');
+
+    const backButton = findByAccessibilityLabel(element, 'Back to Edit');
+    (backButton?.props.onPress ?? backButton?.props.onClick)?.();
+    expect(onBackToEdit).toHaveBeenCalledOnce();
+
+    const confirmButton = findByAccessibilityLabel(element, 'Confirm Changes');
+    (confirmButton?.props.onPress ?? confirmButton?.props.onClick)?.();
+    expect(onConfirmChanges).toHaveBeenCalledOnce();
+    expect(onConfirmChanges).toHaveBeenCalledWith(form);
   });
 });
