@@ -3,10 +3,15 @@ import { Stack } from 'expo-router';
 import { AuthProvider } from '../src/features/auth/context/AuthContext';
 import { useEffect } from 'react';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 
 function NotificationTapHandler() {
   const router = useRouter();
   useEffect(() => {
+    // Remote notification support is not available in Expo Go. Avoid importing
+    // expo-notifications there because the module logs an error during startup.
+    if (Constants.appOwnership === 'expo') return;
+
     let active = true;
     let remove: (() => void) | undefined;
     void import('expo-notifications').then(async (notifications) => {
