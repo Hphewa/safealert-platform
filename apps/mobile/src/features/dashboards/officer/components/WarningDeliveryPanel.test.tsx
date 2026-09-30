@@ -169,9 +169,20 @@ describe('Officer warning delivery presentation', () => {
 
   it('distinguishes unavailable data from a summary with zero failures', () => {
     const markup = render({ delivery: null });
-    expect(markup).toContain('No delivery data is available for this warning.');
+    expect(markup).toContain('No delivery records are available for this warning yet.');
     expect(markup).not.toContain('No failed notifications require attention.');
     expect(markup).not.toContain('SMS: Sent');
+  });
+
+  it('does not present an empty API result as six zero counts or successful delivery', () => {
+    const delivery: Delivery = {
+      summary: { recipientCount: 0, sms: { sent: 0, failed: 0, skipped: 0 }, push: { sent: 0, failed: 0, skipped: 0 } },
+      failedDeliveries: []
+    };
+    const markup = render({ delivery });
+    expect(markup).toContain('No delivery records are available');
+    expect(markup).not.toContain('SMS: Sent');
+    expect(markup).not.toContain('No failed notifications require attention.');
   });
 
   it('renders updated API counts when new data arrives, without making up retry results', () => {

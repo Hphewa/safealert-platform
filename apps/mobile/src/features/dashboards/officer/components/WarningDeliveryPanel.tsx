@@ -102,6 +102,8 @@ export function WarningDeliveryPanel({ delivery, loading, error, onRetry }: Prop
   const [showFailures, setShowFailures] = useState(false);
   // Use the summary counts; the failed-record list may not include every failure.
   const failedCount = delivery ? delivery.summary.sms.failed + delivery.summary.push.failed : 0;
+  const recordedCount = delivery ? Object.values(delivery.summary.sms).reduce((sum, count) => sum + count, 0)
+    + Object.values(delivery.summary.push).reduce((sum, count) => sum + count, 0) : 0;
 
   return (
     <View style={styles.panel}>
@@ -126,7 +128,7 @@ export function WarningDeliveryPanel({ delivery, loading, error, onRetry }: Prop
             <Text style={styles.actionText}>Retry</Text>
           </Pressable>
         </View>
-      ) : delivery ? (
+      ) : delivery && recordedCount > 0 ? (
         <>
           <ChannelCard name="SMS" counts={delivery.summary.sms} />
           <ChannelCard name="PUSH NOTIFICATIONS" counts={delivery.summary.push} />
@@ -162,7 +164,7 @@ export function WarningDeliveryPanel({ delivery, loading, error, onRetry }: Prop
             <FailedNotificationsSheet failures={delivery.failedDeliveries} onClose={() => setShowFailures(false)} />
           ) : null}
         </>
-      ) : <Text style={styles.helper}>No delivery data is available for this warning.</Text>}
+      ) : <Text style={styles.helper}>No delivery records are available for this warning yet. Status refreshes automatically while this screen is open.</Text>}
     </View>
   );
 }

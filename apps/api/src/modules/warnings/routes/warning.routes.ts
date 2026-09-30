@@ -10,6 +10,7 @@ import { WarningModel } from '../models/warning.model.js';
 import { UserModel } from '../../users/models/user.model.js';
 import { WARNING_ACKNOWLEDGEMENT_RESPONSES, type WarningAcknowledgementsResponse } from '@safealert/contracts';
 import { z } from 'zod';
+import { ApiError } from '../../../shared/apiError.js';
 import type { WarningDeliveryRepository } from '../../notifications/repositories/warningDelivery.repository.js';
 
 export function createWarningRouter(service: WarningService, config: ApiConfig, deliveries?: WarningDeliveryRepository) {
@@ -26,6 +27,8 @@ export function createWarningRouter(service: WarningService, config: ApiConfig, 
     try {
       if (!deliveries) { response.status(503).json({ error: { code: 'DELIVERY_UNAVAILABLE', message: 'Delivery status is unavailable.' } }); return; }
       const warningId = request.params.warningId ?? '';
+      if (!/^[a-f\d]{24}$/i.test(warningId)) throw new ApiError(400, 'VALIDATION_ERROR', 'A valid warning ID is required.');
+      if (!await service.get(warningId)) throw new ApiError(404, 'WARNING_NOT_FOUND', 'Warning not found.');
       const records = await deliveries.listByWarning(warningId);
       const residentIds = [...new Set(records.map((record) => record.recipientId))];
       const residents = await UserModel.find({ _id: { $in: residentIds } }).select('name phoneNumber').lean().exec();
