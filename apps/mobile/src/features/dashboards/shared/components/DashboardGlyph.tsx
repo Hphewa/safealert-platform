@@ -1,4 +1,4 @@
-import { StyleSheet, Text } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 type DashboardGlyphProps = {
   name: string;
@@ -48,6 +48,15 @@ const glyphMap: Record<string, string> = {
 };
 
 export function DashboardGlyph({ name, color, size = 18 }: DashboardGlyphProps) {
+  if (name === 'person-circle-outline') {
+    return (
+      <View style={[styles.personIcon, { width: size, height: size }]}>
+        <View style={[styles.personHead, { width: size * 0.32, height: size * 0.32, borderRadius: size * 0.16, backgroundColor: color }]} />
+        <View style={[styles.personBody, { width: size * 0.7, height: size * 0.36, borderRadius: size * 0.22, backgroundColor: color }]} />
+      </View>
+    );
+  }
+
   const glyph = glyphMap[name] ?? '*';
   const isSymbol = glyph.length === 1;
 
@@ -68,6 +77,13 @@ export function DashboardGlyph({ name, color, size = 18 }: DashboardGlyphProps) 
 }
 
 const styles = StyleSheet.create({
+  personIcon: {
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 2
+  },
+  personHead: {},
+  personBody: {},
   glyph: {
     fontWeight: '800',
     textAlign: 'center',
