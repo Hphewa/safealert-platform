@@ -47,6 +47,13 @@ export function createResponseRequestRouter(
     authorizeRoles('EMERGENCY_RESPONDER'),
     controller.listAssignedForResponder
   );
+  // LDFEW-266 / LDFEW-355: Emergency Responder retrieves request details by ID to view previously saved updates
+  router.get(
+    '/responder/requests/:requestId',
+    authenticate(config),
+    authorizeRoles('EMERGENCY_RESPONDER'),
+    controller.getResponderRequestById
+  );
   // Keep authorization at the route boundary so only Emergency Responders
   // can perform responder decision actions on operational request data.
   router.patch(

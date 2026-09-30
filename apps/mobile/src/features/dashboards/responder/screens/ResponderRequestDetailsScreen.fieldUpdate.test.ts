@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ResponderRequestDetailsScreen } from './ResponderRequestDetailsScreen';
 import { saveResponderFieldUpdate } from '../api/responderFieldUpdateApi';
+import { getResponderRequestById } from '../api/responderRequestsApi';
 import {
   clearResponderRequestCache,
   getCachedResponderRequest,
@@ -84,7 +85,8 @@ vi.mock('../api/responderFieldUpdateApi', () => ({
 
 vi.mock('../api/responderRequestsApi', () => ({
   listAssignedResponderRequests: vi.fn(),
-  listPendingResponderRequests: vi.fn()
+  listPendingResponderRequests: vi.fn(),
+  getResponderRequestById: vi.fn()
 }));
 
 vi.mock('../api/responderProgressApi', () => ({
@@ -211,6 +213,9 @@ beforeEach(() => {
   vi.resetAllMocks();
   clearResponderRequestCache();
   updateCachedResponderRequest(baseAssignedRequest);
+  vi.mocked(getResponderRequestById).mockImplementation(async (id: string) => {
+    return getCachedResponderRequest(id);
+  });
 });
 
 afterEach(() => {
@@ -579,4 +584,101 @@ describe('LDFEW-351: Field Update UI Section in Responder Request Details', () =
       expect(getSaveFieldUpdateButton()).toBeUndefined();
     });
   });
+
+  describe('LDFEW-355: Display previously saved responder updates', () => {
+    it('fetches and displays previously saved field update and formatted timestamp on mount', async () => {
+      const savedTime = '2026-09-24T10:15:00.000Z';
+      const savedNotes = 'Previously recorded: primary road flooded, diverted via secondary bypass.';
+      const requestWithSavedNotes: SafeResponseRequest = {
+        ...baseAssignedRequest,
+        fieldNotes: savedNotes,
+        fieldUpdatedAt: savedTime
+      };
+
+      vi.mocked(getResponderRequestById).mockResolvedValueOnce(requestWithSavedNotes);
+
+      renderDetails();
+      lifecycle.focus();
+      await Promise.resolve();
+
+      const text = screenText(renderDetails());
+      expect(text).toContain('PREVIOUSLY SAVED UPDATE');
+      expect(text).toContain(savedNotes);
+      expect(text).toContain(new Date(savedTime).toLocaleString());
+
+      const input = getFieldNotesInput();
+      expect(input?.value).toBe(savedNotes);
+    });
+
+    it('restores previously saved field update when responder leaves the screen and returns', async () => {
+      const savedTime = '2026-09-24T10:20:00.000Z';
+      const savedNotes = 'Field triage completed; patient stable.';
+      const requestWithUpdate: SafeResponseRequest = {
+        ...baseAssignedRequest,
+        fieldNotes: savedNotes,
+        fieldUpdatedAt: savedTime
+      };
+
+      // Simulate returning to the screen: unmounting then re-mounting
+      lifecycle.slots = [];
+      vi.mocked(getResponderRequestById).mockResolvedValue(requestWithUpdate);
+
+      renderDetails();
+      // Trigger screen focus (via useFocusEffect)
+      lifecycle.focus();
+      await Promise.resolve();
+
+      const text = screenText(renderDetails());
+      expect(text).toContain('PREVIOUSLY SAVED UPDATE');
+      expect(text).toContain(savedNotes);
+      expect(text).toContain(new Date(savedTime).toLocaleString());
+      expect(getFieldNotesInput()?.value).toBe(savedNotes);
+    });
+
+    it('re-queries backend and updates displayed update when tapping Refresh button in header', async () => {
+      const initialRequest: SafeResponseRequest = {
+        ...baseAssignedRequest,
+        fieldNotes: 'Initial observation: rain intensifying.',
+        fieldUpdatedAt: '2026-09-24T10:10:00.000Z'
+      };
+      updateCachedResponderRequest(initialRequest);
+      renderDetails();
+
+      expect(screenText(renderDetails())).toContain('Initial observation: rain intensifying.');
+
+      const newerUpdate: SafeResponseRequest = {
+        ...baseAssignedRequest,
+        fieldNotes: 'Refreshed update: water level receding.',
+        fieldUpdatedAt: '2026-09-24T10:40:00.000Z'
+      };
+      vi.mocked(getResponderRequestById).mockResolvedValueOnce(newerUpdate);
+
+      const buttons = screenButtons(renderDetails());
+      const refreshBtn = buttons.find((b) => b.accessibilityLabel === 'Refresh request details');
+      expect(refreshBtn).toBeDefined();
+
+      await refreshBtn?.onPress();
+
+      const updatedText = screenText(renderDetails());
+      expect(updatedText).toContain('PREVIOUSLY SAVED UPDATE');
+      expect(updatedText).toContain('Refreshed update: water level receding.');
+      expect(updatedText).toContain(new Date('2026-09-24T10:40:00.000Z').toLocaleString());
+      expect(getFieldNotesInput()?.value).toBe('Refreshed update: water level receding.');
+    });
+
+    it('renders clean initial state without previously saved update box when request has no field notes', () => {
+      const freshRequest: SafeResponseRequest = {
+        ...baseAssignedRequest,
+        fieldNotes: undefined,
+        fieldUpdatedAt: undefined
+      };
+      updateCachedResponderRequest(freshRequest);
+
+      const text = screenText(renderDetails());
+      expect(text).not.toContain('PREVIOUSLY SAVED UPDATE');
+      expect(text).toContain('Field Notes *');
+      expect(getFieldNotesInput()?.value).toBe('');
+    });
+  });
 });
+

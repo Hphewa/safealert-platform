@@ -5,6 +5,7 @@ import type {
   GetResidentResponseRequestResponse,
   GetResidentResponseRequestsResponse,
   ResponseStatus,
+  SafeResponseRequest,
   SafeUser,
   UpdateResponseRequestRequest,
   UpdateResponseRequestResponse,
@@ -431,6 +432,40 @@ export class ResponseRequestService {
     }
 
     return updatedRequest;
+  }
+
+  // LDFEW-266 / LDFEW-355: Responder fetches request details by ID to view previously saved updates
+  async getResponderResponseRequestById(
+    responseRequestId: string,
+    actor: ResponderActionActor | null | undefined
+  ): Promise<SafeResponseRequest> {
+    const responderId = this.validateResponderActionInput(responseRequestId, actor);
+
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    const requestId = responseRequestId.toLowerCase();
+    const responseRequest = await this.repository.findResponseRequestForProgress(requestId);
+
+    if (!responseRequest) {
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+
+    const isAssigned = responseRequest.assignedResponderId === responderId;
+    const isEligiblePending =
+      responseRequest.status === 'NEW' &&
+      !(responseRequest.declinedByResponderIds ?? []).includes(responderId);
+
+    if (!isAssigned && !isEligiblePending) {
+      throw new ApiError(
+        403,
+        'REQUEST_NOT_ASSIGNED',
+        'You are not authorized to view this emergency request.'
+      );
+    }
+
+    return responseRequest;
   }
 
   private validateResponderActionInput(

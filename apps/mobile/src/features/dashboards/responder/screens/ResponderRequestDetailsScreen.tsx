@@ -1,4 +1,4 @@
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { SafeResponseRequest } from '@safealert/contracts';
@@ -14,7 +14,7 @@ import { responderBottomNavItems } from '../mockData';
 import { getCachedResponderRequest, updateCachedResponderRequest } from '../requestDetailsCache';
 import { displayValue, responderRequestReturnTab } from '../requestDetails';
 import { replaceResponderRequestCache } from '../requestDetailsCache';
-import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
+import { getResponderRequestById, listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { acceptResponderRequest, declineResponderRequest } from '../api/responderDecisionApi';
 import { updateResponderRequestProgress } from '../api/responderProgressApi';
 import { saveResponderFieldUpdate } from '../api/responderFieldUpdateApi';
@@ -44,7 +44,7 @@ export function ResponderRequestDetailsScreen() {
   const params = useLocalSearchParams<{ requestId?: string | string[]; sourceTab?: string | string[] }>();
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
   const [updatedRequest, setUpdatedRequest] = useState<SafeResponseRequest | null>(null);
-  const responseRequest = updatedRequest?.id === requestId && updatedRequest?.assignedResponderId === user?.id
+  const responseRequest = updatedRequest?.id === requestId && (updatedRequest?.assignedResponderId === user?.id || updatedRequest?.status === 'NEW')
     ? updatedRequest
     : requestId ? getCachedResponderRequest(requestId) : null;
   const [decisionAction, setDecisionAction] = useState<ResponderDecisionAction>('idle');
@@ -131,6 +131,48 @@ export function ResponderRequestDetailsScreen() {
 
   // Inline field-level validation errors displayed directly under each input field
   const [completionFieldErrors, setCompletionFieldErrors] = useState<CompletionFieldErrors>({});
+
+  // LDFEW-266 / LDFEW-355: Revalidate request data from backend to display previously saved updates
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+
+  const refreshRequest = useCallback(async () => {
+    if (!requestId || !accessToken?.trim()) {
+      return;
+    }
+
+    setIsRefreshing(true);
+    setRefreshError(null);
+
+    try {
+      const fresh = typeof getResponderRequestById === 'function'
+        ? await getResponderRequestById(requestId, accessToken)
+        : null;
+
+      if (fresh) {
+        updateCachedResponderRequest(fresh);
+        setUpdatedRequest(fresh);
+        if (!fieldUpdateInFlightRef.current) {
+          setFieldNotesDraft(null);
+        }
+        if (!progressInFlightRef.current) {
+          setAssistanceDraft(null);
+          setSummaryDraft(null);
+          setRemarksDraft(null);
+        }
+      }
+    } catch {
+      setRefreshError('Unable to refresh request details. Please check your connection and try again.');
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [requestId, accessToken]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void refreshRequest();
+    }, [refreshRequest])
+  );
 
   // LDFEW-266 / LDFEW-351: Save operational field updates to the backend API.
   const saveFieldUpdate = async () => {
@@ -412,9 +454,22 @@ export function ResponderRequestDetailsScreen() {
   };
 
   if (!responseRequest) {
+    if (isRefreshing) {
+      return (
+        <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
+          <DetailsHeader isRefreshing={true} onBack={backToRequests} />
+          <View style={styles.noticeCard}>
+            <ActivityIndicator color={dashboardTheme.colors.primaryStrong} size="large" />
+            <Text style={styles.noticeTitle}>Loading request details...</Text>
+            <Text style={styles.noticeBody}>Fetching the latest updates from the server.</Text>
+          </View>
+        </DashboardScreen>
+      );
+    }
+
     return (
       <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
-        <DetailsHeader onBack={backToRequests} />
+        <DetailsHeader onBack={backToRequests} onRefresh={() => void refreshRequest()} />
         <View style={styles.noticeCard}>
           <View style={styles.noticeIconWrap}>
             <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={22} />
@@ -429,7 +484,7 @@ export function ResponderRequestDetailsScreen() {
 
   return (
     <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
-      <DetailsHeader onBack={backToRequests} />
+      <DetailsHeader errorMessage={refreshError} isRefreshing={isRefreshing} onBack={backToRequests} onRefresh={() => void refreshRequest()} />
 
       <View style={styles.heroCard}>
         <View style={styles.heroBadgeRow}>
@@ -760,22 +815,56 @@ function ResponderDecisionActions({
   );
 }
 
-function DetailsHeader({ onBack }: { onBack: () => void }) {
+function DetailsHeader({
+  onBack,
+  onRefresh,
+  isRefreshing,
+  errorMessage
+}: {
+  onBack: () => void;
+  onRefresh?: () => void;
+  isRefreshing?: boolean;
+  errorMessage?: string | null;
+}) {
   return (
-    <View style={styles.headerRow}>
-      <Pressable
-        accessibilityLabel="Back to requests"
-        accessibilityRole="button"
-        onPress={onBack}
-        style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
-      >
-        <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
-      </Pressable>
-      <View style={styles.headerCopy}>
-        <Text style={styles.eyebrow}>Emergency Response</Text>
-        <Text style={styles.headerTitle}>Emergency Request</Text>
+    <View style={styles.headerContainer}>
+      <View style={styles.headerRow}>
+        <Pressable
+          accessibilityLabel="Back to requests"
+          accessibilityRole="button"
+          onPress={onBack}
+          style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
+        >
+          <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
+        </Pressable>
+        <View style={styles.headerCopy}>
+          <Text style={styles.eyebrow}>Emergency Response</Text>
+          <Text style={styles.headerTitle}>Emergency Request</Text>
+        </View>
+        {onRefresh ? (
+          <Pressable
+            accessibilityLabel="Refresh request details"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: isRefreshing, busy: isRefreshing }}
+            disabled={isRefreshing}
+            onPress={onRefresh}
+            style={({ pressed }) => [styles.iconButton, pressed && !isRefreshing && styles.pressed]}
+          >
+            {isRefreshing ? (
+              <ActivityIndicator color={dashboardTheme.colors.primaryStrong} size="small" />
+            ) : (
+              <DashboardGlyph color={dashboardTheme.colors.text} name="refresh-outline" size={20} />
+            )}
+          </Pressable>
+        ) : (
+          <View style={styles.headerSpacer} />
+        )}
       </View>
-      <View style={styles.headerSpacer} />
+      {errorMessage ? (
+        <Text accessibilityRole="alert" style={styles.progressError}>
+          {errorMessage}
+        </Text>
+      ) : null}
     </View>
   );
 }
@@ -930,6 +1019,9 @@ const styles = StyleSheet.create({
   },
   content: {
     paddingBottom: 28
+  },
+  headerContainer: {
+    gap: 8
   },
   headerRow: {
     flexDirection: 'row',

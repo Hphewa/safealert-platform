@@ -9,7 +9,8 @@ import {
   createResponseRequestSchema,
   updateResponseRequestSchema,
   responseRequestProgressSchema,
-  recordFieldUpdateSchema
+  recordFieldUpdateSchema,
+  responderRequestParamsSchema
 } from '../validation/responseRequest.schemas.js';
 
 export function createResponseRequestController(responseRequestService: ResponseRequestService) {
@@ -211,6 +212,25 @@ export function createResponseRequestController(responseRequestService: Response
     response.status(200).json(responseRequest);
   });
 
+  // LDFEW-266 / LDFEW-355: Responder retrieves emergency request details by ID to view previously saved updates
+  const getResponderRequestById: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+
+    const { params } = responderRequestParamsSchema.parse({
+      params: request.params,
+      query: request.query
+    });
+
+    const responseRequest = await responseRequestService.getResponderResponseRequestById(
+      params.requestId,
+      request.auth
+    );
+
+    response.status(200).json(responseRequest);
+  });
+
   return {
     create,
     listMine,
@@ -219,6 +239,7 @@ export function createResponseRequestController(responseRequestService: Response
     cancelForResident,
     listPendingForResponder,
     listAssignedForResponder,
+    getResponderRequestById,
     acceptForResponder,
     declineForResponder,
     updateProgress,

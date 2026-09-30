@@ -7,7 +7,7 @@ import { ResponderDashboardScreen } from './ResponderDashboardScreen';
 import { ResponderRequestDetailsScreen } from './ResponderRequestDetailsScreen';
 import { ReportListItem } from '../../shared/components/ReportListItem';
 import { updateResponderRequestProgress } from '../api/responderProgressApi';
-import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
+import { getResponderRequestById, listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { clearResponderRequestCache, getCachedResponderRequest, updateCachedResponderRequest } from '../requestDetailsCache';
 import { getResponderProgressAction } from '../progressUi';
 
@@ -63,7 +63,8 @@ vi.mock('../api/responderProgressApi', async (importOriginal) => ({
   updateResponderRequestProgress: vi.fn()
 }));
 vi.mock('../api/responderRequestsApi', () => ({
-  listAssignedResponderRequests: vi.fn(), listPendingResponderRequests: vi.fn()
+  listAssignedResponderRequests: vi.fn(), listPendingResponderRequests: vi.fn(),
+  getResponderRequestById: vi.fn()
 }));
 
 const assigned: SafeResponseRequest = {
@@ -163,6 +164,9 @@ beforeEach(() => {
   clearResponderRequestCache();
   vi.mocked(listPendingResponderRequests).mockResolvedValue([pending]);
   vi.mocked(listAssignedResponderRequests).mockResolvedValue([assigned]);
+  vi.mocked(getResponderRequestById).mockImplementation(async (id: string) => {
+    return getCachedResponderRequest(id);
+  });
 });
 afterEach(() => {
   clearResponderRequestCache();

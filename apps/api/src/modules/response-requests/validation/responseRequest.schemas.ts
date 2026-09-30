@@ -183,3 +183,13 @@ export const updateResponseRequestSchema = z.object({
   body: createResponseRequestSchema,
   query: z.object({}).strict()
 });
+
+// LDFEW-266 / LDFEW-355: Schema for responder fetching specific emergency request details
+export const responderRequestParamsSchema = z.object({
+  params: z.object({
+    requestId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'A valid response request id is required.')
+  }).strict(),
+  body: z.object({}).strict().optional(),
+  query: z.object({}).strict().optional()
+});
+

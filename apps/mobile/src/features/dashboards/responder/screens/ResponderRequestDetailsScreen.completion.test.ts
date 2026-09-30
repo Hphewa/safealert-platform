@@ -3,6 +3,7 @@ import type { SafeResponseRequest, SafeUser } from '@safealert/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ResponderRequestDetailsScreen } from './ResponderRequestDetailsScreen';
+import { getResponderRequestById } from '../api/responderRequestsApi';
 import { updateResponderRequestProgress } from '../api/responderProgressApi';
 import {
   clearResponderRequestCache,
@@ -89,7 +90,8 @@ vi.mock('../api/responderFieldUpdateApi', () => ({
 
 vi.mock('../api/responderRequestsApi', () => ({
   listAssignedResponderRequests: vi.fn(),
-  listPendingResponderRequests: vi.fn()
+  listPendingResponderRequests: vi.fn(),
+  getResponderRequestById: vi.fn()
 }));
 
 vi.mock('../api/responderDecisionApi', () => ({
@@ -226,6 +228,9 @@ beforeEach(() => {
   vi.resetAllMocks();
   clearResponderRequestCache();
   updateCachedResponderRequest(baseInProgressRequest);
+  vi.mocked(getResponderRequestById).mockImplementation(async (id: string) => {
+    return getCachedResponderRequest(id);
+  });
 });
 
 afterEach(() => {
@@ -605,4 +610,116 @@ describe('LDFEW-352: Mobile-Friendly Completion Details Form in Responder Reques
       expect(screenButtons(renderDetails()).some((b) => b.accessibilityLabel === 'Complete Request')).toBe(true);
     });
   });
+
+  describe('LDFEW-355: Display previously saved completion details on return/reload/refresh', () => {
+    it('pre-fills completion form fields with saved details when re-opening an IN_PROGRESS request', async () => {
+      const savedAssistance = 'Bandaged severe arm laceration and provided oral rehydration.';
+      const savedSummary = 'Vitals stable; no further critical interventions needed.';
+      const savedRemarks = 'Family notified of resident condition.';
+
+      const requestWithCompletion: SafeResponseRequest = {
+        ...baseInProgressRequest,
+        assistanceProvided: savedAssistance,
+        completionSummary: savedSummary,
+        responderRemarks: savedRemarks
+      };
+
+      vi.mocked(getResponderRequestById).mockResolvedValueOnce(requestWithCompletion);
+
+      renderDetails();
+      lifecycle.focus();
+      await Promise.resolve();
+
+      expect(getAssistanceInput()?.value).toBe(savedAssistance);
+      expect(getSummaryInput()?.value).toBe(savedSummary);
+      expect(getRemarksInput()?.value).toBe(savedRemarks);
+    });
+
+    it('displays read-only completion details card when returning to a COMPLETED request from backend', async () => {
+      const completedTime = '2026-09-24T10:45:00.000Z';
+      const completedRequest: SafeResponseRequest = {
+        ...baseInProgressRequest,
+        status: 'COMPLETED',
+        completedAt: completedTime,
+        assistanceProvided: 'Evacuated 2 adults and 1 infant to safety shelter.',
+        completionSummary: 'Shelter registration complete and medical evaluation clear.',
+        responderRemarks: 'Red Cross team briefed.'
+      };
+
+      lifecycle.slots = [];
+      vi.mocked(getResponderRequestById).mockResolvedValue(completedRequest);
+
+      renderDetails();
+      lifecycle.focus();
+      await Promise.resolve();
+
+      const text = screenText(renderDetails());
+      expect(text).toContain('Emergency response completed');
+      expect(text).toContain('COMPLETION DETAILS');
+      expect(text).toContain('Completed at');
+      expect(text).toContain(new Date(completedTime).toLocaleString());
+      expect(text).toContain('Evacuated 2 adults and 1 infant to safety shelter.');
+      expect(text).toContain('Shelter registration complete and medical evaluation clear.');
+      expect(text).toContain('Red Cross team briefed.');
+
+      // Form inputs should not exist on COMPLETED screen
+      expect(getAssistanceInput()).toBeUndefined();
+      expect(getSummaryInput()).toBeUndefined();
+      expect(getRemarksInput()).toBeUndefined();
+      expect(getCompleteRequestButton()).toBeUndefined();
+    });
+
+    it('displays both completion details and saved field notes when COMPLETED request had operational notes', async () => {
+      const completedWithNotes: SafeResponseRequest = {
+        ...baseInProgressRequest,
+        status: 'COMPLETED',
+        completedAt: '2026-09-24T10:50:00.000Z',
+        assistanceProvided: 'Water rescue performed using inflatable raft.',
+        completionSummary: 'All 3 residents brought safely to dry ground.',
+        fieldNotes: 'Heavy currents near southern bank.',
+        fieldUpdatedAt: '2026-09-24T10:30:00.000Z'
+      };
+
+      lifecycle.slots = [];
+      vi.mocked(getResponderRequestById).mockResolvedValue(completedWithNotes);
+
+      renderDetails();
+      lifecycle.focus();
+      await Promise.resolve();
+
+      const text = screenText(renderDetails());
+      expect(text).toContain('Emergency response completed');
+      expect(text).toContain('COMPLETION DETAILS');
+      expect(text).toContain('Water rescue performed using inflatable raft.');
+      expect(text).toContain('SAVED FIELD NOTES');
+      expect(text).toContain('Heavy currents near southern bank.');
+      expect(text).toContain(new Date('2026-09-24T10:30:00.000Z').toLocaleString());
+    });
+
+    it('re-queries backend and retains completion view when pressing Refresh button in header', async () => {
+      const completedRequest: SafeResponseRequest = {
+        ...baseInProgressRequest,
+        status: 'COMPLETED',
+        completedAt: '2026-09-24T10:55:00.000Z',
+        assistanceProvided: 'Administered CPR and transported via ambulance.',
+        completionSummary: 'Patient responsive and admitted to ICU.'
+      };
+      updateCachedResponderRequest(completedRequest);
+      renderDetails();
+
+      vi.mocked(getResponderRequestById).mockResolvedValueOnce(completedRequest);
+
+      const buttons = screenButtons(renderDetails());
+      const refreshBtn = buttons.find((b) => b.accessibilityLabel === 'Refresh request details');
+      expect(refreshBtn).toBeDefined();
+
+      await refreshBtn?.onPress();
+
+      const text = screenText(renderDetails());
+      expect(text).toContain('Emergency response completed');
+      expect(text).toContain('Administered CPR and transported via ambulance.');
+      expect(text).toContain('Patient responsive and admitted to ICU.');
+    });
+  });
 });
+
