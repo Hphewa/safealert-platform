@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { canCreateWarning, type IncidentMonitoringSummary, type WarningRiskLevel } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -121,7 +121,12 @@ export function OfficerWarningsScreen() {
       </View>
 
       {!loading && !error ? (
-        <View style={styles.summaryRow}>
+        <ScrollView
+          horizontal
+          nestedScrollEnabled
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.summaryRow}
+        >
           {([
             { label: 'Needs Warning', count: counts.needsWarning },
             { label: 'Draft', count: counts.draft },
@@ -139,7 +144,7 @@ export function OfficerWarningsScreen() {
               <Text style={styles.summaryLabel}>{tile.label}</Text>
             </View>
           ))}
-        </View>
+        </ScrollView>
       ) : null}
 
       <AssessmentButton label="Refresh warnings" secondary disabled={loading} onPress={() => void reload()} />
@@ -200,10 +205,13 @@ export function OfficerWarningsScreen() {
                   key={row.assessmentId}
                   style={[
                     assessmentStyles.card,
-                    styles.warningCard,
-                    row.risk === 'CRITICAL' ? styles.criticalCard : styles.highCard
+                    styles.warningCard
                   ]}
                 >
+                  <View
+                    pointerEvents="none"
+                    style={[styles.warningAccent, row.risk === 'CRITICAL' ? styles.criticalCard : styles.highCard]}
+                  />
                   <View style={styles.badgeRow}>
                     <PriorityBadge priority={row.risk} />
                     <StatusBadge label={row.status} tone={warningStatusTone(row.status)} />
@@ -237,8 +245,8 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 22, backgroundColor: dashboardTheme.colors.surface },
   headerCopy: { flex: 1, gap: 2 },
-  summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  summaryTile: { flexGrow: 1, flexBasis: '28%', minWidth: 100, gap: 2, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surface },
+  summaryRow: { flexGrow: 1, flexDirection: 'row', gap: 8 },
+  summaryTile: { flex: 1, minWidth: 112, gap: 2, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surface },
   summaryValue: { fontSize: 20, fontWeight: '800', color: dashboardTheme.colors.text },
   summaryLabel: { fontSize: 11, fontWeight: '700', textAlign: 'center', color: dashboardTheme.colors.muted },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
@@ -246,9 +254,10 @@ const styles = StyleSheet.create({
   chipSelected: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.primarySoft },
   chipText: { fontSize: 13, fontWeight: '600', color: dashboardTheme.colors.text },
   chipTextSelected: { color: dashboardTheme.colors.primaryStrong },
-  warningCard: { gap: 8, padding: 14, borderLeftWidth: 5 },
-  highCard: { borderLeftColor: dashboardTheme.colors.high },
-  criticalCard: { borderLeftColor: dashboardTheme.colors.critical },
+  warningCard: { position: 'relative', gap: 8, padding: 14, paddingLeft: 22 },
+  warningAccent: { position: 'absolute', top: 12, bottom: 12, left: 9, width: 4, borderRadius: 2 },
+  highCard: { backgroundColor: dashboardTheme.colors.high },
+  criticalCard: { backgroundColor: dashboardTheme.colors.critical },
   badgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, alignItems: 'center' },
   dateTime: { fontSize: 13, fontWeight: '600', color: dashboardTheme.colors.muted },
   emptyCard: { gap: 6, alignItems: 'center', padding: 18, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.md, backgroundColor: dashboardTheme.colors.surface },

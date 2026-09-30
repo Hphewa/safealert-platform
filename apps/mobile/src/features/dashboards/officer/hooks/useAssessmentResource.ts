@@ -9,8 +9,8 @@ export function useAssessmentResource<T>(loader: () => Promise<T>) {
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
   const inFlight = useRef(false);
-  const reload = useCallback(async () => {
-    if (inFlight.current) return;
+  const reload = useCallback(async (): Promise<T | null> => {
+    if (inFlight.current) return null;
     inFlight.current = true;
     const requestId = ++generation.current;
     setLoading(true);
@@ -19,8 +19,10 @@ export function useAssessmentResource<T>(loader: () => Promise<T>) {
     try {
       const result = await loader();
       if (requestId === generation.current) setData(result);
+      return requestId === generation.current ? result : null;
     } catch (failure) {
       if (requestId === generation.current) setError(assessmentErrorMessage(failure));
+      return null;
     } finally {
       if (requestId === generation.current) {
         setLoading(false);

@@ -17,7 +17,7 @@ import { useWarningDelivery } from '../hooks/useWarningDelivery';
 import {
   AssessmentButton, AssessmentDetail, AssessmentLoadState, assessmentStyles
 } from '../components/RiskAssessmentComponents';
-import { WarningPage, warningStyles } from '../components/WarningComponents';
+import { WarningPage } from '../components/WarningComponents';
 import { WarningDeliveryPanel } from '../components/WarningDeliveryPanel';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
@@ -182,8 +182,8 @@ function NotificationTargetSelector({ target, onChange, affectedArea }: {
 }
 
 // LDFEW-115: confirmation dialog for irreversible lifecycle transitions.
-function ConfirmDialog({ title, message, confirmLabel, onCancel, onConfirm, busy }: {
-  title: string; message: string; confirmLabel: string;
+function ConfirmDialog({ title, message, cancelLabel = 'Cancel', confirmLabel, busyLabel = 'Please wait...', onCancel, onConfirm, busy }: {
+  title: string; message: string; cancelLabel?: string; confirmLabel: string; busyLabel?: string;
   onCancel: () => void; onConfirm: () => void; busy: boolean;
 }) {
   return (
@@ -191,8 +191,8 @@ function ConfirmDialog({ title, message, confirmLabel, onCancel, onConfirm, busy
       <Text style={lifecycleStyles.dialogTitle}>{title}</Text>
       <Text style={lifecycleStyles.dialogMessage}>{message}</Text>
       <View style={lifecycleStyles.dialogActions}>
-        <AssessmentButton label="Cancel" secondary disabled={busy} onPress={onCancel} />
-        <AssessmentButton label={busy ? 'Please wait…' : confirmLabel} disabled={busy} onPress={onConfirm} />
+        <AssessmentButton label={cancelLabel} secondary disabled={busy} onPress={onCancel} />
+        <AssessmentButton label={busy ? busyLabel : confirmLabel} disabled={busy} onPress={onConfirm} />
       </View>
     </View>
   );
@@ -254,13 +254,12 @@ export function PublishWarningScreen() {
   const warningId = Array.isArray(params.warningId) ? params.warningId[0] : params.warningId;
   const mode = Array.isArray(params.mode) ? params.mode[0] : params.mode;
   const returnTo = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
-  const [confirming, setConfirming] = useState(false);
   const [publishedResult, setPublishedWarning] = useState<SafeWarning | null>(null);
   const publishedWarning = publishedResult && publishedResult.id === warningId ? publishedResult : null;
   const [notificationTarget, setNotificationTarget] = useState<NotificationTargetSelection>({ scope: 'AFFECTED_AREA' });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [confirmAction, setConfirmAction] = useState<'cancel' | 'archive' | null>(null);
+  const [confirmAction, setConfirmAction] = useState<'publish' | 'cancel' | 'archive' | null>(null);
   const [lifecycleBusy, setLifecycleBusy] = useState(false);
   const [lifecycleSuccess, setLifecycleSuccess] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -344,8 +343,14 @@ export function PublishWarningScreen() {
     try {
       await publishWarning(warningId, { notificationTarget }, accessToken);
       setPublishedWarning(null);
-      await resource.reload();
+      const refreshed = await resource.reload();
+      setConfirmAction(null);
+      if (!refreshed || refreshed.warning.status !== 'PUBLISHED') {
+        setActionError('The warning was published, but the latest status could not be confirmed. Please reload.');
+        return;
+      }
     } catch (failure) {
+      setConfirmAction(null);
       setActionError(warningPublishErrorMessage(failure));
     } finally {
       publishInFlight.current = false;
@@ -408,16 +413,20 @@ export function PublishWarningScreen() {
     setActionError(null);
     try {
       let result: CancelWarningResponse | ArchiveWarningResponse;
+      const expectedStatus = action === 'cancel' ? 'CANCELLED' : 'ARCHIVED';
       if (action === 'cancel') {
         result = await cancelWarning(warningId, accessToken);
-        setLifecycleSuccess('Warning cancelled successfully.');
       } else {
         result = await archiveWarning(warningId, accessToken);
-        setLifecycleSuccess('Warning archived successfully.');
       }
       setPublishedWarning(null);
+      const refreshed = await resource.reload();
       setConfirmAction(null);
-      void resource.reload();
+      if (!refreshed || refreshed.warning.status !== expectedStatus) {
+        setActionError('The warning action completed, but the latest status could not be confirmed. Please reload.');
+        return result;
+      }
+      setLifecycleSuccess(action === 'cancel' ? 'Warning cancelled successfully.' : 'Warning archived successfully.');
       return result;
     } catch (failure) {
       setActionError(warningLifecycleErrorMessage(failure));
@@ -429,7 +438,7 @@ export function PublishWarningScreen() {
 
   const isPublished = displayedWarning?.status === 'PUBLISHED';
   if (!displayedWarning) {
-    return <WarningPage title="Publish Warning" onBack={goBack} busy={busy}>
+    return <WarningPage title="Publish Warning" onBack={goBack} busy={busy || lifecycleBusy}>
       <AssessmentLoadState loading={resource.loading} error={resource.error} retry={() => void resource.reload()} />
     </WarningPage>;
   }
@@ -442,7 +451,7 @@ export function PublishWarningScreen() {
   const canArchive = currentStatus === 'CANCELLED';
   const currentLifecycleDate = lifecycleDate(displayedWarning);
 
-  return <WarningPage title={isPublished ? 'Published Warning' : mode === 'view' ? 'View Warning' : mode === 'draft' ? 'View/Edit Draft' : 'Publish Warning'} published={isPublished} status={displayedWarning.status} onBack={goBack} busy={busy}>
+  return <WarningPage title={isPublished ? 'Published Warning' : mode === 'view' ? 'View Warning' : mode === 'draft' ? 'View/Edit Draft' : 'Publish Warning'} published={isPublished} status={displayedWarning.status} onBack={goBack} busy={busy || lifecycleBusy}>
     {publishedWarning && !editing && !confirmAction ? <View style={styles.publishedPanel}>
       <View style={styles.publishedHeader}><View style={styles.headerCopy}><Text style={styles.eyebrow}>EARLY WARNING · PUBLISHED</Text><Text style={styles.publishedTitle}>Warning Published</Text></View><PriorityBadge priority={publishedWarning.riskLevel} /></View>
       <View style={styles.statusPill}><Text style={styles.statusDot}>●</Text><Text style={styles.statusText}>PUBLISHED</Text></View>
@@ -491,11 +500,16 @@ export function PublishWarningScreen() {
         error={acknowledgementsError}
         onRetry={retryAcknowledgements}
       /> : null}
-      {displayedWarning.status === 'DRAFT' ? !displayedWarning.affectedArea.trim() ? <Text accessibilityRole="alert" style={assessmentStyles.error}>The saved warning has no affected area.</Text> : !isPublishableNotificationTarget(notificationTarget) ? <Text accessibilityRole="alert" style={assessmentStyles.error}>Select a district before publishing this warning.</Text> : confirming ? <>
-        <Text style={warningStyles.notice}>Review the saved warning details and confirm the selected notification target before publishing.</Text>
-        <AssessmentButton label="Cancel" secondary disabled={busy} onPress={() => setConfirming(false)} />
-        <AssessmentButton label={busy ? 'Publishing…' : 'Confirm & Publish'} disabled={busy} onPress={() => void publish()} />
-      </> : <AssessmentButton label="Review & Publish" disabled={busy} onPress={() => setConfirming(true)} /> : <Text style={displayedWarning.status === 'PUBLISHED' ? lifecycleStyles.publishedNotice : lifecycleStyles.closedNotice}>
+      {displayedWarning.status === 'DRAFT' ? !displayedWarning.affectedArea.trim() ? <Text accessibilityRole="alert" style={assessmentStyles.error}>The saved warning has no affected area.</Text> : !isPublishableNotificationTarget(notificationTarget) ? <Text accessibilityRole="alert" style={assessmentStyles.error}>Select a district before publishing this warning.</Text> : confirmAction === 'publish' ? <ConfirmDialog
+        title="Publish warning?"
+        message="This warning will become active and notifications may be sent to eligible residents."
+        cancelLabel="Cancel"
+        confirmLabel="Publish Warning"
+        busyLabel="Publishing..."
+        busy={busy}
+        onCancel={() => { setConfirmAction(null); setActionError(null); }}
+        onConfirm={() => void publish()}
+      /> : <AssessmentButton label="Review & Publish" disabled={busy || Boolean(confirmAction)} onPress={() => { setConfirmAction('publish'); setActionError(null); setLifecycleSuccess(null); }} /> : <Text style={displayedWarning.status === 'PUBLISHED' ? lifecycleStyles.publishedNotice : lifecycleStyles.closedNotice}>
         {displayedWarning.status === 'PUBLISHED'
           ? 'This warning is published and active.'
           : displayedWarning.status === 'CANCELLED'
@@ -539,9 +553,11 @@ export function PublishWarningScreen() {
       {/* LDFEW-115: cancel confirmation dialog */}
       {confirmAction === 'cancel' ? (
         <ConfirmDialog
-          title="Cancel this warning?"
-          message="This warning will no longer be treated as an active published warning."
-          confirmLabel="Confirm Cancellation"
+          title="Cancel warning?"
+          message="This warning will no longer be active. Previously delivered notifications cannot be recalled."
+          cancelLabel="Keep Warning"
+          confirmLabel="Cancel Warning"
+          busyLabel="Cancelling..."
           busy={lifecycleBusy}
           onCancel={() => { setConfirmAction(null); setActionError(null); }}
           onConfirm={() => void confirmLifecycleAction('cancel')}
@@ -551,9 +567,11 @@ export function PublishWarningScreen() {
       {/* LDFEW-115: archive confirmation dialog */}
       {confirmAction === 'archive' ? (
         <ConfirmDialog
-          title="Archive this warning?"
-          message="Archived warnings will no longer appear as active warnings."
-          confirmLabel="Confirm Archive"
+          title="Archive warning?"
+          message="This warning will be archived and will remain available as historical information."
+          cancelLabel="Keep Warning"
+          confirmLabel="Archive Warning"
+          busyLabel="Archiving..."
           busy={lifecycleBusy}
           onCancel={() => { setConfirmAction(null); setActionError(null); }}
           onConfirm={() => void confirmLifecycleAction('archive')}
