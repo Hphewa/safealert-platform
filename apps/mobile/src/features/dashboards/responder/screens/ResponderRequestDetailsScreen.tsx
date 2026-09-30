@@ -58,7 +58,9 @@ export function ResponderRequestDetailsScreen() {
   const progressAction = getResponderProgressAction(responseRequest, user);
   const progressDisabled = isUpdatingProgress || !accessToken?.trim();
 
-  // LDFEW-266: Operational field notes state and duplicate-submit prevention
+  // LDFEW-266 / LDFEW-351: Operational field notes state and duplicate-submit prevention.
+  // Retain uncommitted user input across re-renders in a local draft so typed notes are
+  // never wiped out if an API call fails or if the user navigates within the screen.
   const [fieldNotesDraft, setFieldNotesDraft] = useState<{ id: string; value: string } | null>(null);
   const fieldNotesInput = fieldNotesDraft && responseRequest && fieldNotesDraft.id === responseRequest.id
     ? fieldNotesDraft.value
@@ -67,6 +69,8 @@ export function ResponderRequestDetailsScreen() {
     setFieldNotesDraft({ id: responseRequest?.id ?? '', value });
   };
 
+  // Synchronous ref gate prevents rapid multiple button presses from firing duplicate
+  // concurrent network requests before React has committed the disabled button state.
   const fieldUpdateInFlightRef = useRef(false);
   const [fieldUpdateFeedback, setFieldUpdateFeedback] = useState<{
     requestId: string;
@@ -101,8 +105,10 @@ export function ResponderRequestDetailsScreen() {
     setRemarksDraft({ id: responseRequest?.id ?? '', value });
   };
 
-  // LDFEW-266 / LDFEW-351: Save operational field updates
+  // LDFEW-266 / LDFEW-351: Save operational field updates to the backend API.
   const saveFieldUpdate = async () => {
+    // Prevent repeated taps from sending duplicate field-update requests while
+    // the current save operation is still in progress.
     if (
       fieldUpdateInFlightRef.current ||
       !requestId ||
@@ -112,30 +118,44 @@ export function ResponderRequestDetailsScreen() {
       return;
     }
 
+    // Client-side validation: provide immediate user-friendly feedback near the field
+    // and avoid triggering unnecessary network requests when input is invalid.
     const validationError = validateFieldNotes(fieldNotesInput);
     if (validationError) {
       setFieldUpdateFeedback({ requestId, kind: 'error', message: validationError });
       return;
     }
 
+    // Lock submission gate before initiating async network dispatch
     fieldUpdateInFlightRef.current = true;
     setFieldUpdateFeedback({ requestId, kind: 'saving', message: 'Saving field update...' });
 
     try {
+      // Connect to the protected LDFEW-350 backend API.
+      // Note: Only fieldNotes is sent in the body payload; the backend authoritative session
+      // derives responder identity from accessToken, ensuring no responderId spoofing occurs.
       const updated = await saveResponderFieldUpdate(requestId, fieldNotesInput.trim(), accessToken);
+
+      // Synchronize both detail cache and local screen state with the server-confirmed record
       updateCachedResponderRequest(updated);
       setUpdatedRequest(updated);
+      // Synchronize draft value with the confirmed trimmed backend value
+      setFieldNotesDraft({ id: updated.id, value: updated.fieldNotes ?? fieldNotesInput.trim() });
+
       setFieldUpdateFeedback({
         requestId,
         kind: 'success',
         message: 'Field update saved successfully.'
       });
     } catch (error) {
+      // On failure, retain typed text in fieldNotesDraft so the responder can fix or retry
+      // without losing valuable operational context entered in field conditions.
       const message = error instanceof ApiClientError
         ? error.message
         : 'Unable to save field update. Please check your connection and try again.';
       setFieldUpdateFeedback({ requestId, kind: 'error', message });
     } finally {
+      // Release submission gate so retry or subsequent updates are possible
       fieldUpdateInFlightRef.current = false;
     }
   };
@@ -541,6 +561,10 @@ export function ResponderRequestDetailsScreen() {
               {isSavingFieldUpdate ? 'Saving update...' : 'Save Field Update'}
             </Text>
           </Pressable>
+
+          {!accessToken?.trim() ? (
+            <Text style={styles.progressError}>Please log in again to update this request.</Text>
+          ) : null}
 
           {currentFieldFeedback && currentFieldFeedback.kind !== 'saving' ? (
             <Text
