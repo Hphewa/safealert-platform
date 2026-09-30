@@ -16,7 +16,9 @@ export const cancelResponseRequestSchema = z.object({
   query: z.object({}).strict()
 });
 
-// LDFEW-266: Validation for saving responder operational field notes
+// LDFEW-266 / LDFEW-354: Validation for saving responder operational field notes.
+// Strict body validation ensures only fieldNotes is accepted; client-supplied timestamps (e.g. fieldUpdatedAt,
+// createdAt, updatedAt) are strictly rejected so that the authoritative timestamp is always generated on the server.
 export const recordFieldUpdateSchema = z.object({
   params: z.object({
     // Reject malformed IDs before Mongoose can attempt to cast them
@@ -32,7 +34,9 @@ export const recordFieldUpdateSchema = z.object({
   query: z.object({}).strict()
 });
 
-// LDFEW-121 & LDFEW-266: Strict progress transitions, accepting completion details on final completion
+// LDFEW-121 & LDFEW-266 / LDFEW-354: Strict progress transitions, accepting completion details on final completion.
+// Strict body validation rejects client-supplied timestamps (such as completedAt, createdAt, updatedAt) so that
+// lifecycle timestamps can only be created by the server during valid state transitions.
 export const responseRequestProgressSchema = z
   .object({
     status: z.enum(RESPONSE_STATUSES).exclude(['NEW', 'CANCELLED']),

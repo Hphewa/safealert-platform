@@ -299,12 +299,18 @@ export function toSafeResponseRequest(responseRequest: ResponseRequestDocument):
     safeResponseRequest.inProgressAt = responseRequest.inProgressAt.toISOString();
   }
 
+  // LDFEW-266 / LDFEW-354: completedAt is generated exclusively on the server upon COMPLETED transition
+  // and normalized to ISO 8601 string to preserve a trusted audit trail across client platforms.
   if (responseRequest.completedAt) {
-    safeResponseRequest.completedAt = responseRequest.completedAt.toISOString();
+    safeResponseRequest.completedAt = responseRequest.completedAt instanceof Date
+      ? responseRequest.completedAt.toISOString()
+      : new Date(responseRequest.completedAt).toISOString();
   }
 
   if (responseRequest.cancelledAt) {
-    safeResponseRequest.cancelledAt = responseRequest.cancelledAt.toISOString();
+    safeResponseRequest.cancelledAt = responseRequest.cancelledAt instanceof Date
+      ? responseRequest.cancelledAt.toISOString()
+      : new Date(responseRequest.cancelledAt).toISOString();
   }
 
   // LDFEW-266: Map responder field notes and completion fields safely for clients
@@ -312,8 +318,12 @@ export function toSafeResponseRequest(responseRequest: ResponseRequestDocument):
     safeResponseRequest.fieldNotes = responseRequest.fieldNotes;
   }
 
+  // LDFEW-266 / LDFEW-354: fieldUpdatedAt is generated on the server when field notes are persisted
+  // and normalized to ISO 8601 string to guarantee trusted, platform-independent timestamps.
   if (responseRequest.fieldUpdatedAt) {
-    safeResponseRequest.fieldUpdatedAt = responseRequest.fieldUpdatedAt.toISOString();
+    safeResponseRequest.fieldUpdatedAt = responseRequest.fieldUpdatedAt instanceof Date
+      ? responseRequest.fieldUpdatedAt.toISOString()
+      : new Date(responseRequest.fieldUpdatedAt).toISOString();
   }
 
   if (responseRequest.assistanceProvided) {

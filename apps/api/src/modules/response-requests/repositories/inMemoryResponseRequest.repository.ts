@@ -152,7 +152,8 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return this.responseRequests.get(responseRequestId) ?? null;
   }
 
-  // LDFEW-266 / LDFEW-350: In-memory simulation of atomic responder field update.
+  // LDFEW-266 / LDFEW-350 / LDFEW-354: In-memory simulation of atomic responder field update.
+  // Generates server-side timestamp occurredAt (ISO string) mirroring MongoDB new Date().
   // Checks assignedResponderId and active assigned statuses synchronously to mirror Mongoose findOneAndUpdate.
   async updateResponseRequestFieldUpdate(
     responseRequestId: string,
@@ -181,6 +182,9 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return updatedRequest;
   }
 
+  // LDFEW-121 / LDFEW-266 / LDFEW-354: In-memory simulation of atomic progress transition and timestamp persistence.
+  // Generates server-side timestamp occurredAt (ISO string) for the next stage (including completedAt for COMPLETED),
+  // persisting completion details and completedAt atomically.
   async updateResponseRequestProgress(
     responseRequestId: string,
     responderId: string,
@@ -209,7 +213,7 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
       ...responseRequest,
       status: nextStatus,
       [timestampField]: occurredAt,
-      // LDFEW-266: Persist validated completion details alongside completedAt timestamp
+      // LDFEW-266 / LDFEW-354: Persist validated completion details alongside completedAt server timestamp
       ...(nextStatus === 'COMPLETED' && completionDetails ? {
         assistanceProvided: completionDetails.assistanceProvided.trim(),
         completionSummary: completionDetails.completionSummary.trim(),

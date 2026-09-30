@@ -571,11 +571,28 @@ describe('LDFEW-352: Mobile-Friendly Completion Details Form in Responder Reques
       expect(getAssistanceInput()).toBeUndefined();
       expect(getSummaryInput()).toBeUndefined();
 
-      // Read-only completion details block must be displayed
+      // Read-only completion details block must be displayed with formatted server completedAt timestamp
       expect(text).toContain('COMPLETION DETAILS');
+      expect(text).toContain('Completed at');
+      expect(text).toContain(new Date('2026-09-24T11:00:00.000Z').toLocaleString());
       expect(text).toContain('Relocated resident safely to shelter.');
       expect(text).toContain('Resident safe and stable.');
       expect(text).toContain('Internal handover complete.');
+    });
+
+    it('renders "Not available" when completedAt timestamp is missing on completed request', () => {
+      const completedWithoutTime: SafeResponseRequest = {
+        ...baseInProgressRequest,
+        status: 'COMPLETED',
+        assistanceProvided: 'First aid rendered.',
+        completionSummary: 'Resident safe.',
+        completedAt: undefined
+      };
+      updateCachedResponderRequest(completedWithoutTime);
+
+      const text = screenText(renderDetails());
+      expect(text).toContain('Completed at');
+      expect(text).toContain('Not available');
     });
 
     it('preserves existing Field Update section alongside completion details form during IN_PROGRESS', () => {

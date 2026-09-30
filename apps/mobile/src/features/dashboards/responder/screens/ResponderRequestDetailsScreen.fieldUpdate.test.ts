@@ -345,9 +345,45 @@ describe('LDFEW-351: Field Update UI Section in Responder Request Details', () =
 
       const text = screenText(renderDetails());
       expect(text).toContain('Field update saved successfully.');
+      expect(text).toContain('PREVIOUSLY SAVED UPDATE');
+      expect(text).toContain(new Date('2026-09-24T10:20:00.000Z').toLocaleString());
       expect(getCachedResponderRequest(mockRequestId)?.fieldNotes).toBe(
         'Reached entrance. Minor debris being cleared.'
       );
+      expect(getCachedResponderRequest(mockRequestId)?.fieldUpdatedAt).toBe(
+        '2026-09-24T10:20:00.000Z'
+      );
+    });
+
+    it('updates displayed timestamp when a subsequent field update is saved', async () => {
+      // Seed with initial update
+      const initialSaved: SafeResponseRequest = {
+        ...baseAssignedRequest,
+        fieldNotes: 'First update at entrance.',
+        fieldUpdatedAt: '2026-09-24T10:15:00.000Z'
+      };
+      updateCachedResponderRequest(initialSaved);
+
+      expect(screenText(renderDetails())).toContain(new Date('2026-09-24T10:15:00.000Z').toLocaleString());
+
+      // Subsequent update
+      const secondUpdate: SafeResponseRequest = {
+        ...initialSaved,
+        fieldNotes: 'Second update: corridor cleared.',
+        fieldUpdatedAt: '2026-09-24T10:35:00.000Z'
+      };
+      vi.mocked(saveResponderFieldUpdate).mockResolvedValueOnce(secondUpdate);
+
+      const input = getFieldNotesInput();
+      input?.onChangeText?.('Second update: corridor cleared.');
+
+      const saveBtn = getSaveFieldUpdateButton();
+      await saveBtn?.onPress();
+
+      const updatedText = screenText(renderDetails());
+      expect(updatedText).toContain('Second update: corridor cleared.');
+      expect(updatedText).toContain(new Date('2026-09-24T10:35:00.000Z').toLocaleString());
+      expect(getCachedResponderRequest(mockRequestId)?.fieldUpdatedAt).toBe('2026-09-24T10:35:00.000Z');
     });
 
     it('shows loading state while saving and disables the save button', async () => {

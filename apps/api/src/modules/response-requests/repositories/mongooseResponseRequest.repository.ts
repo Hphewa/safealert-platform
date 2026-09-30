@@ -151,9 +151,10 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 
-  // LDFEW-266 / LDFEW-350: Atomically record responder field notes and server timestamp in MongoDB.
-  // Authoritative server timestamp (fieldUpdatedAt) is generated on the server (new Date()) rather than trusting client time.
-  // Only fieldNotes and fieldUpdatedAt are modified; all resident info, coordinates, and lifecycle timestamps remain unchanged.
+  // LDFEW-266 / LDFEW-350 / LDFEW-354: Atomically record responder field notes and server timestamp in MongoDB.
+  // The authoritative server timestamp (fieldUpdatedAt) is generated on the server (new Date()) rather than trusting client time.
+  // Generating this timestamp server-side prevents mobile device clock skew, intentional timestamp spoofing, or replay attacks.
+  // Only fieldNotes and fieldUpdatedAt are updated; all resident data, coordinates, and prior lifecycle timestamps remain immutable.
   async updateResponseRequestFieldUpdate(
     responseRequestId: string,
     responderId: string,
@@ -183,6 +184,10 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 
+  // LDFEW-121 / LDFEW-266 / LDFEW-354: Atomically advance request lifecycle progress and record server timestamps.
+  // On COMPLETED transition, completedAt is generated on the server (new Date()) atomically alongside status and
+  // completion details (assistanceProvided, completionSummary, responderRemarks).
+  // Atomic MongoDB persistence ensures the lifecycle status, completion timestamp, and outcome summary never desynchronize.
   async updateResponseRequestProgress(
     responseRequestId: string,
     responderId: string,
