@@ -4,9 +4,9 @@ import type { CreateWarningInput, UpdateWarningInput, WarningRepository } from '
 
 // LDFEW-115: every repository mutation re-checks the persisted status so a
 // stale read can never apply an invalid lifecycle transition.
-const canEdit = (status: SafeWarning['status']) => status === 'DRAFT' || status === 'PUBLISHED';
+const canEdit = (status: SafeWarning['status']) => status === 'DRAFT';
 const canCancel = (status: SafeWarning['status']) => status === 'DRAFT' || status === 'PUBLISHED';
-const canArchive = (status: SafeWarning['status']) => status !== 'ARCHIVED';
+const canArchive = (status: SafeWarning['status']) => status === 'CANCELLED';
 
 export class InMemoryWarningRepository implements WarningRepository {
   readonly warnings = new Map<string, SafeWarning>();

@@ -354,7 +354,7 @@ describe('ResidentWarningDetailsScreen – Safety Guidance (LDFEW-116)', () => {
     render();
     await vi.waitFor(() => {
       const text = screenText(render());
-      expect(text).toContain('This warning is unavailable.');
+      expect(text).toContain('This warning is no longer active or unavailable.');
       expect(text).not.toContain('View Safety Guidance');
     });
   });

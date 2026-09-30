@@ -40,15 +40,14 @@ describe('LDFEW-115 update warning', () => {
     expect(response.body.warning.id).toBe(warningId);
   });
 
-  it('officer can update content fields of a published warning', async () => {
+  it('rejects update of a published warning', async () => {
     const { app, warningId } = await publishedWarningContext();
     const response = await request(app)
       .patch(`${path}/${warningId}`)
       .auth(warningToken(), { type: 'bearer' })
       .send({ message: 'Updated instructions for residents in flood zone.' });
-    expect(response.status).toBe(200);
-    expect(response.body.warning.message).toBe('Updated instructions for residents in flood zone.');
-    expect(response.body.warning.status).toBe('PUBLISHED');
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('WARNING_NOT_EDITABLE');
   });
 
   it('preserves assessmentId, hazardReportId, createdById, and riskLevel after update', async () => {
@@ -115,6 +114,7 @@ describe('LDFEW-115 update warning', () => {
 
   it('rejects update of an archived warning', async () => {
     const { app, warningId } = await draftWarningContext();
+    await request(app).post(`${path}/${warningId}/cancel`).auth(warningToken(), { type: 'bearer' });
     await request(app).post(`${path}/${warningId}/archive`).auth(warningToken(), { type: 'bearer' });
     const response = await request(app)
       .patch(`${path}/${warningId}`)
@@ -140,7 +140,7 @@ describe('LDFEW-115 cancel warning', () => {
     const { app, warningId } = await publishedWarningContext();
     const response = await request(app).post(`${path}/${warningId}/cancel`).auth(warningToken(), { type: 'bearer' });
     expect(response.status).toBe(200);
-    expect(response.body.warning.status).toBe('CANCELLED');
+    expect(response.body.warning).toMatchObject({ status: 'CANCELLED', publishedAt: expect.any(String), cancelledAt: expect.any(String) });
   });
 
   it('rejects cancelling an already-cancelled warning', async () => {
@@ -153,6 +153,7 @@ describe('LDFEW-115 cancel warning', () => {
 
   it('rejects cancelling an archived warning', async () => {
     const { app, warningId } = await draftWarningContext();
+    await request(app).post(`${path}/${warningId}/cancel`).auth(warningToken(), { type: 'bearer' });
     await request(app).post(`${path}/${warningId}/archive`).auth(warningToken(), { type: 'bearer' });
     const response = await request(app).post(`${path}/${warningId}/cancel`).auth(warningToken(), { type: 'bearer' });
     expect(response.status).toBe(409);
@@ -177,21 +178,19 @@ describe('LDFEW-115 cancel warning', () => {
 });
 
 describe('LDFEW-115 archive warning', () => {
-  it('archives a draft warning and sets status to ARCHIVED', async () => {
+  it('rejects archiving a draft warning', async () => {
     const { app, warningId, warnings } = await draftWarningContext();
     const response = await request(app).post(`${path}/${warningId}/archive`).auth(warningToken(), { type: 'bearer' });
-    expect(response.status).toBe(200);
-    expect(response.body.warning.status).toBe('ARCHIVED');
-    expect(response.body.warning.archivedById).toBe(officerId);
-    expect(response.body.warning.archivedAt).toBeDefined();
-    expect(warnings.warnings.get(warningId)!.status).toBe('ARCHIVED');
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('WARNING_INVALID_TRANSITION');
+    expect(warnings.warnings.get(warningId)!.status).toBe('DRAFT');
   });
 
-  it('archives a published warning', async () => {
+  it('rejects archiving a published warning', async () => {
     const { app, warningId } = await publishedWarningContext();
     const response = await request(app).post(`${path}/${warningId}/archive`).auth(warningToken(), { type: 'bearer' });
-    expect(response.status).toBe(200);
-    expect(response.body.warning.status).toBe('ARCHIVED');
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('WARNING_INVALID_TRANSITION');
   });
 
   it('archives a cancelled warning', async () => {
@@ -199,11 +198,12 @@ describe('LDFEW-115 archive warning', () => {
     await request(app).post(`${path}/${warningId}/cancel`).auth(warningToken(), { type: 'bearer' });
     const response = await request(app).post(`${path}/${warningId}/archive`).auth(warningToken(), { type: 'bearer' });
     expect(response.status).toBe(200);
-    expect(response.body.warning.status).toBe('ARCHIVED');
+    expect(response.body.warning).toMatchObject({ status: 'ARCHIVED', cancelledAt: expect.any(String), archivedAt: expect.any(String) });
   });
 
   it('rejects archiving an already-archived warning', async () => {
     const { app, warningId } = await draftWarningContext();
+    await request(app).post(`${path}/${warningId}/cancel`).auth(warningToken(), { type: 'bearer' });
     await request(app).post(`${path}/${warningId}/archive`).auth(warningToken(), { type: 'bearer' });
     const response = await request(app).post(`${path}/${warningId}/archive`).auth(warningToken(), { type: 'bearer' });
     expect(response.status).toBe(409);
@@ -228,6 +228,16 @@ describe('LDFEW-115 archive warning', () => {
 });
 
 describe('LDFEW-115 lifecycle state guards', () => {
+  it('PUBLISHED warning cannot be republished', async () => {
+    const { app, warningId } = await publishedWarningContext();
+    const response = await request(app)
+      .post(`${path}/${warningId}/publish`)
+      .auth(warningToken(), { type: 'bearer' })
+      .send({ notificationTarget: { scope: 'AFFECTED_AREA' } });
+    expect(response.status).toBe(409);
+    expect(response.body.error.code).toBe('WARNING_NOT_DRAFT');
+  });
+
   it('CANCELLED warning cannot be republished', async () => {
     const { app, warningId } = await draftWarningContext();
     await request(app).post(`${path}/${warningId}/cancel`).auth(warningToken(), { type: 'bearer' });
@@ -240,6 +250,7 @@ describe('LDFEW-115 lifecycle state guards', () => {
 
   it('ARCHIVED warning cannot be republished', async () => {
     const { app, warningId } = await draftWarningContext();
+    await request(app).post(`${path}/${warningId}/cancel`).auth(warningToken(), { type: 'bearer' });
     await request(app).post(`${path}/${warningId}/archive`).auth(warningToken(), { type: 'bearer' });
     const response = await request(app)
       .post(`${path}/${warningId}/publish`)

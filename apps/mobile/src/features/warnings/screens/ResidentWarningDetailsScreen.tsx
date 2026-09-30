@@ -294,7 +294,7 @@ export function ResidentWarningDetailsScreen() {
 
       void getResidentWarning(warningId, accessToken)
         .then((result) => { if (active) setWarning(result.warning); })
-        .catch(() => { if (active) setError('This warning is unavailable.'); });
+        .catch(() => { if (active) setError('This warning is no longer active or unavailable.'); });
 
       return () => { active = false; };
     }, [accessToken, warningId])

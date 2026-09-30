@@ -32,7 +32,7 @@ export class MongooseWarningRepository implements WarningRepository {
     // LDFEW-115: the status guard repeats the lifecycle rule at the database
     // level so a concurrent transition cannot be overwritten by a content edit.
     const warning = await WarningModel.findOneAndUpdate(
-      { _id: id, status: { $in: ['DRAFT', 'PUBLISHED'] } },
+      { _id: id, status: 'DRAFT' },
       { $set: { ...changes } },
       { new: true, runValidators: true }
     ).exec();
@@ -48,7 +48,7 @@ export class MongooseWarningRepository implements WarningRepository {
   }
   async archive(id: string, archivedById: string, archivedAt: string) {
     const warning = await WarningModel.findOneAndUpdate(
-      { _id: id, status: { $ne: 'ARCHIVED' } },
+      { _id: id, status: 'CANCELLED' },
       { $set: { status: 'ARCHIVED', archivedById, archivedAt: new Date(archivedAt) } },
       { new: true, runValidators: true }
     ).exec();

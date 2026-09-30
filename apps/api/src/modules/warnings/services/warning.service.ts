@@ -61,18 +61,12 @@ export class WarningService {
   async get(warningId: string) { return this.warnings.findById(warningId); }
   async getByAssessment(assessmentId: string) { return this.warnings.findByAssessmentId(assessmentId); }
 
-  // LDFEW-115: content edits preserve every relationship by construction — the
-  // UpdateWarningInput type excludes assessment/report/incident/risk/status and
-  // publication fields, so only whitelisted content fields can be applied.
+  // LDFEW-115: only DRAFT warnings are editable. Once published, the content
+  // must remain identical to what was delivered to residents.
   async update(officerId: string, warningId: string, input: UpdateWarningRequest): Promise<UpdateWarningResponse> {
     const existing = await this.warnings.findById(warningId);
     if (!existing) throw new ApiError(404, 'WARNING_NOT_FOUND', 'Warning not found.');
-    if (existing.status === 'CANCELLED' || existing.status === 'ARCHIVED') {
-      throw new ApiError(409, 'WARNING_NOT_EDITABLE', 'Cancelled or archived warnings cannot be updated.');
-    }
-    if (existing.status !== 'DRAFT' && existing.status !== 'PUBLISHED') {
-      throw new ApiError(409, 'WARNING_NOT_EDITABLE', 'This warning cannot be updated in its current state.');
-    }
+    if (existing.status !== 'DRAFT') throw new ApiError(409, 'WARNING_NOT_EDITABLE', 'Only draft warnings can be updated.');
     // Never trust client-supplied relationships: assessmentId may be echoed by the
     // form for compatibility but is discarded here, so risk assessment, report,
     // incident, creator, risk level, and publication data stay untouched.
@@ -111,13 +105,14 @@ export class WarningService {
     return { warning: updated };
   }
 
-  // LDFEW-115: any non-archived warning can be archived once.
+  // LDFEW-115: only a cancelled warning can be archived.
   async archive(officerId: string, warningId: string): Promise<ArchiveWarningResponse> {
     const existing = await this.warnings.findById(warningId);
     if (!existing) throw new ApiError(404, 'WARNING_NOT_FOUND', 'Warning not found.');
     if (existing.status === 'ARCHIVED') throw new ApiError(409, 'WARNING_ALREADY_ARCHIVED', 'This warning has already been archived.');
+    if (existing.status !== 'CANCELLED') throw new ApiError(409, 'WARNING_INVALID_TRANSITION', 'Only cancelled warnings can be archived.');
     const updated = await this.warnings.archive(warningId, officerId, new Date().toISOString());
-    if (!updated) throw new ApiError(409, 'WARNING_ALREADY_ARCHIVED', 'This warning has already been archived.');
+    if (!updated) throw new ApiError(409, 'WARNING_INVALID_TRANSITION', 'Only cancelled warnings can be archived.');
     return { warning: updated };
   }
 
@@ -126,7 +121,9 @@ export class WarningService {
     for (const reference of references) {
       const match = /^\/api\/v1\/warning-attachments\/([a-f\d]{24})$/i.exec(reference);
       if (match) {
-        const image = await this.images.findById(match[1]);
+        const attachmentId = match[1];
+        if (!attachmentId) continue;
+        const image = await this.images.findById(attachmentId);
         if (!image || image.createdById !== officerId || image.assessmentId !== assessmentId) {
           throw new ApiError(400, 'INVALID_ATTACHMENT', 'Each attached image must be uploaded by you for this assessment.');
         }

@@ -18,12 +18,14 @@ export function AssessmentPage({ title, children }: { title: string; children: R
     {children}
   </DashboardScreen>;
 }
-export function AssessmentButton({ label, onPress, disabled = false, secondary = false, back = false }: {
-  label: string; onPress: () => void; disabled?: boolean; secondary?: boolean; back?: boolean;
+export function AssessmentButton({ label, onPress, disabled = false, secondary = false, success = false, back = false }: {
+  label: string; onPress: () => void; disabled?: boolean; secondary?: boolean; success?: boolean; back?: boolean;
 }) {
   return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled}
     onPress={onPress} style={({ pressed }) => [assessmentStyles.button,
-      secondary && assessmentStyles.secondaryButton, back && { flexDirection: 'row', gap: 8 }, (disabled || pressed) && { opacity: 0.55 }]}> 
+      secondary && assessmentStyles.secondaryButton, success && assessmentStyles.successButton,
+      back && { flexDirection: 'row', gap: 8 }, (disabled || pressed) && { opacity: 0.55 }
+    ]}>
     {back ? <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.primaryStrong} size={20} /> : null}
     <Text style={[assessmentStyles.buttonText, secondary && { color: dashboardTheme.colors.primaryStrong }]}>{label}</Text>
   </Pressable>;
@@ -106,6 +108,7 @@ export const assessmentStyles = StyleSheet.create({
   error: { fontSize: 14, lineHeight: 21, color: dashboardTheme.colors.critical },
   button: { minHeight: 48, padding: 14, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.primary, alignItems: 'center', justifyContent: 'center' },
   secondaryButton: { backgroundColor: dashboardTheme.colors.primarySoft },
+  successButton: { backgroundColor: dashboardTheme.colors.success },
   buttonText: { fontSize: 15, fontWeight: '700', color: '#ffffff' },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   option: { minHeight: 44, padding: 12, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 12, justifyContent: 'center' },

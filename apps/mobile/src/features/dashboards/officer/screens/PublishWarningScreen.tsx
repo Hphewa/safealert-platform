@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   WARNING_DISTRICTS,
   type ArchiveWarningResponse,
   type CancelWarningResponse,
   type SafeWarning,
+  type WarningDistrict,
   type WarningNotificationTarget
 } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -30,6 +31,17 @@ function targetLabel(target: WarningNotificationTarget | undefined, affectedArea
   return 'Whole Country';
 }
 
+function lifecycleDate(warning: SafeWarning) {
+  if (warning.status === 'PUBLISHED') return { label: 'Published', value: warning.publishedAt };
+  if (warning.status === 'CANCELLED') return { label: 'Cancelled', value: warning.cancelledAt };
+  if (warning.status === 'ARCHIVED') return { label: 'Archived', value: warning.archivedAt };
+  return { label: 'Created', value: warning.createdAt };
+}
+
+function formatWarningDate(value: string | undefined) {
+  return value ? new Date(value).toLocaleString() : 'Not recorded';
+}
+
 function TargetOption({ label, selected, onPress }: {
   label: string; selected: boolean; onPress: () => void;
 }) {
@@ -40,6 +52,107 @@ function TargetOption({ label, selected, onPress }: {
   </Pressable>;
 }
 
+function DistrictSelect({ selectedDistrict, onChange }: {
+  selectedDistrict?: WarningDistrict;
+  onChange: (district: WarningDistrict) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const filteredDistricts = WARNING_DISTRICTS.filter((district) =>
+    district.toLowerCase().includes(query.trim().toLowerCase())
+  );
+
+  const close = () => {
+    setOpen(false);
+    setQuery('');
+  };
+
+  return <View style={publishStyles.districtSelector}>
+    <Text style={assessmentStyles.label}>Select district</Text>
+    <Pressable
+      accessibilityLabel={`Select district${selectedDistrict ? `, ${selectedDistrict} selected` : ''}`}
+      accessibilityRole="button"
+      accessibilityState={{ expanded: open }}
+      onPress={() => setOpen(true)}
+      style={({ pressed }) => [publishStyles.districtSelectButton, pressed && publishStyles.pressed]}
+    >
+      <Text style={publishStyles.districtPin}>⌖</Text>
+      <Text numberOfLines={1} style={[publishStyles.districtSelectText, !selectedDistrict && publishStyles.districtPlaceholder]}>
+        {selectedDistrict ?? 'Select district'}
+      </Text>
+      <Text aria-hidden style={publishStyles.districtChevron}>⌄</Text>
+    </Pressable>
+    {selectedDistrict ? <View style={publishStyles.scopeConfirmation}>
+      <Text style={publishStyles.scopeConfirmationTitle}>✓ Notification scope</Text>
+      <Text style={publishStyles.scopeConfirmationValue}>{selectedDistrict} District</Text>
+    </View> : null}
+
+    <Modal
+      animationType="fade"
+      onRequestClose={close}
+      presentationStyle="overFullScreen"
+      transparent
+      visible={open}
+    >
+      <View style={publishStyles.modalOverlay}>
+        <Pressable
+          accessibilityLabel="Close district selector"
+          accessibilityRole="button"
+          onPress={close}
+          style={publishStyles.modalBackdrop}
+        />
+        <View accessibilityViewIsModal style={publishStyles.modalCard}>
+          <View style={publishStyles.modalHeader}>
+            <View style={publishStyles.modalHeaderCopy}>
+              <Text accessibilityRole="header" style={publishStyles.modalTitle}>Select district</Text>
+              <Text style={publishStyles.modalSubtitle}>Choose one supported district.</Text>
+            </View>
+            <Pressable
+              accessibilityLabel="Close district selector"
+              accessibilityRole="button"
+              onPress={close}
+              style={({ pressed }) => [publishStyles.modalClose, pressed && publishStyles.pressed]}
+            >
+              <Text style={publishStyles.modalCloseText}>×</Text>
+            </Pressable>
+          </View>
+          <TextInput
+            accessibilityLabel="Search district"
+            autoCapitalize="words"
+            autoCorrect={false}
+            onChangeText={setQuery}
+            placeholder="Search district..."
+            placeholderTextColor={dashboardTheme.colors.muted}
+            returnKeyType="search"
+            style={publishStyles.districtSearch}
+            value={query}
+          />
+          <ScrollView
+            accessibilityLabel="District options"
+            keyboardShouldPersistTaps="handled"
+            style={publishStyles.districtList}
+          >
+            {filteredDistricts.length ? filteredDistricts.map((district) => {
+              const selected = selectedDistrict === district;
+              return <Pressable
+                accessibilityLabel={`${district}${selected ? ', selected' : ''}`}
+                accessibilityRole="radio"
+                accessibilityState={{ checked: selected }}
+                key={district}
+                onPress={() => { onChange(district); close(); }}
+                style={({ pressed }) => [publishStyles.districtOption, selected && publishStyles.districtOptionSelected, pressed && publishStyles.pressed]}
+              >
+                <Text style={[publishStyles.districtOptionText, selected && publishStyles.districtOptionTextSelected]}>{district}</Text>
+                {selected ? <Text accessibilityLabel="Selected" style={publishStyles.districtCheck}>✓</Text> : null}
+              </Pressable>;
+            }) : <Text style={publishStyles.noDistricts}>No districts match your search.</Text>}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  </View>;
+}
+
 function NotificationTargetSelector({ target, onChange, affectedArea }: {
   target: WarningNotificationTarget; onChange: (target: WarningNotificationTarget) => void; affectedArea: string;
 }) {
@@ -47,21 +160,12 @@ function NotificationTargetSelector({ target, onChange, affectedArea }: {
     <Text style={assessmentStyles.heading}>Notification Target</Text>
     <Text style={assessmentStyles.helper}>Choose who should receive this warning. This does not change the warning's affected area.</Text>
     <TargetOption label="Affected Area" selected={target.scope === 'AFFECTED_AREA'} onPress={() => onChange({ scope: 'AFFECTED_AREA' })} />
-    <TargetOption label="District" selected={target.scope === 'DISTRICT'} onPress={() => onChange({ scope: 'DISTRICT', district: 'Colombo' })} />
+    <TargetOption label="District" selected={target.scope === 'DISTRICT'} onPress={() => onChange({ scope: 'DISTRICT', district: target.scope === 'DISTRICT' ? target.district : 'Colombo' })} />
     {target.scope === 'AFFECTED_AREA' ? <AssessmentDetail label="Selected area" value={affectedArea} /> : null}
     {target.scope === 'WHOLE_COUNTRY' ? <AssessmentDetail label="Country" value="Sri Lanka" /> : null}
-    {target.scope === 'DISTRICT' ? <View style={publishStyles.districtPicker}>
-      <Text style={assessmentStyles.label}>Select district</Text>
-      <View style={publishStyles.districtOptions}>
-        {WARNING_DISTRICTS.map((district) => <Pressable key={district} accessibilityRole="radio"
-          accessibilityState={{ checked: target.district === district }} onPress={() => onChange({ scope: 'DISTRICT', district })}
-          style={[publishStyles.districtOption, target.district === district && publishStyles.districtOptionSelected]}>
-          <Text style={[publishStyles.districtText, target.district === district && publishStyles.districtTextSelected]}>{district}</Text>
-        </Pressable>)}
-      </View>
-    </View> : null}
+    {target.scope === 'DISTRICT' ? <DistrictSelect selectedDistrict={target.district} onChange={(district) => onChange({ scope: 'DISTRICT', district })} /> : null}
     <TargetOption label="Whole Country" selected={target.scope === 'WHOLE_COUNTRY'} onPress={() => onChange({ scope: 'WHOLE_COUNTRY' })} />
-    {target.scope === 'WHOLE_COUNTRY' ? <Text style={warningStyles.notice}>This will notify people across the whole country. Confirm this broad notification before publishing.</Text> : null}
+    {target.scope === 'WHOLE_COUNTRY' ? <Text style={publishStyles.countryNotice}>Send to eligible residents across Sri Lanka.</Text> : null}
   </View>;
 }
 
@@ -80,6 +184,55 @@ function ConfirmDialog({ title, message, confirmLabel, onCancel, onConfirm, busy
       </View>
     </View>
   );
+}
+
+function LifecycleActions({
+  visible,
+  canEdit,
+  canCancel,
+  canArchive,
+  busy,
+  onEdit,
+  onCancel,
+  onArchive
+}: {
+  visible: boolean;
+  canEdit: boolean;
+  canCancel: boolean;
+  canArchive: boolean;
+  busy: boolean;
+  onEdit: () => void;
+  onCancel: () => void;
+  onArchive: () => void;
+}) {
+  if (!visible) return null;
+
+  return <View style={lifecycleStyles.lifecycleActions}>
+    {canEdit ? (
+      <AssessmentButton
+        label="Edit Warning"
+        secondary
+        disabled={busy}
+        onPress={onEdit}
+      />
+    ) : null}
+    {canCancel ? (
+      <AssessmentButton
+        label="Cancel Warning"
+        secondary
+        disabled={busy}
+        onPress={onCancel}
+      />
+    ) : null}
+    {canArchive ? (
+      <AssessmentButton
+        label="Archive Warning"
+        secondary
+        disabled={busy}
+        onPress={onArchive}
+      />
+    ) : null}
+  </View>;
 }
 
 export function PublishWarningScreen() {
@@ -104,15 +257,19 @@ export function PublishWarningScreen() {
   const [acknowledgements, setAcknowledgements] = useState<WarningAcknowledgementsResponse | null>(null);
 
   const goBack = () => {
+    const destination = returnTo?.startsWith('/officer/') || returnTo === '/officer'
+      ? returnTo
+      : null;
+    if (destination) {
+      router.replace(destination);
+      return;
+    }
     if (router.canGoBack()) {
       router.back();
       return;
     }
 
-    const fallback = returnTo?.startsWith('/officer/') || returnTo === '/officer'
-      ? returnTo
-      : '/officer/warnings';
-    router.replace(fallback);
+    router.replace('/officer/warnings');
   };
 
   const load = useCallback(async () => {
@@ -122,9 +279,10 @@ export function PublishWarningScreen() {
   const resource = useAssessmentResource(load);
   const loadedWarning = resource.data?.warning;
   const warning = loadedWarning && loadedWarning.id === warningId ? loadedWarning : undefined;
-  const delivery = useWarningDelivery(warningId, accessToken,
-    (publishedWarning ?? warning)?.status === 'PUBLISHED');
-  useEffect(() => { if (!accessToken || !warningId || (warning?.status !== 'PUBLISHED' && !publishedWarning)) return; void getWarningAcknowledgements(warningId, accessToken).then(setAcknowledgements).catch(() => setAcknowledgements(null)); }, [accessToken, warningId, warning?.status, publishedWarning]);
+  const displayedWarning = publishedWarning ?? warning;
+  const hasPublishedHistory = displayedWarning?.status === 'PUBLISHED' || Boolean(displayedWarning?.publishedAt);
+  const delivery = useWarningDelivery(warningId, accessToken, hasPublishedHistory);
+  useEffect(() => { if (!accessToken || !warningId || !hasPublishedHistory) return; void getWarningAcknowledgements(warningId, accessToken).then(setAcknowledgements).catch(() => setAcknowledgements(null)); }, [accessToken, warningId, hasPublishedHistory]);
 
   const publish = async () => {
     if (!accessToken || !warningId || busy) return;
@@ -175,6 +333,7 @@ export function PublishWarningScreen() {
       };
       await updateWarning(warningId, trimmed, accessToken);
       setEditing(false);
+      setPublishedWarning(null);
       setLifecycleSuccess('Warning updated successfully.');
       void resource.reload();
     } catch (failure) {
@@ -198,6 +357,7 @@ export function PublishWarningScreen() {
         result = await archiveWarning(warningId, accessToken);
         setLifecycleSuccess('Warning archived successfully.');
       }
+      setPublishedWarning(null);
       setConfirmAction(null);
       void resource.reload();
       return result;
@@ -208,7 +368,6 @@ export function PublishWarningScreen() {
     }
   };
 
-  const displayedWarning = publishedWarning ?? warning;
   const isPublished = displayedWarning?.status === 'PUBLISHED';
   if (!displayedWarning) {
     return <WarningPage title="Publish Warning" onBack={goBack} busy={busy}>
@@ -216,24 +375,35 @@ export function PublishWarningScreen() {
     </WarningPage>;
   }
 
-  // LDFEW-115: determine which lifecycle actions are permitted based on backend-sourced status.
-  // The displayed warning may be the just-published transient; always prefer the freshly loaded status.
-  const currentStatus = resource.data?.warning?.status ?? displayedWarning.status;
-  const canEdit = currentStatus === 'DRAFT' || currentStatus === 'PUBLISHED';
+  // LDFEW-115: determine which lifecycle actions are permitted based on the
+  // backend-sourced status. Published content is immutable after delivery.
+  const currentStatus = displayedWarning.status;
+  const canEdit = currentStatus === 'DRAFT';
   const canCancel = currentStatus === 'DRAFT' || currentStatus === 'PUBLISHED';
-  const canArchive = currentStatus !== 'ARCHIVED';
+  const canArchive = currentStatus === 'CANCELLED';
+  const currentLifecycleDate = lifecycleDate(displayedWarning);
 
-  return <WarningPage title={isPublished ? 'Published Warning' : mode === 'view' ? 'View Warning' : mode === 'draft' ? 'View/Edit Draft' : 'Publish Warning'} published={isPublished} onBack={goBack} busy={busy}>
-    {publishedWarning ? <View style={styles.publishedPanel}>
+  return <WarningPage title={isPublished ? 'Published Warning' : mode === 'view' ? 'View Warning' : mode === 'draft' ? 'View/Edit Draft' : 'Publish Warning'} published={isPublished} status={displayedWarning.status} onBack={goBack} busy={busy}>
+    {publishedWarning && !editing && !confirmAction ? <View style={styles.publishedPanel}>
       <View style={styles.publishedHeader}><View style={styles.headerCopy}><Text style={styles.eyebrow}>EARLY WARNING · PUBLISHED</Text><Text style={styles.publishedTitle}>Warning Published</Text></View><PriorityBadge priority={publishedWarning.riskLevel} /></View>
       <View style={styles.statusPill}><Text style={styles.statusDot}>●</Text><Text style={styles.statusText}>PUBLISHED</Text></View>
       <AssessmentDetail label="Status" value="PUBLISHED" />
       <AssessmentDetail label="Affected Area" value={publishedWarning.affectedArea} />
       <AssessmentDetail label="Notification Target" value={targetLabel(publishedWarning.notificationTarget, publishedWarning.affectedArea)} />
-      <AssessmentDetail label="Published At" value={publishedWarning.publishedAt ? new Date(publishedWarning.publishedAt).toLocaleString() : 'Just now'} />
+      <AssessmentDetail label="Published At" value={formatWarningDate(publishedWarning.publishedAt)} />
       <AssessmentButton label="View Warning" onPress={() => router.replace({ pathname: '/officer/warnings/[warningId]', params: { warningId, mode: 'view', ...(returnTo ? { returnTo } : {}) } })} />
       <WarningDeliveryPanel delivery={delivery.data} loading={delivery.loading} error={delivery.error} onRetry={delivery.reload} />
       {acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
+      <LifecycleActions
+        visible
+        canEdit={canEdit}
+        canCancel={canCancel}
+        canArchive={canArchive}
+        busy={lifecycleBusy || busy}
+        onEdit={() => openEdit(publishedWarning)}
+        onCancel={() => { setConfirmAction('cancel'); setActionError(null); setLifecycleSuccess(null); }}
+        onArchive={() => { setConfirmAction('archive'); setActionError(null); setLifecycleSuccess(null); }}
+      />
     </View> : <View style={assessmentStyles.card}>
       <Text style={assessmentStyles.heading}>Warning Details</Text>
       <AssessmentDetail label="Risk Level" value={displayedWarning.riskLevel} />
@@ -245,15 +415,24 @@ export function PublishWarningScreen() {
       <AssessmentDetail label="Message" value={displayedWarning.message} />
       <AssessmentDetail label="Attachments" value={displayedWarning.attachments?.length ? displayedWarning.attachments.join(', ') : 'None'} />
       <AssessmentDetail label="Current Status" value={displayedWarning.status} />
-      {isPublished ? <View style={styles.infoCard}><Text style={styles.cardTitle}>Notification Target</Text><Text style={styles.cardSubtitle}>Who received this warning</Text><AssessmentDetail label="Target" value={targetLabel(displayedWarning.notificationTarget, displayedWarning.affectedArea)} /></View> : <NotificationTargetSelector target={notificationTarget} onChange={setNotificationTarget} affectedArea={displayedWarning.affectedArea} />}
+      <AssessmentDetail label={currentLifecycleDate.label} value={formatWarningDate(currentLifecycleDate.value)} />
+      {displayedWarning.status !== 'DRAFT' && displayedWarning.status !== 'PUBLISHED' && displayedWarning.publishedAt ? <AssessmentDetail label="Published" value={formatWarningDate(displayedWarning.publishedAt)} /> : null}
+      {displayedWarning.status === 'ARCHIVED' && displayedWarning.cancelledAt ? <AssessmentDetail label="Cancelled" value={formatWarningDate(displayedWarning.cancelledAt)} /> : null}
+      {displayedWarning.status === 'DRAFT' ? <NotificationTargetSelector target={notificationTarget} onChange={setNotificationTarget} affectedArea={displayedWarning.affectedArea} /> : <View style={styles.infoCard}><Text style={styles.cardTitle}>Notification Target</Text><Text style={styles.cardSubtitle}>{hasPublishedHistory ? 'Target selected when this warning was published' : 'This warning was cancelled before publication.'}</Text><AssessmentDetail label="Target" value={hasPublishedHistory ? targetLabel(displayedWarning.notificationTarget, displayedWarning.affectedArea) : 'Not published'} /></View>}
       {actionError ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{actionError}</Text> : null}
-      {isPublished ? <WarningDeliveryPanel delivery={delivery.data} loading={delivery.loading} error={delivery.error} onRetry={delivery.reload} /> : null}
-      {isPublished && acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
+      {hasPublishedHistory ? <WarningDeliveryPanel delivery={delivery.data} loading={delivery.loading} error={delivery.error} onRetry={delivery.reload} /> : null}
+      {hasPublishedHistory && acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
       {displayedWarning.status === 'DRAFT' ? !displayedWarning.affectedArea.trim() ? <Text accessibilityRole="alert" style={assessmentStyles.error}>The saved warning has no affected area.</Text> : confirming ? <>
         <Text style={warningStyles.notice}>Review the saved warning details and confirm the selected notification target before publishing.</Text>
         <AssessmentButton label="Cancel" secondary disabled={busy} onPress={() => setConfirming(false)} />
         <AssessmentButton label={busy ? 'Publishing…' : 'Confirm & Publish'} disabled={busy} onPress={() => void publish()} />
-      </> : <AssessmentButton label="Review & Publish" disabled={busy} onPress={() => setConfirming(true)} /> : <Text accessibilityRole="alert" style={assessmentStyles.error}>This warning has already been published.</Text>}
+      </> : <AssessmentButton label="Review & Publish" disabled={busy} onPress={() => setConfirming(true)} /> : <Text style={displayedWarning.status === 'PUBLISHED' ? lifecycleStyles.publishedNotice : lifecycleStyles.closedNotice}>
+        {displayedWarning.status === 'PUBLISHED'
+          ? 'This warning is published and active.'
+          : displayedWarning.status === 'CANCELLED'
+            ? 'This warning is cancelled and is no longer active.'
+          : 'This warning is archived and is no longer active.'}
+      </Text>}
 
       {/* LDFEW-115: lifecycle success message */}
       {lifecycleSuccess ? (
@@ -313,34 +492,16 @@ export function PublishWarningScreen() {
       ) : null}
 
       {/* LDFEW-115: lifecycle action buttons — hidden while a dialog or edit form is open */}
-      {!editing && !confirmAction ? (
-        <View style={lifecycleStyles.lifecycleActions}>
-          {canEdit ? (
-            <AssessmentButton
-              label="Edit Warning"
-              secondary
-              disabled={lifecycleBusy || busy}
-              onPress={() => openEdit(displayedWarning)}
-            />
-          ) : null}
-          {canCancel ? (
-            <AssessmentButton
-              label="Cancel Warning"
-              secondary
-              disabled={lifecycleBusy || busy}
-              onPress={() => { setConfirmAction('cancel'); setActionError(null); setLifecycleSuccess(null); }}
-            />
-          ) : null}
-          {canArchive ? (
-            <AssessmentButton
-              label="Archive Warning"
-              secondary
-              disabled={lifecycleBusy || busy}
-              onPress={() => { setConfirmAction('archive'); setActionError(null); setLifecycleSuccess(null); }}
-            />
-          ) : null}
-        </View>
-      ) : null}
+      <LifecycleActions
+        visible={!editing && !confirmAction}
+        canEdit={canEdit}
+        canCancel={canCancel}
+        canArchive={canArchive}
+        busy={lifecycleBusy || busy}
+        onEdit={() => openEdit(displayedWarning)}
+        onCancel={() => { setConfirmAction('cancel'); setActionError(null); setLifecycleSuccess(null); }}
+        onArchive={() => { setConfirmAction('archive'); setActionError(null); setLifecycleSuccess(null); }}
+      />
     </View>}
   </WarningPage>;
 }
@@ -362,16 +523,40 @@ const publishStyles = {
   targetOptionText: { color: dashboardTheme.colors.text, fontWeight: '700' as const } as const,
   radio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: dashboardTheme.colors.muted } as const,
   radioSelected: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.primary } as const,
-  districtPicker: { gap: 8 } as const,
-  districtOptions: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 8 } as const,
-  districtOption: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 18, borderWidth: 1, borderColor: dashboardTheme.colors.border, backgroundColor: dashboardTheme.colors.surface } as const,
-  districtOptionSelected: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.primary } as const,
-  districtText: { color: dashboardTheme.colors.text, fontSize: 13 } as const,
-  districtTextSelected: { color: '#ffffff', fontWeight: '700' as const } as const
+  districtSelector: { gap: 8 } as const,
+  districtSelectButton: { minHeight: 54, paddingHorizontal: 14, borderRadius: dashboardTheme.radius.sm, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, borderWidth: 1, borderColor: dashboardTheme.colors.border, backgroundColor: dashboardTheme.colors.surface } as const,
+  districtPin: { color: dashboardTheme.colors.primaryStrong, fontSize: 20, fontWeight: '800' as const } as const,
+  districtSelectText: { flex: 1, color: dashboardTheme.colors.text, fontSize: 16, fontWeight: '700' as const } as const,
+  districtPlaceholder: { color: dashboardTheme.colors.muted, fontWeight: '600' as const } as const,
+  districtChevron: { color: dashboardTheme.colors.primaryStrong, fontSize: 22, lineHeight: 22, fontWeight: '900' as const } as const,
+  scopeConfirmation: { gap: 2, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: dashboardTheme.colors.successSoft, borderWidth: 1, borderColor: '#bbf7d0' } as const,
+  scopeConfirmationTitle: { color: dashboardTheme.colors.success, fontSize: 12, fontWeight: '800' as const } as const,
+  scopeConfirmationValue: { color: dashboardTheme.colors.text, fontSize: 14, fontWeight: '700' as const } as const,
+  countryNotice: { padding: 12, borderRadius: 10, backgroundColor: dashboardTheme.colors.primarySoft, color: dashboardTheme.colors.primaryStrong, fontSize: 13, lineHeight: 19 } as const,
+  modalOverlay: { flex: 1, padding: 16, alignItems: 'center' as const, justifyContent: 'center' as const, backgroundColor: 'rgba(15, 23, 42, 0.48)' } as const,
+  modalBackdrop: StyleSheet.absoluteFill,
+  modalCard: { width: '100%' as const, maxWidth: 560, maxHeight: '90%' as const, gap: 14, padding: 18, borderRadius: dashboardTheme.radius.md, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border, ...cardShadow } as const,
+  modalHeader: { flexDirection: 'row' as const, alignItems: 'flex-start' as const, justifyContent: 'space-between' as const, gap: 12 } as const,
+  modalHeaderCopy: { flex: 1, gap: 3 } as const,
+  modalTitle: { color: dashboardTheme.colors.text, fontSize: 19, fontWeight: '800' as const } as const,
+  modalSubtitle: { color: dashboardTheme.colors.muted, fontSize: 13, lineHeight: 19 } as const,
+  modalClose: { width: 40, height: 40, alignItems: 'center' as const, justifyContent: 'center' as const, borderRadius: 20, backgroundColor: dashboardTheme.colors.surfaceMuted } as const,
+  modalCloseText: { color: dashboardTheme.colors.text, fontSize: 26, lineHeight: 28, fontWeight: '500' as const } as const,
+  districtSearch: { minHeight: 48, paddingHorizontal: 13, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, fontSize: 16, color: dashboardTheme.colors.text, backgroundColor: dashboardTheme.colors.surfaceMuted } as const,
+  districtList: { flexShrink: 1, maxHeight: 420 } as const,
+  districtOption: { minHeight: 50, paddingHorizontal: 13, borderRadius: 10, flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, gap: 12, borderWidth: 1, borderColor: dashboardTheme.colors.border, backgroundColor: dashboardTheme.colors.surface, marginBottom: 8 } as const,
+  districtOptionSelected: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.primarySoft } as const,
+  districtOptionText: { flex: 1, color: dashboardTheme.colors.text, fontSize: 15, fontWeight: '600' as const } as const,
+  districtOptionTextSelected: { color: dashboardTheme.colors.primaryStrong, fontWeight: '800' as const } as const,
+  districtCheck: { color: dashboardTheme.colors.primaryStrong, fontSize: 20, fontWeight: '900' as const } as const,
+  noDistricts: { paddingVertical: 18, color: dashboardTheme.colors.muted, fontSize: 14, textAlign: 'center' as const } as const,
+  pressed: { opacity: 0.7 } as const
 };
 // LDFEW-115: styles for lifecycle action panels and confirmation dialogs.
 const lifecycleStyles = StyleSheet.create({
   lifecycleActions: { gap: 10, marginTop: 8 },
+  publishedNotice: { color: dashboardTheme.colors.primaryStrong, fontSize: 14, lineHeight: 21, fontWeight: '700', paddingVertical: 8 },
+  closedNotice: { color: dashboardTheme.colors.muted, fontSize: 14, lineHeight: 21, fontWeight: '700', paddingVertical: 8 },
   editSection: { gap: 14, marginTop: 8 },
   sectionTitle: { color: dashboardTheme.colors.text, fontSize: 18, fontWeight: '800' },
   editActions: { gap: 10 },

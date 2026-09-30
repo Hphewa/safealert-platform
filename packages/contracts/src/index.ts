@@ -99,7 +99,7 @@ export type MonitoringAssessmentSummary = Pick<SafeRiskAssessment,
 >;
 export type MonitoringReportSummary = Pick<SafeReport, 'id' | 'description' | 'severity' | 'verifiedAt'>;
 export type MonitoringWarningSummary = Pick<SafeWarning,
-  'id' | 'assessmentId' | 'status' | 'createdAt' | 'publishedAt'
+  'id' | 'assessmentId' | 'status' | 'createdAt' | 'publishedAt' | 'cancelledAt' | 'archivedAt'
 >;
 export type IncidentMonitoringSummary = {
   incident: SafeIncident;
@@ -122,8 +122,8 @@ export type WarningRiskLevel = (typeof WARNING_RISK_LEVELS)[number];
 export function canCreateWarning(riskLevel: RiskLevel): riskLevel is WarningRiskLevel {
   return riskLevel === 'HIGH' || riskLevel === 'CRITICAL';
 }
-// LDFEW-115 lifecycle: DRAFT → PUBLISHED → CANCELLED/ARCHIVED. The backend is the
-// only source of truth for transitions between these values.
+// LDFEW-115 lifecycle: DRAFT → PUBLISHED → CANCELLED → ARCHIVED. The backend is
+// the only source of truth for transitions between these values.
 export const WARNING_STATUSES = ['DRAFT', 'PUBLISHED', 'CANCELLED', 'ARCHIVED'] as const;
 export const WARNING_NOTIFICATION_SCOPES = ['AFFECTED_AREA', 'DISTRICT', 'WHOLE_COUNTRY'] as const;
 export const NOTIFICATION_COUNTRY = 'Sri Lanka' as const;
@@ -182,13 +182,13 @@ export type CreateWarningResponse = { warning: SafeWarning };
 // LDFEW-115: only the permitted content fields are editable. Relationships,
 // risk level, status, and publication information are never part of the input.
 export type UpdateWarningRequest = {
-  assessmentId?: string;
-  affectedArea?: string;
-  requiredAction?: string;
-  unsafeRoads?: string;
-  safeRoutes?: string;
-  message?: string;
-  attachments?: string[];
+  assessmentId?: string | undefined;
+  affectedArea?: string | undefined;
+  requiredAction?: string | undefined;
+  unsafeRoads?: string | undefined;
+  safeRoutes?: string | undefined;
+  message?: string | undefined;
+  attachments?: string[] | undefined;
 };
 export type UpdateWarningResponse = { warning: SafeWarning };
 export type CancelWarningResponse = { warning: SafeWarning };

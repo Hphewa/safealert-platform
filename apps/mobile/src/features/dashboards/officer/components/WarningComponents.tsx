@@ -1,16 +1,18 @@
 import type { ReactNode } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { StyleProp, ViewStyle } from 'react-native';
+import type { SafeWarning } from '@safealert/contracts';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
 import { assessmentStyles } from './RiskAssessmentComponents';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 
-export function WarningPage({ title, reviewing = false, published = false, busy = false, onBack, children, contentContainerStyle }: {
-  title: string; reviewing?: boolean; published?: boolean; busy?: boolean; onBack: () => void; children: ReactNode;
+export function WarningPage({ title, reviewing = false, published = false, status, busy = false, onBack, children, contentContainerStyle }: {
+  title: string; reviewing?: boolean; published?: boolean; status?: SafeWarning['status']; busy?: boolean; onBack: () => void; children: ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
 }) {
+  const lifecycleLabel = status ?? (published ? 'PUBLISHED' : 'DRAFT');
   return <KeyboardAvoidingView style={warningStyles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
     <DashboardScreen bottomNavItems={officerBottomNavItems} contentContainerStyle={contentContainerStyle}>
       <View style={warningStyles.headerRow}>
@@ -18,7 +20,7 @@ export function WarningPage({ title, reviewing = false, published = false, busy 
           <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.text} size={22} />
         </Pressable>
       <View style={warningStyles.header}>
-        <Text style={warningStyles.eyebrow}>EARLY WARNING · {published ? 'PUBLISHED' : 'DRAFT'}</Text>
+        <Text style={warningStyles.eyebrow}>EARLY WARNING · {lifecycleLabel}</Text>
         <Text accessibilityRole="header" style={assessmentStyles.title}>{title}</Text>
         <Text style={assessmentStyles.helper}>Prepare clear safety information from the saved risk assessment.</Text>
       </View>

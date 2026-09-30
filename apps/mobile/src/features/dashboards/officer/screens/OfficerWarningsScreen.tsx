@@ -14,10 +14,10 @@ import { officerBottomNavItems } from '../officerNavigation';
 import { formatIncidentLocation, formatIncidentTime } from '../incidentGrouping';
 import { dashboardTheme } from '../../shared/theme';
 import type { BadgeTone } from '../../shared/types';
+import { warningStatusCounts, warningTiming, type WarningCardStatus } from '../warningList';
 
 // The tab only reuses the existing lifecycle vocabulary: an eligible assessment without
 // a warning is "NEEDS WARNING"; otherwise the persisted DRAFT/PUBLISHED/CANCELLED/ARCHIVED status shows.
-type WarningCardStatus = 'NEEDS WARNING' | 'DRAFT' | 'PUBLISHED' | 'CANCELLED' | 'ARCHIVED';
 type StatusFilter = 'ALL' | WarningCardStatus;
 
 type WarningRow = {
@@ -28,7 +28,7 @@ type WarningRow = {
   location: string;
   status: WarningCardStatus;
   warningId: string | null;
-  whenLabel: 'Created' | 'Published' | 'Assessed';
+  whenLabel: 'Created' | 'Published' | 'Cancelled' | 'Archived' | 'Assessed';
   whenTime: string;
 };
 
@@ -71,6 +71,7 @@ export function OfficerWarningsScreen() {
       if (!canCreateWarning(riskLevel)) continue;
       const warning = item.warnings.find((candidate) => candidate.assessmentId === assessment.id) ?? null;
       const status: WarningCardStatus = warning ? warning.status : 'NEEDS WARNING';
+      const timing = warningTiming(warning, assessment.assessedAt);
       built.push({
         assessmentId: assessment.id,
         risk: riskLevel,
@@ -79,24 +80,14 @@ export function OfficerWarningsScreen() {
         location: formatIncidentLocation(item.incident.location),
         status,
         warningId: warning?.id ?? null,
-        whenLabel: warning ? (warning.publishedAt ? 'Published' : 'Created') : 'Assessed',
-        whenTime: formatIncidentTime(warning?.publishedAt ?? warning?.createdAt ?? assessment.assessedAt)
+        whenLabel: timing.label,
+        whenTime: timing.time ? formatIncidentTime(timing.time) : 'Not recorded'
       });
     }
     return built;
   }, [data]);
 
-  const counts = useMemo(() => {
-    let needsWarning = 0;
-    let draft = 0;
-    let published = 0;
-    for (const row of rows) {
-      if (row.status === 'NEEDS WARNING') needsWarning += 1;
-      else if (row.status === 'DRAFT') draft += 1;
-      else published += 1;
-    }
-    return { needsWarning, draft, published };
-  }, [rows]);
+  const counts = useMemo(() => warningStatusCounts(rows), [rows]);
 
   // Search and filter only shape the visible cards; loaded warning data stays untouched.
   const visibleRows = useMemo(() => {
@@ -134,7 +125,9 @@ export function OfficerWarningsScreen() {
           {([
             { label: 'Needs Warning', count: counts.needsWarning },
             { label: 'Draft', count: counts.draft },
-            { label: 'Published', count: counts.published }
+            { label: 'Published', count: counts.published },
+            { label: 'Cancelled', count: counts.cancelled },
+            { label: 'Archived', count: counts.archived }
           ]).map((tile) => (
             <View
               accessible
@@ -226,6 +219,7 @@ export function OfficerWarningsScreen() {
                   ) : (
                     <AssessmentButton
                       label="Create Warning"
+                      success
                       onPress={() => router.push({ pathname: '/officer/warnings/create', params: { assessmentId: row.assessmentId, returnTo: '/officer/warnings' } })}
                     />
                   )}
@@ -243,8 +237,8 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 22, backgroundColor: dashboardTheme.colors.surface },
   headerCopy: { flex: 1, gap: 2 },
-  summaryRow: { flexDirection: 'row', gap: 8 },
-  summaryTile: { flex: 1, gap: 2, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surface },
+  summaryRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  summaryTile: { flexGrow: 1, flexBasis: '28%', minWidth: 100, gap: 2, alignItems: 'center', paddingVertical: 10, paddingHorizontal: 8, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surface },
   summaryValue: { fontSize: 20, fontWeight: '800', color: dashboardTheme.colors.text },
   summaryLabel: { fontSize: 11, fontWeight: '700', textAlign: 'center', color: dashboardTheme.colors.muted },
   filterRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

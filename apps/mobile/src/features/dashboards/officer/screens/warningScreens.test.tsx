@@ -19,7 +19,7 @@ vi.mock('expo-image-picker', () => ({
 vi.mock('react-native', () => {
   const container = ({ children }: { children?: ReactNode }) => <div>{children}</div>;
   return {
-    View: container, Text: container, ScrollView: container, KeyboardAvoidingView: container,
+    View: container, Text: container, ScrollView: container, Modal: container, KeyboardAvoidingView: container,
     Pressable: ({ children, disabled }: { children?: ReactNode; disabled?: boolean }) => <button disabled={disabled}>{children}</button>,
     TextInput: ({ accessibilityLabel, value }: { accessibilityLabel: string; value: string }) => <input aria-label={accessibilityLabel} value={value} readOnly />,
     ActivityIndicator: () => <span>Loading</span>, Image: () => <span>Image</span>,
@@ -61,7 +61,7 @@ import { CreateWarningScreen } from './CreateWarningScreen';
 import { ReviewWarningScreen } from './ReviewWarningScreen';
 import { PublishWarningScreen } from './PublishWarningScreen';
 
-beforeEach(() => { state.risk = 'HIGH'; state.unavailable = false; state.missingSource = false; });
+beforeEach(() => { state.risk = 'HIGH'; state.unavailable = false; state.missingSource = false; state.warning = undefined; state.deliveryHook.mockReset(); });
 
 it('wires published warning delivery to the route warning ID and displays the API counts in order', () => {
   state.warning = {
@@ -79,7 +79,42 @@ it('wires published warning delivery to the route warning ID and displays the AP
   expect(markup).toContain('<div>Sent</div><div>1</div>');
   expect(markup.indexOf('Notification Target')).toBeLessThan(markup.indexOf('NOTIFICATION DELIVERY'));
   expect(markup).not.toContain('All notifications');
-  state.warning = undefined;
+  expect(markup).toContain('This warning is published and active.');
+  expect(markup).not.toContain('This warning has already been published.');
+  expect(markup).toContain('Cancel Warning');
+  expect(markup).not.toContain('Edit Warning');
+  expect(markup).not.toContain('Archive Warning');
+});
+
+it('shows only Archive for a cancelled warning and preserves published history', () => {
+  state.warning = {
+    id: state.warningId, assessmentId: '123456789012345678901234', hazardReportId: 'report', createdById: 'officer',
+    affectedArea: 'Riverside', requiredAction: 'Evacuate', unsafeRoads: 'River Road', message: 'Water rising',
+    riskLevel: 'HIGH', status: 'CANCELLED', publishedAt: '2026-09-30T00:00:00Z', cancelledAt: '2026-09-30T01:00:00Z',
+    createdAt: '2026-09-30T00:00:00Z', updatedAt: '2026-09-30T01:00:00Z'
+  };
+  state.deliveryHook.mockReturnValue({ data: null, loading: true, error: null, reload: vi.fn() });
+  const markup = renderToStaticMarkup(<PublishWarningScreen />);
+  expect(markup).toContain('This warning is cancelled and is no longer active.');
+  expect(markup).toContain('Archive Warning');
+  expect(markup).toContain('Loading delivery status');
+  expect(markup).not.toContain('Edit Warning');
+  expect(markup).not.toContain('Cancel Warning');
+});
+
+it('shows no lifecycle actions for an archived warning', () => {
+  state.warning = {
+    id: state.warningId, assessmentId: '123456789012345678901234', hazardReportId: 'report', createdById: 'officer',
+    affectedArea: 'Riverside', requiredAction: 'Evacuate', unsafeRoads: 'River Road', message: 'Water rising',
+    riskLevel: 'HIGH', status: 'ARCHIVED', publishedAt: '2026-09-30T00:00:00Z', cancelledAt: '2026-09-30T01:00:00Z',
+    archivedAt: '2026-09-30T02:00:00Z', createdAt: '2026-09-30T00:00:00Z', updatedAt: '2026-09-30T02:00:00Z'
+  };
+  state.deliveryHook.mockReturnValue({ data: null, loading: true, error: null, reload: vi.fn() });
+  const markup = renderToStaticMarkup(<PublishWarningScreen />);
+  expect(markup).toContain('This warning is archived and is no longer active.');
+  expect(markup).not.toContain('Edit Warning');
+  expect(markup).not.toContain('Cancel Warning');
+  expect(markup).not.toContain('Archive Warning');
 });
 it.each(['LOW', 'MODERATE'] as const)('blocks the create form on direct navigation for %s', (risk) => {
   state.risk = risk;
