@@ -8,14 +8,17 @@ export function useAssessmentResource<T>(loader: () => Promise<T>) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (options: { preserveData?: boolean } = {}) => {
     const requestId = ++generation.current;
     setLoading(true);
     setError(null);
-    setData(null);
+    if (!options.preserveData) setData(null);
     try {
       const result = await loader();
-      if (requestId === generation.current) setData(result);
+      if (requestId === generation.current) {
+        setData(result);
+        return result;
+      }
     } catch (failure) {
       if (requestId === generation.current) setError(assessmentErrorMessage(failure));
     } finally {

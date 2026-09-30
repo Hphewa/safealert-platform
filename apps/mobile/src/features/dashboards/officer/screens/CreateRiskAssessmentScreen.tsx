@@ -243,7 +243,8 @@ export function CreateRiskAssessmentScreen() {
   const incidentIneligible = !data || data.incident.status !== 'ACTIVE' ||
     !data.reports.some((report) => report.status === 'VERIFIED');
 
-  return <AssessmentPage key={preview ? 'decision' : 'factors'} title={preview ? 'Risk Decision' : reassessmentMode ? 'Reassess Risk' : 'Assess Risk'}>
+  return <AssessmentPage key={preview ? 'decision' : 'factors'} title={preview ? 'Risk Decision' : reassessmentMode ? 'Reassess Risk' : 'Assess Risk'}
+    backToIncidentId={!reassessmentMode ? incidentIdParam : undefined}>
     {!data || !dataMatchesRoute || !draftMatchesRoute ? <AssessmentLoadState loading={resource.loading || Boolean(data) || !draftMatchesRoute} error={resource.error} retry={() => void resource.reload()} /> : <>
       {!preview && !reassessmentMode ? <IncidentAssessmentContext key={data.incident.id} incident={data.incident} reports={data.reports} /> : null}
       {activeAssessmentId ? <View style={assessmentStyles.card}>

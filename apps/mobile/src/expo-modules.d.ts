@@ -29,6 +29,14 @@ declare module 'expo-location' {
   };
 
   export function requestForegroundPermissionsAsync(): Promise<LocationPermissionResponse>;
+  export function getForegroundPermissionsAsync(): Promise<LocationPermissionResponse>;
+  export type LocationGeocodedAddress = {
+    city: string | null;
+    district: string | null;
+    subregion: string | null;
+    region: string | null;
+  };
+  export function reverseGeocodeAsync(location: { latitude: number; longitude: number }): Promise<LocationGeocodedAddress[]>;
   export function getCurrentPositionAsync(options?: {
     accuracy?: Accuracy;
   }): Promise<LocationObject>;

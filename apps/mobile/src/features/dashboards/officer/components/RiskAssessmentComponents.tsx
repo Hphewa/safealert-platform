@@ -6,18 +6,21 @@ import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
 import { useRiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraft';
+import { AssessmentFlowBackLink } from './AssessmentFlowBackLink';
 
 export const assessmentLabel = (value: string) => value.replace(/_/g, ' ');
 
-export function AssessmentPage({ title, children }: { title: string; children: ReactNode }) {
+export function AssessmentPage({ title, children, backToIncidentId }: { title: string; children: ReactNode; backToIncidentId?: string }) {
   const router = useRouter();
   const { resetAssessmentDraft } = useRiskAssessmentDraft();
   const refresh = useMemo(() => Date.now().toString(), []);
   return <DashboardScreen bottomNavItems={officerBottomNavItems}>
-    <AssessmentButton label="Back to Assessments" secondary onPress={() => {
+    {backToIncidentId ? <AssessmentFlowBackLink label="Incident Overview" onPress={() => router.dismissTo({
+      pathname: '/officer/assessments/incident/[incidentId]', params: { incidentId: backToIncidentId }
+    })} /> : <AssessmentButton label="Back to Assessments" secondary onPress={() => {
       resetAssessmentDraft();
       router.replace({ pathname: '/officer/assessments', params: { refresh } });
-    }} />
+    }} />}
     <Text style={assessmentStyles.title}>{title}</Text>
     {children}
   </DashboardScreen>;

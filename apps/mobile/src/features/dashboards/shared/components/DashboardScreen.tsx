@@ -1,5 +1,5 @@
-import type { ReactNode } from 'react';
-import type { StyleProp, ViewStyle } from 'react-native';
+import type { ReactElement, ReactNode } from 'react';
+import type { RefreshControlProps, StyleProp, ViewStyle } from 'react-native';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,12 +11,14 @@ type DashboardScreenProps = {
   children: ReactNode;
   bottomNavItems: BottomNavItem[];
   contentContainerStyle?: StyleProp<ViewStyle>;
+  refreshControl?: ReactElement<RefreshControlProps>;
 };
 
 export function DashboardScreen({
   children,
   bottomNavItems,
-  contentContainerStyle
+  contentContainerStyle,
+  refreshControl
 }: DashboardScreenProps) {
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
@@ -24,6 +26,7 @@ export function DashboardScreen({
         <ScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[styles.content, contentContainerStyle]}
+          refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
         >
           {children}

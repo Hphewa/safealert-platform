@@ -10,6 +10,7 @@ const { renderToStaticMarkup } = createRequire(import.meta.url)('react-dom/serve
 
 const state = vi.hoisted(() => ({
   params: {} as { incidentId?: string; assessmentId?: string },
+  backToIncidentId: undefined as string | undefined,
   assessmentDraft: null as {
     mode: string; incidentId: string; assessmentId: string | null;
     factors: Record<string, string>; calculationPreview: { factors: Record<string, unknown>; result: unknown } | null;
@@ -148,7 +149,10 @@ vi.mock('../components/RiskAssessmentComponents', () => ({
     state.optionActions.set(label, onChange);
     return <div>{label}: {value}</div>;
   },
-  AssessmentPage: ({ title, children }: { title: string; children?: ReactNode }) => <main><h1>{title}</h1>{children}</main>,
+  AssessmentPage: ({ title, children, backToIncidentId }: { title: string; children?: ReactNode; backToIncidentId?: string }) => {
+    state.backToIncidentId = backToIncidentId;
+    return <main><h1>{title}</h1>{children}</main>;
+  },
   IncidentAssessmentContext: () => <div>Incident evidence</div>,
   assessmentStyles: new Proxy({}, { get: () => undefined })
 }));
@@ -237,6 +241,7 @@ it('loads an assessment and shows the reassessment context when the source ID is
   expect(markup).toContain('Reassess Risk');
   expect(markup).toContain('Current Assessment');
   expect(markup).toContain('Reason for Reassessment');
+  expect(state.backToIncidentId).toBeUndefined();
   expect(markup).toContain('Score: 18');
 });
 
@@ -286,6 +291,25 @@ it('keeps the existing incident create route and loader when no assessment ID is
 
   expect(state.getAssessmentForIncident).toHaveBeenCalledWith('incident-1', 'officer-token');
   expect(markup).toContain('Assess Risk');
+  expect(state.backToIncidentId).toBe('incident-1');
+});
+
+it('preserves an initial calculation and decision when the form remounts after returning to the overview', async () => {
+  state.params = { incidentId: 'incident-1' };
+  state.resource = { data: { assessment: null, incident: response.incident, reports: response.reports }, loading: false, error: null, reload: vi.fn() };
+  state.calculateRisk.mockResolvedValue({ calculatedScore: 18, systemSuggestedRisk: 'HIGH' });
+  renderScreen(); renderScreen();
+  state.inputs.get('People Affected')!('18'); state.inputs.get('Vulnerable People')!('6'); renderScreen();
+  state.actions.get('CALCULATE RISK')!(); await Promise.resolve(); await Promise.resolve(); renderScreen();
+  state.inputs.get('Decision Reason')!('Keep the decision while reviewing evidence.');
+  const draftBeforeBack = state.assessmentDraft;
+  // Navigation remounts local screen state while its route-subtree draft provider survives.
+  state.hooks = []; state.refs = []; state.effectDeps = [];
+  renderScreen(); state.focusEffect!(); renderScreen();
+  expect(state.assessmentDraft).toBe(draftBeforeBack);
+  expect(state.assessmentDraft?.calculationPreview).not.toBeNull();
+  expect(state.assessmentDraft?.decisionReason).toBe('Keep the decision while reviewing evidence.');
+  expect(state.backToIncidentId).toBe('incident-1');
 });
 
 it('shows reassessment with prefilled factors and clears the old preview when a factor changes', async () => {
