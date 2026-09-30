@@ -30,6 +30,9 @@ vi.mock('expo-router', () => ({
 vi.mock('@/features/auth/hooks/useAuth', () => ({
   useAuth: () => ({ accessToken: 'token', user: { id: 'officer', name: 'Officer' } })
 }));
+vi.mock('../assessment-flow/riskAssessmentDraft', () => ({
+  useRiskAssessmentDraft: () => ({ resetAssessmentDraft: vi.fn() })
+}));
 vi.mock('../../shared/components/DashboardScreen', () => ({
   DashboardScreen: ({ children }: { children: ReactNode }) => <main>{children}</main>
 }));

@@ -11,11 +11,12 @@ const state = vi.hoisted(() => ({
   loading: false,
   error: null as string | null,
   loader: null as (() => Promise<InitialAssessmentQueueResponse['incidents']>) | null,
-  listQueue: vi.fn(), actions: new Map<string, () => void>(), push: vi.fn()
+  listQueue: vi.fn(), actions: new Map<string, () => void>(), push: vi.fn(), resetDraft: vi.fn()
 }));
 vi.mock('react-native', () => ({ View: ({ children }: { children?: ReactNode }) => <div>{children}</div>, Text: ({ children }: { children?: ReactNode }) => <span>{children}</span> }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push }), useLocalSearchParams: () => ({}), useFocusEffect: vi.fn() }));
 vi.mock('@/features/auth/hooks/useAuth', () => ({ useAuth: () => ({ accessToken: 'officer-token' }) }));
+vi.mock('../assessment-flow/riskAssessmentDraft', () => ({ useRiskAssessmentDraft: () => ({ resetAssessmentDraft: state.resetDraft }) }));
 vi.mock('../../shared/components/DashboardScreen', () => ({ DashboardScreen: ({ children }: { children?: ReactNode }) => <main>{children}</main> }));
 vi.mock('../../shared/components/PriorityBadge', () => ({ PriorityBadge: ({ priority }: { priority: string }) => <span>{priority}</span> }));
 vi.mock('../components/RiskAssessmentComponents', () => ({
@@ -38,7 +39,7 @@ const eligible: InitialAssessmentQueueResponse['incidents'][number] = {
     location: { type: 'Point', coordinates: [79.8612, 6.9271] }, status: 'VERIFIED', createdAt: '2026-09-25T10:00:00.000Z', updatedAt: '2026-09-25T10:00:00.000Z' }]
 };
 beforeEach(() => {
-  state.data = null; state.loading = false; state.error = null; state.loader = null; state.actions.clear(); state.listQueue.mockReset(); state.push.mockReset();
+  state.data = null; state.loading = false; state.error = null; state.loader = null; state.actions.clear(); state.listQueue.mockReset(); state.push.mockReset(); state.resetDraft.mockReset();
 });
 
 it('loads one queue endpoint and shows only the initial assessment action', async () => {
@@ -51,6 +52,7 @@ it('loads one queue endpoint and shows only the initial assessment action', asyn
   expect(markup).toContain('ASSESS RISK');
   expect(markup).not.toMatch(/VIEW ASSESSMENT|VIEW HISTORY|REASSESS|CLOSE|DELETE/);
   state.actions.get('ASSESS RISK')!();
+  expect(state.resetDraft).toHaveBeenCalledOnce();
   expect(state.push).toHaveBeenCalledWith({ pathname: '/officer/assessments/create', params: { incidentId: 'incident-1' } });
 });
 

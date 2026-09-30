@@ -4,7 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   HAZARD_ASSESSMENT_SEVERITIES, INFRASTRUCTURE_IMPACT_LEVELS, ROAD_ACCESSIBILITY_OPTIONS,
   WATER_LEVEL_TRENDS, WEATHER_CONDITIONS, RISK_DECISION_REASON_MAX_LENGTH,
-  type CalculateRiskAssessmentResponse, type RiskAssessmentFactors, type RiskLevel
+  type RiskLevel
 } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
@@ -20,24 +20,31 @@ import {
 import {
   assessmentErrorMessage, buildReassessmentRiskAssessmentRequest, buildRiskAssessmentRequest,
   initialRiskAssessmentForm, parseRiskAssessmentForm, reassessmentReasonError,
-  riskAssessmentFormFromAssessment, validateRiskAssessmentForm, type RiskAssessmentForm
+  validateRiskAssessmentForm, type RiskAssessmentForm
 } from '../riskAssessmentForm';
 import { RiskDecisionScreen } from './RiskDecisionScreen';
-
-type Preview = { factors: RiskAssessmentFactors; result: CalculateRiskAssessmentResponse };
+import { useRiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraft';
 
 export function CreateRiskAssessmentScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
+  const assessmentDraft = useRiskAssessmentDraft();
+  const {
+    draft, initializeInitialAssessment, initializeReassessment, updateSingleFactor,
+    setCalculationPreview, clearCalculationPreview, calculationPreviewIsValid,
+    setFinalRisk, setDecisionReason, setReassessmentReason, resetAssessmentDraft
+  } = assessmentDraft;
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
   const params = useLocalSearchParams<{ incidentId?: string | string[]; assessmentId?: string | string[] }>();
   const incidentIdParam = Array.isArray(params.incidentId) ? params.incidentId[0] : params.incidentId;
   const assessmentId = Array.isArray(params.assessmentId) ? params.assessmentId[0] : params.assessmentId;
   const reassessmentMode = Boolean(assessmentId);
-  const [form, setForm] = useState<RiskAssessmentForm>(initialRiskAssessmentForm);
-  const [preview, setPreview] = useState<Preview | null>(null);
-  const [finalRisk, setFinalRisk] = useState<RiskLevel>('LOW');
-  const [reason, setReason] = useState('');
-  const [reassessmentReason, setReassessmentReason] = useState('');
+  const form = draft?.factors ?? initialRiskAssessmentForm;
+  const preview = draft?.calculationPreview ?? null;
+  const finalRisk = draft?.finalRiskLevel ?? 'LOW';
+  const reason = draft?.decisionReason ?? '';
+  const reassessmentReason = draft?.reassessmentReason ?? '';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [staleConflict, setStaleConflict] = useState(false);
@@ -45,8 +52,8 @@ export function CreateRiskAssessmentScreen() {
   const [touchedFields, setTouchedFields] = useState<Partial<Record<keyof RiskAssessmentForm, boolean>>>({});
   const inFlight = useRef(false);
   const generation = useRef(0);
-  const initializedAssessmentId = useRef<string | null>(null);
-  const finalRiskRef = useRef<RiskLevel>('LOW');
+  const finalRiskRef = useRef<RiskLevel>(finalRisk);
+  finalRiskRef.current = finalRisk;
 
   const load = useCallback(async () => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
@@ -58,53 +65,46 @@ export function CreateRiskAssessmentScreen() {
   const data = resource.data;
   const currentAssessment = reassessmentMode ? data?.assessment : null;
   const dataMatchesRoute = !assessmentId || currentAssessment?.id === assessmentId;
-  const incidentId = reassessmentMode ? currentAssessment?.incidentId : incidentIdParam;
+  const draftMatchesRoute = reassessmentMode
+    ? draft?.mode === 'REASSESSMENT' && draft.assessmentId === assessmentId
+    : draft?.mode === 'INITIAL' && draft.incidentId === incidentIdParam;
+  const incidentId = reassessmentMode ? currentAssessment?.incidentId : draft?.incidentId ?? incidentIdParam;
+
+  useEffect(() => {
+    if (assessmentId || !incidentIdParam) return;
+    if (draftRef.current?.mode === 'INITIAL' && draftRef.current.incidentId === incidentIdParam) return;
+    initializeInitialAssessment(incidentIdParam);
+  }, [assessmentId, incidentIdParam, initializeInitialAssessment]);
 
   useFocusEffect(useCallback(() => {
     generation.current += 1;
     inFlight.current = false;
     setBusy(false);
     if (!assessmentId) {
-      setPreview(null);
-      setForm(initialRiskAssessmentForm);
-      setReason('');
-      setReassessmentReason('');
       setError(null);
       setExistingId(null);
       setTouchedFields({});
       setStaleConflict(false);
-      finalRiskRef.current = 'LOW';
-      setFinalRisk('LOW');
     }
     return () => { generation.current += 1; };
   }, [accessToken, assessmentId, incidentIdParam]));
 
   useEffect(() => {
-    if (initializedAssessmentId.current === assessmentId) return;
+    if (!assessmentId || !data?.assessment || data.assessment.id !== assessmentId) return;
+    if (draftRef.current?.mode === 'REASSESSMENT' && draftRef.current.assessmentId === assessmentId) return;
+    initializeReassessment({
+      assessmentId, incidentId: data.assessment.incidentId,
+      factors: data.assessment, finalRiskLevel: data.assessment.finalRiskLevel
+    });
     setExistingId(null);
-    setPreview(null);
-    setStaleConflict(false);
-  }, [assessmentId]);
-
-  useEffect(() => {
-    if (!assessmentId || !data?.assessment || data.assessment.id !== assessmentId || initializedAssessmentId.current === assessmentId) return;
-    initializedAssessmentId.current = assessmentId;
-    setExistingId(null);
-    setForm(riskAssessmentFormFromAssessment(data.assessment));
-    setFinalRisk(data.assessment.finalRiskLevel);
-    finalRiskRef.current = data.assessment.finalRiskLevel;
-    setReason('');
-    setReassessmentReason('');
-    setPreview(null);
     setTouchedFields({});
     setError(null);
     setStaleConflict(false);
-  }, [assessmentId, data]);
+  }, [assessmentId, data, initializeReassessment]);
 
   const updateForm = <K extends keyof RiskAssessmentForm>(key: K, value: RiskAssessmentForm[K]) => {
-    setForm((current) => ({ ...current, [key]: value }));
+    updateSingleFactor(key, value);
     setTouchedFields((current) => ({ ...current, [key]: true }));
-    setPreview(null);
     setError(null);
     setStaleConflict(false);
   };
@@ -142,7 +142,7 @@ export function CreateRiskAssessmentScreen() {
   };
 
   const calculate = async () => {
-    if (inFlight.current || !accessToken || !incidentId || !data ||
+    if (inFlight.current || !draftMatchesRoute || !accessToken || !incidentId || !data ||
       (reassessmentMode && currentAssessment?.status !== 'ACTIVE') ||
       !data.reports.some((report) => report.status === 'VERIFIED')) return;
     const current = generation.current;
@@ -153,9 +153,9 @@ export function CreateRiskAssessmentScreen() {
       const factors = parseRiskAssessmentForm(form);
       const result = await calculateRiskAssessment({ incidentId, ...factors }, accessToken);
       if (generation.current !== current) return;
-      setPreview({ factors, result });
+      setCalculationPreview(factors, result);
       updateFinalRisk(result.systemSuggestedRisk);
-      setReason('');
+      setDecisionReason('');
     } catch (failure) {
       if (generation.current === current) setError(assessmentErrorMessage(failure));
     } finally {
@@ -168,7 +168,7 @@ export function CreateRiskAssessmentScreen() {
   const showFieldError = (field: keyof RiskAssessmentForm) => touchedFields[field] || Boolean(error);
 
   const save = async () => {
-    if (inFlight.current || !preview || !accessToken || !incidentId) return;
+    if (inFlight.current || !draftMatchesRoute || !preview || !calculationPreviewIsValid || !draft || !accessToken || !incidentId) return;
     const selectedFinalRisk = finalRiskRef.current;
     if (assessmentId) {
       let reassessmentRequest: ReturnType<typeof buildReassessmentRiskAssessmentRequest>;
@@ -187,7 +187,10 @@ export function CreateRiskAssessmentScreen() {
       setStaleConflict(false);
       try {
         const result = await reassessRiskAssessment(assessmentId, reassessmentRequest, accessToken);
-        if (generation.current === current) showResult(result.assessment.id);
+        if (generation.current === current) {
+          resetAssessmentDraft();
+          showResult(result.assessment.id);
+        }
       } catch (failure) {
         if (generation.current === current) {
           setError(assessmentErrorMessage(failure));
@@ -214,7 +217,10 @@ export function CreateRiskAssessmentScreen() {
     try {
       // Submit factors and decision only; authoritative scoring/audit fields never leave the client.
       const result = await createRiskAssessment(createRequest, accessToken);
-      if (generation.current === current) showMonitoring(result.incident.id);
+      if (generation.current === current) {
+        resetAssessmentDraft();
+        showMonitoring(result.incident.id);
+      }
     } catch (failure) {
       if (generation.current !== current) return;
       setError(assessmentErrorMessage(failure));
@@ -238,7 +244,7 @@ export function CreateRiskAssessmentScreen() {
     !data.reports.some((report) => report.status === 'VERIFIED');
 
   return <AssessmentPage key={preview ? 'decision' : 'factors'} title={preview ? 'Risk Decision' : reassessmentMode ? 'Reassess Risk' : 'Assess Risk'}>
-    {!data || !dataMatchesRoute ? <AssessmentLoadState loading={resource.loading || Boolean(data)} error={resource.error} retry={() => void resource.reload()} /> : <>
+    {!data || !dataMatchesRoute || !draftMatchesRoute ? <AssessmentLoadState loading={resource.loading || Boolean(data) || !draftMatchesRoute} error={resource.error} retry={() => void resource.reload()} /> : <>
       {!preview && !reassessmentMode ? <IncidentAssessmentContext key={data.incident.id} incident={data.incident} reports={data.reports} /> : null}
       {activeAssessmentId ? <View style={assessmentStyles.card}>
         <Text style={assessmentStyles.body}>An active assessment already exists for this incident.</Text>
@@ -256,8 +262,8 @@ export function CreateRiskAssessmentScreen() {
           ? 'The current assessment remains active until the replacement is saved.'
           : 'Calculation preview only. This Incident remains Not assessed until you save the assessment.'}</Text>
         <RiskDecisionScreen factors={preview.factors} calculation={preview.result} finalRisk={finalRisk}
-          reason={reason} saving={busy} onFinalRisk={updateFinalRisk} onReason={setReason}
-          onEdit={() => { setPreview(null); setError(null); }} onSave={() => void save()}
+          reason={reason} saving={busy} onFinalRisk={updateFinalRisk} onReason={setDecisionReason}
+          onEdit={() => { clearCalculationPreview(); setError(null); }} onSave={() => void save()}
           previousAssessment={reassessmentMode && currentAssessment?.status === 'ACTIVE' ? currentAssessment : undefined}
           saveLabel={reassessmentMode ? 'SAVE REASSESSMENT' : 'SAVE ASSESSMENT'} />
         <IncidentAssessmentContext incident={data.incident} reports={data.reports} />

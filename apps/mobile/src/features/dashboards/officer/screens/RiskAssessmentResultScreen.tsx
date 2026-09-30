@@ -15,6 +15,7 @@ import {
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { dashboardTheme } from '../../shared/theme';
+import { useRiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraft';
 import {
   AssessmentButton, AssessmentDetail, AssessmentFactorSummary, AssessmentLoadState, AssessmentOptions, AssessmentPage,
   IncidentAssessmentContext, assessmentStyles
@@ -27,6 +28,7 @@ type AssessmentHistoryState =
 
 export function RiskAssessmentResultScreen() {
   const router = useRouter();
+  const { resetAssessmentDraft } = useRiskAssessmentDraft();
   const { accessToken, user } = useAuth();
   const [historyState, setHistoryState] = useState<AssessmentHistoryState>({ kind: 'loading' });
   const [historyRetry, setHistoryRetry] = useState(0);
@@ -189,9 +191,10 @@ export function RiskAssessmentResultScreen() {
         label="Create Warning" disabled={currentBusy} onPress={() => router.push({
           pathname: '/officer/warnings/create', params: { assessmentId: displayedAssessment!.id }
         })} /> : null}
-      {displayedAssessment!.status === 'ACTIVE' ? <AssessmentButton label="REASSESS RISK" disabled={currentBusy} onPress={() => router.push({
-        pathname: '/officer/assessments/create', params: { assessmentId: displayedAssessment!.id }
-      })} /> : null}
+      {displayedAssessment!.status === 'ACTIVE' ? <AssessmentButton label="REASSESS RISK" disabled={currentBusy} onPress={() => {
+        resetAssessmentDraft();
+        router.push({ pathname: '/officer/assessments/create', params: { assessmentId: displayedAssessment!.id } });
+      }} /> : null}
       {displayedAssessment!.status === 'ACTIVE' && !closeFormVisible ? <AssessmentButton label="CLOSE ASSESSMENT" disabled={currentBusy}
         onPress={() => {
           setCloseFormScope({ routeId: assessmentId, accessToken, generation: closeGeneration });

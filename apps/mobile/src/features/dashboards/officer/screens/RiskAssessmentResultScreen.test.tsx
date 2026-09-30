@@ -21,7 +21,7 @@ const state = vi.hoisted(() => ({
   refs: [] as { current: unknown }[], refIndex: 0,
   effectDeps: [] as (readonly unknown[] | undefined)[], effectIndex: 0,
   effects: [] as (() => void)[],
-  push: vi.fn(), replace: vi.fn(), reload: vi.fn(), close: vi.fn(), softDelete: vi.fn(), history: vi.fn()
+  push: vi.fn(), replace: vi.fn(), reload: vi.fn(), close: vi.fn(), softDelete: vi.fn(), history: vi.fn(), resetDraft: vi.fn()
 }));
 
 vi.mock('react', async (importOriginal) => {
@@ -67,6 +67,7 @@ vi.mock('expo-router', () => ({
 vi.mock('@/features/auth/hooks/useAuth', () => ({ useAuth: () => ({
   accessToken: state.accessToken, user: { id: 'officer-1', name: 'Officer One' }
 }) }));
+vi.mock('../assessment-flow/riskAssessmentDraft', () => ({ useRiskAssessmentDraft: () => ({ resetAssessmentDraft: state.resetDraft }) }));
 vi.mock('../../shared/components/PriorityBadge', () => ({
   PriorityBadge: ({ priority }: { priority: string }) => <span>{priority}</span>
 }));
@@ -140,6 +141,7 @@ beforeEach(() => {
   state.close.mockReset();
   state.softDelete.mockReset();
   state.history.mockReset();
+  state.resetDraft.mockReset();
   state.history.mockResolvedValue({ assessments: [] });
 });
 
@@ -226,6 +228,7 @@ it('offers reassessment for the active assessment and routes with its ID', () =>
 
   expect(markup).toContain('REASSESS RISK');
   state.actions.get('REASSESS RISK')!();
+  expect(state.resetDraft).toHaveBeenCalledOnce();
   expect(state.push).toHaveBeenCalledWith({
     pathname: '/officer/assessments/create', params: { assessmentId: 'assessment-active' }
   });

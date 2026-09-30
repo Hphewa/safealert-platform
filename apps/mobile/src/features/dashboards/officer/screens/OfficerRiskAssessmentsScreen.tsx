@@ -13,10 +13,12 @@ import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { officerBottomNavItems } from '../officerNavigation';
 import { formatIncidentLocation, formatIncidentTime } from '../incidentGrouping';
 import { latestIncidentReportAt } from '../assessmentIncidents';
+import { useRiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraft';
 
 export function OfficerRiskAssessmentsScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
+  const { resetAssessmentDraft } = useRiskAssessmentDraft();
   const load = useCallback(async (): Promise<IncidentWithReportsResponse[]> => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
     const { incidents } = await listInitialAssessmentQueue(accessToken);
@@ -39,9 +41,10 @@ export function OfficerRiskAssessmentsScreen() {
       <Text style={assessmentStyles.helper}>Location: {formatIncidentLocation(incident.incident.location)}</Text>
       <Text style={assessmentStyles.helper}>Verified Reports: {incident.reports.length}</Text>
       <Text style={assessmentStyles.helper}>Latest Report Time: {formatIncidentTime(latestIncidentReportAt(incident) ?? '')}</Text>
-      <AssessmentButton label="ASSESS RISK" onPress={() => router.push({
-        pathname: '/officer/assessments/create', params: { incidentId: incident.incident.id }
-      })} />
+      <AssessmentButton label="ASSESS RISK" onPress={() => {
+        resetAssessmentDraft();
+        router.push({ pathname: '/officer/assessments/create', params: { incidentId: incident.incident.id } });
+      }} />
       <Text style={assessmentStyles.helper}>Risk preparation belongs to this incident; its reports remain source evidence.</Text>
     </View>)}
   </DashboardScreen>;

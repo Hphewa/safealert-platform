@@ -5,14 +5,19 @@ import type { RiskAssessmentFactors, SafeIncident, SafeReport } from '@safealert
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
+import { useRiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraft';
 
 export const assessmentLabel = (value: string) => value.replace(/_/g, ' ');
 
 export function AssessmentPage({ title, children }: { title: string; children: ReactNode }) {
   const router = useRouter();
+  const { resetAssessmentDraft } = useRiskAssessmentDraft();
   const refresh = useMemo(() => Date.now().toString(), []);
   return <DashboardScreen bottomNavItems={officerBottomNavItems}>
-    <AssessmentButton label="Back to Assessments" secondary onPress={() => router.replace({ pathname: '/officer/assessments', params: { refresh } })} />
+    <AssessmentButton label="Back to Assessments" secondary onPress={() => {
+      resetAssessmentDraft();
+      router.replace({ pathname: '/officer/assessments', params: { refresh } });
+    }} />
     <Text style={assessmentStyles.title}>{title}</Text>
     {children}
   </DashboardScreen>;

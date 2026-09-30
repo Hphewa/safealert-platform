@@ -10,6 +10,11 @@ const { renderToStaticMarkup } = createRequire(import.meta.url)('react-dom/serve
 
 const state = vi.hoisted(() => ({
   params: {} as { incidentId?: string; assessmentId?: string },
+  assessmentDraft: null as {
+    mode: string; incidentId: string; assessmentId: string | null;
+    factors: Record<string, string>; calculationPreview: { factors: Record<string, unknown>; result: unknown } | null;
+    finalRiskLevel: string; decisionReason: string; reassessmentReason: string;
+  } | null,
   focusEffect: null as (() => void | (() => void)) | null,
   resource: null as { data: unknown; loading: boolean; error: string | null; reload: () => void } | null,
   loader: null as (() => Promise<unknown>) | null,
@@ -72,6 +77,53 @@ vi.mock('expo-router', () => ({
   useFocusEffect: (effect: () => void | (() => void)) => { state.focusEffect = effect; }
 }));
 vi.mock('@/features/auth/hooks/useAuth', () => ({ useAuth: () => ({ accessToken: 'officer-token' }) }));
+vi.mock('../assessment-flow/riskAssessmentDraft', () => {
+  const api = {
+    get draft() { return state.assessmentDraft; },
+    initializeInitialAssessment: (incidentId: string) => {
+      state.assessmentDraft = {
+        mode: 'INITIAL', incidentId, assessmentId: null,
+        factors: { hazardSeverity: 'MODERATE', peopleAffected: '', vulnerablePeople: '', roadAccessibility: 'UNKNOWN', infrastructureImpact: 'NONE', waterLevelTrend: 'UNKNOWN', weatherCondition: 'UNKNOWN' },
+        calculationPreview: null, finalRiskLevel: 'LOW', decisionReason: '', reassessmentReason: ''
+      };
+    },
+    initializeReassessment: ({ assessmentId, incidentId, factors, finalRiskLevel }: {
+      assessmentId: string; incidentId: string; factors: Record<string, string | number>; finalRiskLevel: string
+    }) => {
+      state.assessmentDraft = {
+        mode: 'REASSESSMENT', incidentId, assessmentId,
+        factors: Object.fromEntries(Object.entries(factors).map(([key, value]) => [key, String(value)])),
+        calculationPreview: null, finalRiskLevel, decisionReason: '', reassessmentReason: ''
+      };
+    },
+    updateFactors: (factors: Record<string, string>) => {
+      if (state.assessmentDraft) state.assessmentDraft = { ...state.assessmentDraft, factors, calculationPreview: null };
+    },
+    updateSingleFactor: (field: string, value: string) => {
+      if (state.assessmentDraft) state.assessmentDraft = {
+        ...state.assessmentDraft, factors: { ...state.assessmentDraft.factors, [field]: value }, calculationPreview: null
+      };
+    },
+    setCalculationPreview: (factors: Record<string, unknown>, result: unknown) => {
+      if (state.assessmentDraft) state.assessmentDraft = { ...state.assessmentDraft, calculationPreview: { factors, result } };
+    },
+    clearCalculationPreview: () => {
+      if (state.assessmentDraft) state.assessmentDraft = { ...state.assessmentDraft, calculationPreview: null };
+    },
+    get calculationPreviewIsValid() { return Boolean(state.assessmentDraft?.calculationPreview); },
+    setFinalRisk: (finalRiskLevel: string) => {
+      if (state.assessmentDraft) state.assessmentDraft = { ...state.assessmentDraft, finalRiskLevel };
+    },
+    setDecisionReason: (decisionReason: string) => {
+      if (state.assessmentDraft) state.assessmentDraft = { ...state.assessmentDraft, decisionReason };
+    },
+    setReassessmentReason: (reassessmentReason: string) => {
+      if (state.assessmentDraft) state.assessmentDraft = { ...state.assessmentDraft, reassessmentReason };
+    },
+    resetAssessmentDraft: () => { state.assessmentDraft = null; }
+  };
+  return { useRiskAssessmentDraft: () => api };
+});
 vi.mock('@/services/api/client', () => ({ ApiClientError: class ApiClientError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string) { super(message); }
 } }));
@@ -100,11 +152,13 @@ vi.mock('../components/RiskAssessmentComponents', () => ({
   IncidentAssessmentContext: () => <div>Incident evidence</div>,
   assessmentStyles: new Proxy({}, { get: () => undefined })
 }));
-vi.mock('./RiskDecisionScreen', () => ({ RiskDecisionScreen: ({ onSave, onEdit, onReason, saveLabel }: {
-  onSave: () => void; onEdit: () => void; onReason: (value: string) => void; saveLabel?: string
+vi.mock('./RiskDecisionScreen', () => ({ RiskDecisionScreen: ({ onSave, onEdit, onReason, onFinalRisk, saveLabel }: {
+  onSave: () => void; onEdit: () => void; onReason: (value: string) => void;
+  onFinalRisk: (value: string) => void; saveLabel?: string
 }) => {
   state.actions.set(saveLabel ?? 'SAVE ASSESSMENT', onSave);
   state.actions.set('Edit factors', onEdit);
+  state.actions.set('Choose override risk', () => onFinalRisk('CRITICAL'));
   state.inputs.set('Decision Reason', onReason);
   return <div>Risk decision<button onClick={onSave}>{saveLabel ?? 'SAVE ASSESSMENT'}</button></div>;
 } }));
@@ -134,6 +188,7 @@ const response: RiskAssessmentResponse = {
 
 beforeEach(() => {
   state.params = {};
+  state.assessmentDraft = null;
   state.focusEffect = null;
   state.resource = null;
   state.loader = null;
@@ -173,6 +228,7 @@ it('loads an assessment and shows the reassessment context when the source ID is
   state.resource = { data: response, loading: false, error: null, reload: vi.fn() };
   state.getAssessment.mockResolvedValue(response);
 
+  renderScreen();
   const markup = renderScreen();
   renderScreen();
   await expect(state.loader?.()).resolves.toEqual(response);
@@ -208,6 +264,7 @@ it('offers recovery and displays lookup failures when the loaded source is alrea
     ...response, assessment: { ...response.assessment, status: 'CLOSED' }
   }, loading: false, error: null, reload: vi.fn() };
 
+  renderScreen();
   expect(renderScreen()).toContain('View latest assessment');
   expect(state.actions.has('View latest assessment')).toBe(true);
   state.getAssessmentForIncident.mockRejectedValue(new Error('Latest assessment lookup failed.'));
@@ -340,6 +397,7 @@ it('saves a reassessment and replaces the route with the new assessment ID', asy
     peopleAffected: 18, vulnerablePeople: 6, finalRiskLevel: 'CRITICAL',
     reassessmentReason: 'Water levels are rising quickly.'
   }), 'officer-token');
+  expect(state.assessmentDraft).toBeNull();
   expect(state.replace).toHaveBeenCalledWith({
     pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: 'assessment-new' }
   });
@@ -360,7 +418,60 @@ it('routes an initial assessment save directly to Monitoring with a success noti
   state.actions.get('SAVE ASSESSMENT')!();
   await Promise.resolve(); await Promise.resolve();
   expect(state.createRisk).toHaveBeenCalled();
+  expect(state.assessmentDraft).toBeNull();
   expect(state.replace).toHaveBeenCalledWith({ pathname: '/officer/monitoring/[incidentId]', params: {
     incidentId: 'incident-1', notice: 'assessment-saved'
   } });
+});
+
+it('initializes the shared draft and invalidates its calculation when a factor changes', async () => {
+  state.params = { incidentId: 'incident-1' };
+  state.resource = { data: { assessment: null, incident: response.incident, reports: response.reports }, loading: false, error: null, reload: vi.fn() };
+  state.calculateRisk.mockResolvedValue({ calculatedScore: 18, systemSuggestedRisk: 'HIGH' });
+
+  renderScreen();
+  renderScreen();
+  expect(state.assessmentDraft).toMatchObject({ mode: 'INITIAL', incidentId: 'incident-1', assessmentId: null });
+  state.inputs.get('People Affected')!('18');
+  state.inputs.get('Vulnerable People')!('6');
+  renderScreen();
+  state.actions.get('CALCULATE RISK')!();
+  await Promise.resolve();
+  await Promise.resolve();
+  renderScreen();
+  expect(state.assessmentDraft?.calculationPreview).not.toBeNull();
+
+  state.actions.get('Edit factors')!();
+  renderScreen();
+  state.inputs.get('People Affected')!('19');
+  expect(state.assessmentDraft?.calculationPreview).toBeNull();
+});
+
+it('keeps an override decision and reason in the shared draft until the unchanged save request is sent', async () => {
+  state.params = { incidentId: 'incident-1' };
+  state.resource = { data: { assessment: null, incident: response.incident, reports: response.reports }, loading: false, error: null, reload: vi.fn() };
+  state.calculateRisk.mockResolvedValue({ calculatedScore: 18, systemSuggestedRisk: 'HIGH' });
+  state.createRisk.mockResolvedValue(response);
+
+  renderScreen(); renderScreen();
+  state.inputs.get('People Affected')!('18');
+  state.inputs.get('Vulnerable People')!('6');
+  renderScreen();
+  state.actions.get('CALCULATE RISK')!();
+  await Promise.resolve(); await Promise.resolve(); renderScreen();
+  state.actions.get('Choose override risk')!();
+  renderScreen();
+  state.actions.get('SAVE ASSESSMENT')!();
+  expect(state.createRisk).not.toHaveBeenCalled();
+  expect(renderScreen()).toContain('Enter a decision reason of at least 10 characters.');
+
+  state.inputs.get('Decision Reason')!('Conditions support a critical rating.');
+  renderScreen();
+  state.actions.get('SAVE ASSESSMENT')!();
+  await Promise.resolve(); await Promise.resolve();
+
+  expect(state.createRisk).toHaveBeenCalledWith(expect.objectContaining({
+    incidentId: 'incident-1', peopleAffected: 18, vulnerablePeople: 6,
+    finalRiskLevel: 'CRITICAL', decisionReason: 'Conditions support a critical rating.'
+  }), 'officer-token');
 });
