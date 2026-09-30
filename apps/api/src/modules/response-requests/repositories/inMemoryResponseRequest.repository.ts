@@ -152,7 +152,8 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return this.responseRequests.get(responseRequestId) ?? null;
   }
 
-  // LDFEW-266: In-memory simulation of atomic responder field update
+  // LDFEW-266 / LDFEW-350: In-memory simulation of atomic responder field update.
+  // Checks assignedResponderId and active assigned statuses synchronously to mirror Mongoose findOneAndUpdate.
   async updateResponseRequestFieldUpdate(
     responseRequestId: string,
     responderId: string,

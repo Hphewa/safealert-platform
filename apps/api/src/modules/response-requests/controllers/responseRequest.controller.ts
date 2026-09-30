@@ -160,7 +160,11 @@ export function createResponseRequestController(responseRequestService: Response
     response.status(200).json(responseRequest);
   });
 
-  // LDFEW-266 / LDFEW-350: Assigned responder records operational field notes
+  // LDFEW-266 / LDFEW-350: Assigned Emergency Responder records operational field notes.
+  // Responder identity is derived strictly from the authenticated token session (request.auth);
+  // a client cannot submit another responder's ID in the body or URL to update their assignment.
+  // Input allowlisting via recordFieldUpdateSchema ensures only the fieldNotes property is
+  // accepted, rejecting extraneous or forbidden fields in request.body before invoking the service.
   const recordFieldUpdate: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
@@ -172,6 +176,7 @@ export function createResponseRequestController(responseRequestService: Response
       query: request.query
     });
 
+    // Delegate business rules, ownership checks, and lifecycle verification to the service layer.
     const responseRequest = await responseRequestService.recordFieldUpdate(
       params.requestId,
       request.auth,

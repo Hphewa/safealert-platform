@@ -151,7 +151,9 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 
-  // LDFEW-266: Atomically record responder field notes and server timestamp in MongoDB
+  // LDFEW-266 / LDFEW-350: Atomically record responder field notes and server timestamp in MongoDB.
+  // Authoritative server timestamp (fieldUpdatedAt) is generated on the server (new Date()) rather than trusting client time.
+  // Only fieldNotes and fieldUpdatedAt are modified; all resident info, coordinates, and lifecycle timestamps remain unchanged.
   async updateResponseRequestFieldUpdate(
     responseRequestId: string,
     responderId: string,
@@ -161,7 +163,8 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
       return null;
     }
 
-    // Enforce responder ownership and active assigned status atomically at write time
+    // Enforce responder assignment and active assigned status atomically in the update filter
+    // to prevent race conditions if the request status or assigned responder changed concurrently.
     const responseRequest = await ResponseRequestModel.findOneAndUpdate(
       {
         _id: responseRequestId,

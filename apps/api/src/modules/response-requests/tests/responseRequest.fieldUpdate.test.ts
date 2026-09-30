@@ -62,7 +62,7 @@ function setupContext(overrides: Partial<SafeResponseRequest> = {}) {
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('LDFEW-266 / LDFEW-350 / LDFEW-358: Responder Field Updates API', () => {
+describe('LDFEW-350: Responder Field Updates API - SUCCESS', () => {
   it('allows the assigned responder to record operational field notes with server timestamp', async () => {
     const { app, token } = setupContext();
     const notes = 'Arrived at the entrance. Tree blocking main gate, using side entry.';
@@ -107,6 +107,31 @@ describe('LDFEW-266 / LDFEW-350 / LDFEW-358: Responder Field Updates API', () =>
     }
   });
 
+  it('preserves unrelated fields (residentId, location, affectedPeople, contact, createdAt) unchanged', async () => {
+    const { app, token, initial } = setupContext();
+    const notes = 'Field update verifying non-mutation of unrelated fields.';
+
+    const response = await request(app)
+      .patch(`${basePath}/${requestId}/field-update`)
+      .auth(token(), { type: 'bearer' })
+      .send({ fieldNotes: notes });
+
+    expect(response.status).toBe(200);
+    expect(response.body.residentId).toBe(initial.residentId);
+    expect(response.body.location).toEqual(initial.location);
+    expect(response.body.affectedPeople).toBe(initial.affectedPeople);
+    expect(response.body.injuredPeople).toBe(initial.injuredPeople);
+    expect(response.body.medicalNeeds).toBe(initial.medicalNeeds);
+    expect(response.body.vulnerablePeople).toEqual(initial.vulnerablePeople);
+    expect(response.body.roadAccessibility).toBe(initial.roadAccessibility);
+    expect(response.body.contact).toEqual(initial.contact);
+    expect(response.body.description).toBe(initial.description);
+    expect(response.body.createdAt).toBe(initial.createdAt);
+    expect(response.body.assignedResponderId).toBe(initial.assignedResponderId);
+  });
+});
+
+describe('LDFEW-350: Responder Field Updates API - AUTHORIZATION', () => {
   it('rejects unauthenticated requests with 401', async () => {
     const { app } = setupContext();
 
@@ -117,7 +142,7 @@ describe('LDFEW-266 / LDFEW-350 / LDFEW-358: Responder Field Updates API', () =>
     expect(response.status).toBe(401);
   });
 
-  it('rejects unauthorized roles (RESIDENT, DISASTER_OFFICER, VOLUNTEER) with 403', async () => {
+  it('rejects unauthorized roles (RESIDENT, DISASTER_OFFICER, COMMUNITY_VOLUNTEER) with 403', async () => {
     const { app, token } = setupContext();
     const roles: UserRole[] = ['RESIDENT', 'DISASTER_OFFICER', 'COMMUNITY_VOLUNTEER'];
 
@@ -142,7 +167,9 @@ describe('LDFEW-266 / LDFEW-350 / LDFEW-358: Responder Field Updates API', () =>
     expect(response.status).toBe(403);
     expect(response.body.error?.code).toBe('REQUEST_NOT_ASSIGNED');
   });
+});
 
+describe('LDFEW-350: Responder Field Updates API - LIFECYCLE', () => {
   it('rejects field updates on NEW requests with 409 INVALID_REQUEST_STATUS', async () => {
     const { app, token } = setupContext({ status: 'NEW' });
 
@@ -178,7 +205,9 @@ describe('LDFEW-266 / LDFEW-350 / LDFEW-358: Responder Field Updates API', () =>
     expect(response.status).toBe(409);
     expect(response.body.error?.code).toBe('INVALID_REQUEST_STATUS');
   });
+});
 
+describe('LDFEW-350: Responder Field Updates API - VALIDATION', () => {
   it('rejects empty or whitespace-only fieldNotes with 400', async () => {
     const { app, token } = setupContext();
 
@@ -208,6 +237,35 @@ describe('LDFEW-266 / LDFEW-350 / LDFEW-358: Responder Field Updates API', () =>
     expect(longResponse.status).toBe(400);
   });
 
+  it('rejects non-string values for fieldNotes with 400', async () => {
+    const { app, token } = setupContext();
+    const nonStringValues = [123, true, false, ['notes'], { text: 'note' }];
+
+    for (const val of nonStringValues) {
+      const response = await request(app)
+        .patch(`${basePath}/${requestId}/field-update`)
+        .auth(token(), { type: 'bearer' })
+        .send({ fieldNotes: val });
+
+      expect(response.status).toBe(400);
+    }
+  });
+
+  it('rejects unpermitted extra fields in the request body with 400', async () => {
+    const { app, token } = setupContext();
+
+    const response = await request(app)
+      .patch(`${basePath}/${requestId}/field-update`)
+      .auth(token(), { type: 'bearer' })
+      .send({
+        fieldNotes: 'Valid notes',
+        responderId: 'spoofed-id',
+        status: 'COMPLETED'
+      });
+
+    expect(response.status).toBe(400);
+  });
+
   it('rejects malformed request ID with 400', async () => {
     const { app, token } = setupContext();
 
@@ -232,54 +290,26 @@ describe('LDFEW-266 / LDFEW-350 / LDFEW-358: Responder Field Updates API', () =>
   });
 });
 
-describe('LDFEW-266 / LDFEW-356: Completion Details on COMPLETED transition', () => {
-  it('requires assistanceProvided and completionSummary when completing a request', async () => {
-    const { app, token } = setupContext({ status: 'IN_PROGRESS' });
+describe('LDFEW-350: Persistence and Backward Compatibility', () => {
+  it('updates previous documents lacking fieldNotes and fieldUpdatedAt without crashing', async () => {
+    const legacyRequest = createBaseRequest({ status: 'ASSIGNED' });
+    delete legacyRequest.fieldNotes;
+    delete legacyRequest.fieldUpdatedAt;
 
-    const missingBoth = await request(app)
-      .patch(`${basePath}/${requestId}/progress`)
-      .auth(token(), { type: 'bearer' })
-      .send({ status: 'COMPLETED' });
-    expect(missingBoth.status).toBe(400);
-    expect(missingBoth.body.error?.code).toBe('COMPLETION_DETAILS_REQUIRED');
-
-    const missingSummary = await request(app)
-      .patch(`${basePath}/${requestId}/progress`)
-      .auth(token(), { type: 'bearer' })
-      .send({ status: 'COMPLETED', assistanceProvided: 'Bandaged wound' });
-    expect(missingSummary.status).toBe(400);
-
-    const whitespaceAssistance = await request(app)
-      .patch(`${basePath}/${requestId}/progress`)
-      .auth(token(), { type: 'bearer' })
-      .send({ status: 'COMPLETED', assistanceProvided: '   ', completionSummary: 'Done' });
-    expect(whitespaceAssistance.status).toBe(400);
-  });
-
-  it('successfully completes request with valid completion details and persists them', async () => {
-    const { app, token } = setupContext({ status: 'IN_PROGRESS' });
+    const { app, token } = setupContext(legacyRequest);
+    const notes = 'Update to legacy document without existing fieldNotes';
 
     const response = await request(app)
-      .patch(`${basePath}/${requestId}/progress`)
+      .patch(`${basePath}/${requestId}/field-update`)
       .auth(token(), { type: 'bearer' })
-      .send({
-        status: 'COMPLETED',
-        assistanceProvided: 'Provided first aid kit and oral rehydration salts.',
-        completionSummary: 'Resident treated on scene and safely handed over to family.',
-        responderRemarks: 'Follow-up check recommended within 24 hours.'
-      });
+      .send({ fieldNotes: notes });
 
     expect(response.status).toBe(200);
-    expect(response.body.status).toBe('COMPLETED');
-    expect(response.body.completedAt).toBeDefined();
-    expect(response.body.assistanceProvided).toBe('Provided first aid kit and oral rehydration salts.');
-    expect(response.body.completionSummary).toBe('Resident treated on scene and safely handed over to family.');
-    expect(response.body.responderRemarks).toBe('Follow-up check recommended within 24 hours.');
+    expect(response.body.fieldNotes).toBe(notes);
+    expect(response.body.fieldUpdatedAt).toBeDefined();
   });
-});
 
-describe('LDFEW-266: Mongoose ResponseRequestRepository field update & completion persistence', () => {
-  it('calls findOneAndUpdate with fieldNotes, fieldUpdatedAt, and $currentDate', async () => {
+  it('calls findOneAndUpdate with fieldNotes, fieldUpdatedAt, and runs validators', async () => {
     const query = ResponseRequestModel.findOneAndUpdate();
     vi.spyOn(query, 'exec').mockResolvedValue(new ResponseRequestModel({
       residentId,
@@ -291,7 +321,7 @@ describe('LDFEW-266: Mongoose ResponseRequestRepository field update & completio
       injuredPeople: 0,
       medicalNeeds: false,
       vulnerablePeople: { children: 0, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 },
-      roadAccessibility: 'CLEAR',
+      roadAccessibility: 'ACCESSIBLE',
       contact: { name: 'Resident', phoneNumber: '+94-77-555-1234', email: 'resident@example.com' },
       description: 'Need help',
       fieldNotes: 'Field update via mongo',

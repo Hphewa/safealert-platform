@@ -252,18 +252,22 @@ export class ResponseRequestService {
     return responseRequest;
   }
 
-  // LDFEW-266 / LDFEW-350: Assigned responder records operational field notes
+  // LDFEW-266 / LDFEW-350: Assigned Emergency Responder records operational field notes
   async recordFieldUpdate(
     responseRequestId: string,
     actor: ResponderActionActor | null | undefined,
     fieldNotes: string
   ) {
+    // Derive responder identity from the authenticated session (actor.id) and verify the EMERGENCY_RESPONDER role
+    // so a client cannot submit another responder's ID in request headers or body.
     const responderId = this.validateResponderActionInput(responseRequestId, actor);
 
+    // Validate request ID format before repository lookup to prevent query injection or Mongoose cast errors
     if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
       throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
     }
 
+    // Input validation: require non-empty notes and enforce boundary limits (3 to 2000 chars)
     if (typeof fieldNotes !== 'string' || !fieldNotes.trim()) {
       throw new ApiError(400, 'INVALID_FIELD_UPDATE', 'Field update notes are required.');
     }
@@ -280,12 +284,14 @@ export class ResponseRequestService {
       throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
     }
 
-    // Lifecycle enforcement: only allow updates while active (not NEW, CANCELLED, or COMPLETED)
+    // Lifecycle restrictions: field updates are only permissible during active response operations
+    // (ASSIGNED, DISPATCHED, ARRIVED, IN_PROGRESS). Unassigned NEW requests have no responder assigned.
     if (responseRequest.status === 'NEW') {
       throw new ApiError(409, 'INVALID_REQUEST_STATUS', 'Cannot record field updates on an unassigned request.');
     }
 
-    // Enforce assigned-responder authorization strictly on the backend (LDFEW-358)
+    // Assigned-responder authorization: enforce that the authenticated responder is the exact responder
+    // currently assigned to this request. Unrelated responders are forbidden with 403 REQUEST_NOT_ASSIGNED.
     if (responseRequest.assignedResponderId !== responderId) {
       throw new ApiError(
         403,
@@ -294,6 +300,7 @@ export class ResponseRequestService {
       );
     }
 
+    // Terminal/inactive lifecycle states cannot receive field notes
     if (responseRequest.status === 'CANCELLED') {
       throw new ApiError(409, 'INVALID_REQUEST_STATUS', 'Cannot record field updates on a cancelled request.');
     }
@@ -302,6 +309,8 @@ export class ResponseRequestService {
       throw new ApiError(409, 'INVALID_REQUEST_STATUS', 'Cannot record field updates on a completed request.');
     }
 
+    // Persistence safeguard: perform atomic conditional update with server-generated fieldUpdatedAt timestamp.
+    // If the record was modified concurrently, return a clean conflict error.
     const updatedRequest = await this.repository.updateResponseRequestFieldUpdate(
       requestId,
       responderId,
