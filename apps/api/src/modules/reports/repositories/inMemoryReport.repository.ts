@@ -225,12 +225,14 @@ export class InMemoryReportRepository implements ReportRepository {
             updatedAt: reviewedAt,
             verifiedById: input.officerId,
             verifiedAt: reviewedAt,
+            ...(input.verificationNote ? { verificationNote: input.verificationNote } : {}),
             verificationHistory: [
               ...(report.verificationHistory ?? []),
               {
                 action: 'VERIFY',
                 verifiedById: input.officerId,
-                verifiedAt: reviewedAt
+                verifiedAt: reviewedAt,
+                ...(input.verificationNote ? { verificationNote: input.verificationNote } : {})
               }
             ]
           }

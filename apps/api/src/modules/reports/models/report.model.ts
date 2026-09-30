@@ -20,6 +20,12 @@ const reportVerificationSchema = new mongoose.Schema(
     verifiedAt: {
       type: Date,
       required: true
+    },
+    verificationNote: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: 500
     }
   },
   {
@@ -72,6 +78,12 @@ const reportVerificationHistorySchema = new mongoose.Schema(
       required(this: ReportReviewHistoryValidationContext): boolean {
         return this.action === 'VERIFY';
       }
+    },
+    verificationNote: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: 500
     },
     rejectedById: {
       type: mongoose.Schema.Types.ObjectId,
@@ -260,6 +272,7 @@ export type ReportDocument = InferSchemaType<typeof reportSchema> & {
   verification?: {
     verifiedById: { toString(): string };
     verifiedAt: Date;
+    verificationNote?: string;
   };
   rejection?: {
     rejectedById: { toString(): string };
@@ -273,6 +286,7 @@ export type ReportDocument = InferSchemaType<typeof reportSchema> & {
     action: 'VERIFY' | 'REJECT';
     verifiedById?: { toString(): string };
     verifiedAt?: Date;
+    verificationNote?: string;
     rejectedById?: { toString(): string };
     rejectedAt?: Date;
     rejectionReason?: string;
@@ -306,6 +320,9 @@ export function toSafeReport(report: ReportDocument): SafeReport {
   if (report.verification) {
     safeReport.verifiedById = report.verification.verifiedById.toString();
     safeReport.verifiedAt = report.verification.verifiedAt.toISOString();
+    if (report.verification.verificationNote) {
+      safeReport.verificationNote = report.verification.verificationNote;
+    }
   }
 
   if (report.rejection) {
@@ -326,7 +343,8 @@ export function toSafeReport(report: ReportDocument): SafeReport {
           {
             action: 'VERIFY',
             verifiedById: entry.verifiedById.toString(),
-            verifiedAt: entry.verifiedAt.toISOString()
+            verifiedAt: entry.verifiedAt.toISOString(),
+            ...(entry.verificationNote ? { verificationNote: entry.verificationNote } : {})
           }
         ];
       }

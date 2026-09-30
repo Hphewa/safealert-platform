@@ -221,12 +221,14 @@ export class MongooseReportRepository implements ReportRepository {
             status: 'VERIFIED' as const,
             audit: {
               verifiedById: input.officerId,
-              verifiedAt: input.reviewedAt
+              verifiedAt: input.reviewedAt,
+              ...(input.verificationNote ? { verificationNote: input.verificationNote } : {})
             },
             history: {
               action: 'VERIFY' as const,
               verifiedById: input.officerId,
-              verifiedAt: input.reviewedAt
+              verifiedAt: input.reviewedAt,
+              ...(input.verificationNote ? { verificationNote: input.verificationNote } : {})
             }
           }
         : {

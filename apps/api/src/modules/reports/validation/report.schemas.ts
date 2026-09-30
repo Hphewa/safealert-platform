@@ -4,6 +4,7 @@ import {
   REPORT_VOICE_MIME_TYPES,
   REPORT_REJECTION_REASON_MAX_LENGTH,
   REPORT_REJECTION_REASON_MIN_LENGTH,
+  REPORT_VERIFICATION_NOTE_MAX_LENGTH,
   REPORT_SEVERITIES
 } from '@safealert/contracts';
 import { z } from 'zod';
@@ -134,7 +135,12 @@ export const communityReportQuerySchema = z
 
 export const reportReviewActionSchema = z.discriminatedUnion('action', [
   z.object({
-    action: z.literal('VERIFY')
+    action: z.literal('VERIFY'),
+    verificationNote: z
+      .string()
+      .trim()
+      .max(REPORT_VERIFICATION_NOTE_MAX_LENGTH, 'Verification note must be at most 500 characters.')
+      .optional()
   }),
   z.object({
     action: z.literal('REJECT'),
