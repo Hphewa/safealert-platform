@@ -157,7 +157,7 @@ export function CreateWarningScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { width: '100%', maxWidth: 980, alignSelf: 'center', paddingTop: 16, paddingBottom: 32 },
+  content: { width: '100%', alignSelf: 'stretch', paddingTop: 16, paddingBottom: 32 },
   photoPicker: { minHeight: 150, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#2563eb', borderRadius: 14, backgroundColor: '#dbeafe', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 18 },
   camera: { fontSize: 30 }, photoTitle: { color: '#1d4ed8', fontSize: 16, fontWeight: '700' },
   thumbnails: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }, thumbnailWrap: { position: 'relative', paddingTop: 6, paddingRight: 6 },
