@@ -793,6 +793,8 @@ export type SafeWarningNotificationDelivery = {
   errorCode?: string;
   errorMessage?: string;
   sentAt?: string;
+  attemptCount: number;
+  attempts: Array<{ attempt: number; status: NotificationDeliveryStatus; attemptedAt: string; provider?: NotificationProvider; providerStatus?: string; errorCode?: string; errorMessage?: string }>;
   createdAt: string;
   updatedAt: string;
 };

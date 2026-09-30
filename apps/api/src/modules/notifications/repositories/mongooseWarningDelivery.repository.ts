@@ -3,6 +3,7 @@ import { toSafeWarningDelivery, WarningDeliveryModel } from '../models/warningDe
 import type {
   RecordWarningDeliveryInput,
   RecordWarningDeliveryResult,
+  UpdateWarningDeliveryInput,
   WarningDeliveryRepository
 } from './warningDelivery.repository.js';
 
@@ -11,6 +12,10 @@ function isDuplicateKeyError(error: unknown) {
 }
 
 export class MongooseWarningDeliveryRepository implements WarningDeliveryRepository {
+  async findById(id: string) {
+    const delivery = await WarningDeliveryModel.findById(id).exec();
+    return delivery ? toSafeWarningDelivery(delivery) : null;
+  }
   async find(warningId: string, recipientId: string, channel: NotificationChannel) {
     const delivery = await WarningDeliveryModel.findOne({ warningId, recipientId, channel }).exec();
     return delivery ? toSafeWarningDelivery(delivery) : null;
@@ -41,5 +46,14 @@ export class MongooseWarningDeliveryRepository implements WarningDeliveryReposit
 
       throw error;
     }
+  }
+
+  async retry(id: string, input: UpdateWarningDeliveryInput) {
+    const current = await WarningDeliveryModel.findOneAndUpdate(
+      { _id: id, status: input.expectedStatus },
+      { $set: { status: input.status, ...(input.provider ? { provider: input.provider } : {}), ...(input.providerStatus ? { providerStatus: input.providerStatus } : {}), ...(input.errorCode ? { errorCode: input.errorCode } : {}), ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}), ...(input.sentAt ? { sentAt: new Date(input.sentAt) } : {}) }, $inc: { attemptCount: 1 }, $push: { attempts: { attempt: 2, status: input.status, attemptedAt: new Date(), ...(input.provider ? { provider: input.provider } : {}), ...(input.providerStatus ? { providerStatus: input.providerStatus } : {}), ...(input.errorCode ? { errorCode: input.errorCode } : {}), ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}) } } },
+      { new: true }
+    ).exec();
+    return current ? toSafeWarningDelivery(current) : null;
   }
 }

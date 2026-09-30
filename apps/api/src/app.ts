@@ -117,6 +117,7 @@ export function createApp({
   const warningNotificationService = new WarningNotificationService({
     recipients: notificationRecipientRepository ?? new MongooseNotificationRecipientRepository(),
     deliveries: warningDeliveryRepository ?? new MongooseWarningDeliveryRepository(),
+    warnings: resolvedWarningRepository,
     smsProvider: smsProvider ?? createSmsProvider(config),
     pushProvider: pushProvider ?? createPushProvider(config),
     countryName: config.notificationCountryName,
@@ -165,7 +166,7 @@ export function createApp({
   app.use('/api/v1/risk-assessments', createRiskAssessmentRouter(riskAssessmentService, config));
   app.use('/api/v1/warnings', createWarningRouter(warningService, config));
   app.use('/api/v1/notifications', createNotificationRouter(
-    new NotificationProfileService(notificationProfileRepository ?? new MongooseNotificationProfileRepository()), config
+    new NotificationProfileService(notificationProfileRepository ?? new MongooseNotificationProfileRepository()), config, warningNotificationService
   ));
   app.use('/api/v1/response-requests', createResponseRequestRouter(responseRequestService, config));
 

@@ -19,4 +19,5 @@ export type NotificationRecipient = {
 export interface NotificationRecipientRepository {
   /** Resolves active RESIDENT users matching the warning notification scope. */
   findResidents(query: NotificationRecipientQuery): Promise<NotificationRecipient[]>;
+  findResidentById(id: string): Promise<NotificationRecipient | null>;
 }

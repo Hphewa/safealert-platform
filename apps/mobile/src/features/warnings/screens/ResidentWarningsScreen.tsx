@@ -8,6 +8,7 @@ import { DashboardScreen } from '../../dashboards/shared/components/DashboardScr
 import { DashboardHeader } from '../../dashboards/shared/components/DashboardHeader';
 import { cardShadow, dashboardTheme } from '../../dashboards/shared/theme';
 import { residentBottomNavItems } from '../../dashboards/resident/mockData';
+import { DashboardGlyph } from '../../dashboards/shared/components/DashboardGlyph';
 
 export function ResidentWarningsScreen() {
   const router = useRouter(); const { accessToken } = useAuth();
@@ -16,7 +17,7 @@ export function ResidentWarningsScreen() {
   useEffect(load, [load]);
   return <DashboardScreen bottomNavItems={residentBottomNavItems} contentContainerStyle={styles.content}>
     <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
-      <Text style={styles.backIcon}>←</Text><Text style={styles.backText}>Back</Text>
+      <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.primaryStrong} size={22} /><Text style={styles.backText}>Back</Text>
     </Pressable>
     <DashboardHeader title="Active Warnings" description="Published warnings relevant to your profile." />
     <View style={styles.sectionIntro}><Text style={styles.sectionTitle}>Emergency alerts</Text><Text style={styles.sectionSubtitle}>{warnings.length ? `${warnings.length} published warning${warnings.length === 1 ? '' : 's'} for your area` : 'Stay informed about published safety alerts.'}</Text></View>

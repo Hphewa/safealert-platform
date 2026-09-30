@@ -52,4 +52,10 @@ export class InMemoryNotificationRecipientRepository implements NotificationReci
         pushToken: user.pushToken
       }));
   }
+
+  async findResidentById(id: string) {
+    const user = this.users.get(id);
+    if (!user || user.role !== 'RESIDENT' || !user.isActive) return null;
+    return structuredClone<NotificationRecipient>({ id: user.id, area: user.area, district: user.district, country: user.country, phoneNumber: user.phoneNumber, pushToken: user.pushToken });
+  }
 }

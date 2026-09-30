@@ -51,9 +51,7 @@ export function CreateWarningScreen() {
     return () => { generation.current += 1; };
   }, [accessToken, assessmentId]));
 
-  const back = () => assessmentId
-    ? router.replace({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId } })
-    : router.replace('/officer/assessments');
+  const back = () => router.back();
   const update = (field: keyof WarningForm, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
     setErrors((current) => { const next = { ...current }; delete next[field]; return next; });
@@ -115,12 +113,11 @@ export function CreateWarningScreen() {
         <AssessmentDetail label="Warning Reference" value={saved.id} />
         <AssessmentDetail label="Status" value={saved.status} />
         <AssessmentButton label="Publish Warning" onPress={() => router.push({
-          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id }
+          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id, mode: 'published' }
         })} />
         <AssessmentButton label="View Warning" secondary onPress={() => router.push({
-          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id }
+          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id, mode: 'view' }
         })} />
-        <AssessmentButton label="Return to Assessment" secondary onPress={back} />
       </View> : <>
         {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
         {review ? <ReviewWarningScreen warning={review} riskLevel={assessment.finalRiskLevel} busy={busy} photos={photos}

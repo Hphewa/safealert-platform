@@ -19,11 +19,18 @@ export class InMemoryWarningDeliveryRepository implements WarningDeliveryReposit
       ...delivery,
       createdAt: timestamp,
       updatedAt: timestamp
+      ,attemptCount: 1,
+      attempts: [{ attempt: 1, status: delivery.status, attemptedAt: timestamp }]
     });
   }
 
   async find(warningId: string, recipientId: string, channel: NotificationChannel) {
     return structuredClone(this.deliveries.get(deliveryKey(warningId, recipientId, channel)) ?? null);
+  }
+
+  async findById(id: string) {
+    const delivery = [...this.deliveries.values()].find((item) => item.id === id);
+    return delivery ? structuredClone(delivery) : null;
   }
 
   async listByWarning(warningId: string) {
@@ -53,11 +60,22 @@ export class InMemoryWarningDeliveryRepository implements WarningDeliveryReposit
       ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
       ...(input.sentAt ? { sentAt: input.sentAt } : {}),
       createdAt: timestamp,
-      updatedAt: timestamp
+      updatedAt: timestamp,
+      attemptCount: 1,
+      attempts: [{ attempt: 1, status: input.status, attemptedAt: timestamp, ...(input.provider ? { provider: input.provider } : {}) }]
     };
 
     this.deliveries.set(key, delivery);
 
     return { delivery: structuredClone(delivery), created: true };
+  }
+
+  async retry(id: string, input: import('./warningDelivery.repository.js').UpdateWarningDeliveryInput) {
+    const current = [...this.deliveries.values()].find((delivery) => delivery.id === id);
+    if (!current || current.status !== input.expectedStatus) return null;
+    const timestamp = new Date().toISOString();
+    const updated = { ...current, status: input.status, attemptCount: current.attemptCount + 1, attempts: [...current.attempts, { attempt: current.attemptCount + 1, status: input.status, attemptedAt: timestamp, ...(input.provider ? { provider: input.provider } : {}), ...(input.errorCode ? { errorCode: input.errorCode } : {}) }], updatedAt: timestamp, ...(input.sentAt ? { sentAt: input.sentAt } : {}), ...(input.provider ? { provider: input.provider } : {}), ...(input.providerStatus ? { providerStatus: input.providerStatus } : {}), ...(input.errorCode ? { errorCode: input.errorCode } : {}), ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}) };
+    this.deliveries.set(deliveryKey(current.warningId, current.recipientId, current.channel), updated);
+    return structuredClone(updated);
   }
 }

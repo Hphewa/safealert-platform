@@ -83,8 +83,9 @@ function ConfirmDialog({ title, message, confirmLabel, onCancel, onConfirm, busy
 export function PublishWarningScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ warningId?: string | string[] }>();
+  const params = useLocalSearchParams<{ warningId?: string | string[]; mode?: string | string[] }>();
   const warningId = Array.isArray(params.warningId) ? params.warningId[0] : params.warningId;
+  const mode = Array.isArray(params.mode) ? params.mode[0] : params.mode;
   const [confirming, setConfirming] = useState(false);
   const [publishedWarning, setPublishedWarning] = useState<SafeWarning | null>(null);
   const [notificationTarget, setNotificationTarget] = useState<WarningNotificationTarget>({ scope: 'AFFECTED_AREA' });
@@ -147,7 +148,7 @@ export function PublishWarningScreen() {
 
   // LDFEW-115: save content edits via PATCH. The service discards assessmentId; it is
   // not sent to keep the request clean and avoid confusion in the update schema.
-  const saveEdit = async (w: SafeWarning) => {
+  const saveEdit = async () => {
     if (!accessToken || !warningId || lifecycleBusy) return;
     const errors = validateWarningForm(editForm);
     if (Object.keys(errors).length > 0) { setEditErrors(errors); return; }
@@ -212,7 +213,7 @@ export function PublishWarningScreen() {
   const canCancel = currentStatus === 'DRAFT' || currentStatus === 'PUBLISHED';
   const canArchive = currentStatus !== 'ARCHIVED';
 
-  return <WarningPage title={isPublished ? 'Published Warning' : 'Publish Warning'} published={isPublished} onBack={() => isPublished ? router.replace('/officer/assessments') : goBack()} busy={busy}>
+  return <WarningPage title={isPublished ? 'Published Warning' : mode === 'view' ? 'View Warning' : mode === 'draft' ? 'View/Edit Draft' : 'Publish Warning'} published={isPublished} onBack={goBack} busy={busy}>
     {publishedWarning ? <View style={styles.publishedPanel}>
       <View style={styles.publishedHeader}><View style={styles.headerCopy}><Text style={styles.eyebrow}>EARLY WARNING · PUBLISHED</Text><Text style={styles.publishedTitle}>Warning Published</Text></View><PriorityBadge priority={publishedWarning.riskLevel} /></View>
       <View style={styles.statusPill}><Text style={styles.statusDot}>●</Text><Text style={styles.statusText}>PUBLISHED</Text></View>
@@ -270,7 +271,7 @@ export function PublishWarningScreen() {
             <AssessmentButton
               label={lifecycleBusy ? 'Saving…' : 'Save Changes'}
               disabled={lifecycleBusy}
-              onPress={() => void saveEdit(displayedWarning)}
+              onPress={() => void saveEdit()}
             />
           </View>
         </View>

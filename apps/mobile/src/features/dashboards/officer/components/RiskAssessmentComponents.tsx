@@ -5,6 +5,7 @@ import type { RiskAssessmentFactors, SafeIncident, SafeReport } from '@safealert
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
+import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 
 export const assessmentLabel = (value: string) => value.replace(/_/g, ' ');
 
@@ -17,12 +18,13 @@ export function AssessmentPage({ title, children }: { title: string; children: R
     {children}
   </DashboardScreen>;
 }
-export function AssessmentButton({ label, onPress, disabled = false, secondary = false }: {
-  label: string; onPress: () => void; disabled?: boolean; secondary?: boolean;
+export function AssessmentButton({ label, onPress, disabled = false, secondary = false, back = false }: {
+  label: string; onPress: () => void; disabled?: boolean; secondary?: boolean; back?: boolean;
 }) {
   return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled}
     onPress={onPress} style={({ pressed }) => [assessmentStyles.button,
-      secondary && assessmentStyles.secondaryButton, (disabled || pressed) && { opacity: 0.55 }]}>
+      secondary && assessmentStyles.secondaryButton, back && { flexDirection: 'row', gap: 8 }, (disabled || pressed) && { opacity: 0.55 }]}> 
+    {back ? <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.primaryStrong} size={20} /> : null}
     <Text style={[assessmentStyles.buttonText, secondary && { color: dashboardTheme.colors.primaryStrong }]}>{label}</Text>
   </Pressable>;
 }

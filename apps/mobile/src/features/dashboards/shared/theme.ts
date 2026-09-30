@@ -29,13 +29,17 @@ export const dashboardTheme = {
   }
 } as const;
 
-export const cardShadow = {
-  shadowColor: '#111827',
-  shadowOpacity: 0.06,
-  shadowRadius: 12,
-  shadowOffset: {
-    width: 0,
-    height: 6
+import { Platform } from 'react-native';
+
+export const cardShadow = Platform.select({
+  web: {
+    boxShadow: '0px 6px 12px rgba(17, 24, 39, 0.06)'
   },
-  elevation: 2
-} as const;
+  default: {
+    shadowColor: '#111827',
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 2
+  }
+}) ?? {};
