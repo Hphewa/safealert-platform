@@ -5,6 +5,7 @@ import {
   canRecordFieldUpdate,
   formatUpdateTimestamp,
   validateCompletionDetails,
+  validateCompletionFormFields,
   validateFieldNotes
 } from './fieldUpdateUi';
 
@@ -129,6 +130,72 @@ describe('validateCompletionDetails', () => {
       assistanceProvided: 'Provided evacuation assistance to safety center',
       completionSummary: 'Resident transferred safely'
     })).toBeNull();
+  });
+});
+
+describe('validateCompletionFormFields', () => {
+  it('returns field-level errors when required fields are missing or empty', () => {
+    const errors = validateCompletionFormFields({
+      assistanceProvided: '',
+      completionSummary: ''
+    });
+
+    expect(errors.assistanceProvided).toBe('Assistance provided is required.');
+    expect(errors.completionSummary).toBe('Completion summary is required.');
+    expect(errors.responderRemarks).toBeUndefined();
+  });
+
+  it('rejects whitespace-only values for required fields', () => {
+    const errors = validateCompletionFormFields({
+      assistanceProvided: '   \t  ',
+      completionSummary: '  \n  '
+    });
+
+    expect(errors.assistanceProvided).toBe('Assistance provided is required.');
+    expect(errors.completionSummary).toBe('Completion summary is required.');
+  });
+
+  it('enforces minimum length of 3 characters for required fields', () => {
+    const errors = validateCompletionFormFields({
+      assistanceProvided: 'ab',
+      completionSummary: 'ok'
+    });
+
+    expect(errors.assistanceProvided).toBe('Assistance provided must be at least 3 characters.');
+    expect(errors.completionSummary).toBe('Completion summary must be at least 3 characters.');
+  });
+
+  it('enforces maximum length of 1000 characters for all fields', () => {
+    const longString = 'a'.repeat(1001);
+    const errors = validateCompletionFormFields({
+      assistanceProvided: longString,
+      completionSummary: longString,
+      responderRemarks: longString
+    });
+
+    expect(errors.assistanceProvided).toBe('Assistance provided must be at most 1000 characters.');
+    expect(errors.completionSummary).toBe('Completion summary must be at most 1000 characters.');
+    expect(errors.responderRemarks).toBe('Responder remarks must be at most 1000 characters.');
+  });
+
+  it('returns an empty error object when all values are valid', () => {
+    const errors = validateCompletionFormFields({
+      assistanceProvided: 'Relocated resident to shelter and provided first aid',
+      completionSummary: 'Immediate threat resolved; resident safe and stable',
+      responderRemarks: 'Handover complete to shelter manager'
+    });
+
+    expect(Object.keys(errors)).toHaveLength(0);
+  });
+
+  it('allows optional responder remarks to be omitted or empty', () => {
+    const errors = validateCompletionFormFields({
+      assistanceProvided: 'Relocated resident to shelter and provided first aid',
+      completionSummary: 'Immediate threat resolved; resident safe and stable'
+    });
+
+    expect(Object.keys(errors)).toHaveLength(0);
+    expect(errors.responderRemarks).toBeUndefined();
   });
 });
 

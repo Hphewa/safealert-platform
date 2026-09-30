@@ -38,6 +38,47 @@ export function validateFieldNotes(notes: string): string | null {
   return null;
 }
 
+// LDFEW-266 / LDFEW-352: Detailed field-level validation errors
+export type CompletionFieldErrors = {
+  assistanceProvided?: string;
+  completionSummary?: string;
+  responderRemarks?: string;
+};
+
+// LDFEW-266 / LDFEW-352: Detailed field-level validation for completion details form
+export function validateCompletionFormFields(details: {
+  assistanceProvided?: string;
+  completionSummary?: string;
+  responderRemarks?: string;
+}): CompletionFieldErrors {
+  const errors: CompletionFieldErrors = {};
+  const assistance = typeof details.assistanceProvided === 'string' ? details.assistanceProvided.trim() : '';
+  const summary = typeof details.completionSummary === 'string' ? details.completionSummary.trim() : '';
+  const remarks = typeof details.responderRemarks === 'string' ? details.responderRemarks.trim() : '';
+
+  if (!assistance) {
+    errors.assistanceProvided = 'Assistance provided is required.';
+  } else if (assistance.length < 3) {
+    errors.assistanceProvided = 'Assistance provided must be at least 3 characters.';
+  } else if (assistance.length > 1000) {
+    errors.assistanceProvided = 'Assistance provided must be at most 1000 characters.';
+  }
+
+  if (!summary) {
+    errors.completionSummary = 'Completion summary is required.';
+  } else if (summary.length < 3) {
+    errors.completionSummary = 'Completion summary must be at least 3 characters.';
+  } else if (summary.length > 1000) {
+    errors.completionSummary = 'Completion summary must be at most 1000 characters.';
+  }
+
+  if (remarks.length > 1000) {
+    errors.responderRemarks = 'Responder remarks must be at most 1000 characters.';
+  }
+
+  return errors;
+}
+
 // LDFEW-266 / LDFEW-353: Validate completion details
 export function validateCompletionDetails(details: {
   assistanceProvided?: string;

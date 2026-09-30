@@ -21,8 +21,9 @@ import { saveResponderFieldUpdate } from '../api/responderFieldUpdateApi';
 import {
   canRecordFieldUpdate,
   formatUpdateTimestamp,
-  validateCompletionDetails,
-  validateFieldNotes
+  validateCompletionFormFields,
+  validateFieldNotes,
+  type CompletionFieldErrors
 } from '../fieldUpdateUi';
 import {
   canManageResponderProgress,
@@ -80,13 +81,21 @@ export function ResponderRequestDetailsScreen() {
   const currentFieldFeedback = fieldUpdateFeedback?.requestId === requestId ? fieldUpdateFeedback : null;
   const isSavingFieldUpdate = fieldUpdateFeedback?.kind === 'saving';
 
-  // LDFEW-266 / LDFEW-352: Completion details form inputs
+  // LDFEW-266 / LDFEW-352: Completion details form inputs and draft state.
+  // Drafts preserve uncommitted text in local state during re-renders, network errors,
+  // or user corrections, preventing field loss before backend persistence.
   const [assistanceDraft, setAssistanceDraft] = useState<{ id: string; value: string } | null>(null);
   const assistanceProvidedInput = assistanceDraft && responseRequest && assistanceDraft.id === responseRequest.id
     ? assistanceDraft.value
     : (responseRequest?.assistanceProvided ?? '');
   const setAssistanceProvidedInput = (value: string) => {
     setAssistanceDraft({ id: responseRequest?.id ?? '', value });
+    if (completionFieldErrors.assistanceProvided) {
+      setCompletionFieldErrors((prev) => ({ ...prev, assistanceProvided: undefined }));
+    }
+    if (progressFeedback?.kind === 'error') {
+      setProgressFeedback(null);
+    }
   };
 
   const [summaryDraft, setSummaryDraft] = useState<{ id: string; value: string } | null>(null);
@@ -95,6 +104,12 @@ export function ResponderRequestDetailsScreen() {
     : (responseRequest?.completionSummary ?? '');
   const setCompletionSummaryInput = (value: string) => {
     setSummaryDraft({ id: responseRequest?.id ?? '', value });
+    if (completionFieldErrors.completionSummary) {
+      setCompletionFieldErrors((prev) => ({ ...prev, completionSummary: undefined }));
+    }
+    if (progressFeedback?.kind === 'error') {
+      setProgressFeedback(null);
+    }
   };
 
   const [remarksDraft, setRemarksDraft] = useState<{ id: string; value: string } | null>(null);
@@ -103,7 +118,16 @@ export function ResponderRequestDetailsScreen() {
     : (responseRequest?.responderRemarks ?? '');
   const setResponderRemarksInput = (value: string) => {
     setRemarksDraft({ id: responseRequest?.id ?? '', value });
+    if (completionFieldErrors.responderRemarks) {
+      setCompletionFieldErrors((prev) => ({ ...prev, responderRemarks: undefined }));
+    }
+    if (progressFeedback?.kind === 'error') {
+      setProgressFeedback(null);
+    }
   };
+
+  // Inline field-level validation errors displayed directly under each input field
+  const [completionFieldErrors, setCompletionFieldErrors] = useState<CompletionFieldErrors>({});
 
   // LDFEW-266 / LDFEW-351: Save operational field updates to the backend API.
   const saveFieldUpdate = async () => {
@@ -171,7 +195,37 @@ export function ResponderRequestDetailsScreen() {
       return;
     }
 
-    // LDFEW-353 & LDFEW-356: Validate required completion information before final completion
+    // LDFEW-266 / LDFEW-352: Validate required completion information before final completion.
+    // When completing an IN_PROGRESS request, ensure that required details (assistance provided
+    // and completion outcome) are present and conform to boundary rules.
+    const hasCompletionActivity = Boolean(
+      assistanceDraft !== null ||
+      summaryDraft !== null ||
+      remarksDraft !== null ||
+      assistanceProvidedInput.trim() ||
+      completionSummaryInput.trim() ||
+      responderRemarksInput.trim()
+    );
+
+    if (progressAction.nextStatus === 'COMPLETED' && hasCompletionActivity) {
+      const fieldErrors = validateCompletionFormFields({
+        assistanceProvided: assistanceProvidedInput,
+        completionSummary: completionSummaryInput,
+        responderRemarks: responderRemarksInput
+      });
+
+      if (Object.keys(fieldErrors).length > 0) {
+        setCompletionFieldErrors(fieldErrors);
+        const firstError = fieldErrors.assistanceProvided || fieldErrors.completionSummary || fieldErrors.responderRemarks;
+        setProgressFeedback({
+          requestId,
+          kind: 'error',
+          message: firstError ?? 'Please complete all required fields.'
+        });
+        return;
+      }
+    }
+
     const completionDetails = progressAction.nextStatus === 'COMPLETED' && (assistanceProvidedInput.trim() || completionSummaryInput.trim() || responderRemarksInput.trim())
       ? {
           assistanceProvided: assistanceProvidedInput.trim(),
@@ -179,14 +233,6 @@ export function ResponderRequestDetailsScreen() {
           ...(responderRemarksInput.trim() ? { responderRemarks: responderRemarksInput.trim() } : {})
         }
       : undefined;
-
-    if (progressAction.nextStatus === 'COMPLETED' && completionDetails) {
-      const validationError = validateCompletionDetails(completionDetails);
-      if (validationError) {
-        setProgressFeedback({ requestId, kind: 'error', message: validationError });
-        return;
-      }
-    }
 
     // The ref blocks repeated taps before React can render the disabled state.
     progressInFlightRef.current = true;
@@ -202,6 +248,7 @@ export function ResponderRequestDetailsScreen() {
       // Keep the backend-confirmed status for details and the dashboard's next focus.
       updateCachedResponderRequest(updated);
       setUpdatedRequest(updated);
+      setCompletionFieldErrors({});
       setProgressFeedback({
         requestId,
         kind: 'success',
@@ -459,12 +506,22 @@ export function ResponderRequestDetailsScreen() {
               multiline
               numberOfLines={3}
               onChangeText={setAssistanceProvidedInput}
-              placeholder="e.g., Evacuated residents safely to designated shelter"
+              placeholder="e.g., Relocated resident to shelter and provided first aid"
               placeholderTextColor={dashboardTheme.colors.muted}
-              style={styles.textAreaInput}
+              style={[
+                styles.textAreaInput,
+                completionFieldErrors.assistanceProvided ? styles.inputErrorBorder : null
+              ]}
               value={assistanceProvidedInput}
             />
-            <Text style={styles.charCount}>{assistanceProvidedInput.length} / 1000</Text>
+            <View style={styles.inputFooterRow}>
+              {completionFieldErrors.assistanceProvided ? (
+                <Text accessibilityRole="alert" style={styles.fieldErrorText}>
+                  {completionFieldErrors.assistanceProvided}
+                </Text>
+              ) : <View />}
+              <Text style={styles.charCount}>{assistanceProvidedInput.length} / 1000</Text>
+            </View>
           </View>
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Completion Summary *</Text>
@@ -478,10 +535,20 @@ export function ResponderRequestDetailsScreen() {
               onChangeText={setCompletionSummaryInput}
               placeholder="e.g., Immediate threat resolved; resident safe and stable"
               placeholderTextColor={dashboardTheme.colors.muted}
-              style={styles.textAreaInput}
+              style={[
+                styles.textAreaInput,
+                completionFieldErrors.completionSummary ? styles.inputErrorBorder : null
+              ]}
               value={completionSummaryInput}
             />
-            <Text style={styles.charCount}>{completionSummaryInput.length} / 1000</Text>
+            <View style={styles.inputFooterRow}>
+              {completionFieldErrors.completionSummary ? (
+                <Text accessibilityRole="alert" style={styles.fieldErrorText}>
+                  {completionFieldErrors.completionSummary}
+                </Text>
+              ) : <View />}
+              <Text style={styles.charCount}>{completionSummaryInput.length} / 1000</Text>
+            </View>
           </View>
           <View style={styles.inputGroup}>
             <Text style={styles.inputLabel}>Responder Remarks (Optional)</Text>
@@ -495,10 +562,20 @@ export function ResponderRequestDetailsScreen() {
               onChangeText={setResponderRemarksInput}
               placeholder="Optional operational or handover remarks..."
               placeholderTextColor={dashboardTheme.colors.muted}
-              style={styles.textAreaInput}
+              style={[
+                styles.textAreaInput,
+                completionFieldErrors.responderRemarks ? styles.inputErrorBorder : null
+              ]}
               value={responderRemarksInput}
             />
-            <Text style={styles.charCount}>{responderRemarksInput.length} / 1000</Text>
+            <View style={styles.inputFooterRow}>
+              {completionFieldErrors.responderRemarks ? (
+                <Text accessibilityRole="alert" style={styles.fieldErrorText}>
+                  {completionFieldErrors.responderRemarks}
+                </Text>
+              ) : <View />}
+              <Text style={styles.charCount}>{responderRemarksInput.length} / 1000</Text>
+            </View>
           </View>
         </View>
       ) : null}
@@ -1007,6 +1084,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: dashboardTheme.colors.muted,
     textAlign: 'right'
+  },
+  inputErrorBorder: {
+    borderColor: dashboardTheme.colors.critical
+  },
+  fieldErrorText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: dashboardTheme.colors.critical
+  },
+  inputFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8
   },
   savedNoteBox: {
     padding: 12,
