@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
@@ -32,7 +32,9 @@ import { ReportSubmissionError, submitResidentReportDraft } from '../reportSubmi
 import {
   clearPersistedReportDraft,
   createReportOperationId,
-  enqueueReportSubmission
+  enqueueReportSubmission,
+  listQueuedReports,
+  removeQueuedReport
 } from '../offlineReportQueue';
 import { prepareDraftForOffline } from '../offlineEvidence';
 
@@ -44,14 +46,35 @@ type SubmitState = {
 
 export function ReviewReportScreen() {
   const router = useRouter();
+  const { offlineReportId: offlineReportIdParam, operationId: operationIdParam } = useLocalSearchParams<{
+    offlineReportId?: string;
+    operationId?: string;
+  }>();
   const { accessToken, user } = useAuth();
   const { draft, resetDraft, setDraft, setSubmittedReport, validation } = useReportHazardDraft();
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
   const [locationPlace, setLocationPlace] = useState<string | null>(null);
   const submitInFlightRef = useRef(false);
-  const operationIdRef = useRef(createReportOperationId());
+  const operationIdRef = useRef(
+    typeof operationIdParam === 'string' ? operationIdParam : createReportOperationId()
+  );
+  const offlineReportId = typeof offlineReportIdParam === 'string' ? offlineReportIdParam : null;
   const isSubmitting = isReportSubmissionActive(submitState.status);
   const canSubmit = canSubmitReport({ isValid: validation.isValid, status: submitState.status });
+
+  useEffect(() => {
+    if (!offlineReportId || !user?.id) return;
+
+    let isCurrent = true;
+    void listQueuedReports(user.id).then((items) => {
+      const queuedReport = items.find((item) => item.id === offlineReportId);
+      if (isCurrent && queuedReport) setDraft(queuedReport.draft);
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [offlineReportId, setDraft, user?.id]);
 
   useEffect(() => {
     if (draft.location.status !== 'DETECTED') {
@@ -156,6 +179,9 @@ export function ReviewReportScreen() {
         }
       });
       setSubmittedReport(result.response.report);
+      if (offlineReportId && user?.id) {
+        await removeQueuedReport(user.id, offlineReportId);
+      }
       resetDraft();
       router.replace('/resident/report-submitted');
     } catch (error) {

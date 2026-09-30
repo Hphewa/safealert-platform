@@ -237,22 +237,36 @@ export function ResidentReportsScreen() {
 }
 
 function OfflineReportCard({ item }: { item: OfflineReportQueueItem }) {
+  const router = useRouter();
   const hazardLabel = item.draft.hazardType
     ? hazardLabelForResident(item.draft.hazardType, item.draft.otherHazardType)
     : 'Hazard report';
 
   return (
-    <View style={styles.offlineCard}>
+    <Pressable
+      accessibilityLabel={`Open saved offline ${hazardLabel} report for review`}
+      accessibilityRole="button"
+      onPress={() => {
+        router.push({
+          pathname: '/resident/review-report',
+          params: { operationId: item.operationId, offlineReportId: item.id }
+        });
+      }}
+      style={({ pressed }) => [styles.offlineCard, pressed && styles.pressed]}
+    >
       <View style={styles.offlineCardHeader}>
         <Text style={styles.offlineCardTitle}>{hazardLabel}</Text>
-        <Text style={styles.offlineBadge}>Saved offline</Text>
+        <View style={styles.offlineBadgeRow}>
+          <Text style={styles.offlineBadge}>Saved offline</Text>
+          <DashboardGlyph color={dashboardTheme.colors.moderate} name="chevron-forward" size={16} />
+        </View>
       </View>
       <Text style={styles.offlineCardText}>
         {item.status === 'FAILED'
           ? 'Waiting to retry when connection returns.'
-          : 'Will submit automatically when connection returns.'}
+          : 'Tap to review and continue this report.'}
       </Text>
-    </View>
+    </Pressable>
   );
 }
 
@@ -540,6 +554,11 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: dashboardTheme.colors.moderate
+  },
+  offlineBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4
   },
   offlineCardText: {
     fontSize: 13,

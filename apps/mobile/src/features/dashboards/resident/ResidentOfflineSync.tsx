@@ -5,11 +5,20 @@ import { uploadReportEvidence } from './api/mediaApi';
 import { createResidentReport } from './api/reportApi';
 import { listQueuedReports, removeQueuedReport, updateQueuedReport } from './offlineReportQueue';
 import { subscribeToConnectivity } from './offlineConnectivity';
+import { useReportHazardDraft } from './reportDraft';
 import { submitResidentReportDraft } from './reportSubmission';
 
 export function ResidentOfflineSync() {
   const { accessToken, user } = useAuth();
+  const { draft, resetDraft } = useReportHazardDraft();
+  const activeDraftRef = useRef(draft);
+  const resetDraftRef = useRef(resetDraft);
   const processingRef = useRef(false);
+
+  useEffect(() => {
+    activeDraftRef.current = draft;
+    resetDraftRef.current = resetDraft;
+  }, [draft, resetDraft]);
 
   const syncQueuedReports = useCallback(async () => {
     if (!user?.id || !accessToken || processingRef.current) return;
@@ -38,6 +47,9 @@ export function ResidentOfflineSync() {
             clientOperationId: queuedReport.operationId
           });
           await removeQueuedReport(user.id, queuedReport.id);
+          if (JSON.stringify(activeDraftRef.current) === JSON.stringify(queuedReport.draft)) {
+            resetDraftRef.current();
+          }
         } catch (error) {
           await updateQueuedReport(user.id, queuedReport.id, {
             status: 'FAILED',
