@@ -43,5 +43,10 @@ describe('responder request details navigation', () => {
     expect(displayValue(undefined)).toBe('Not provided');
     expect(displayValue(null)).toBe('Not provided');
     expect(displayValue('')).toBe('Not provided');
+    expect(displayValue('   ')).toBe('Not provided');
+    expect(displayValue(Number.NaN)).toBe('Not provided');
+    expect(displayValue('undefined')).toBe('Not provided');
+    expect(displayValue('null')).toBe('Not provided');
+    expect(displayValue('NaN')).toBe('Not provided');
   });
 });

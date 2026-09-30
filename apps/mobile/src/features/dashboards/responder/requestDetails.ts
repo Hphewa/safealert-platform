@@ -25,8 +25,16 @@ export function responderRequestDetailsHref(requestId: string | undefined, sourc
   return `/responder/requests/${encodeURIComponent(requestId)}${sourceTab ? `?sourceTab=${sourceTab}` : ''}`;
 }
 
+// Defensive value formatter for request detail rows: ensures missing, empty,
+// or placeholder strings ('undefined', 'null', 'NaN') never leak into user-facing text.
 export function displayValue(value: string | number | null | undefined) {
-  if (value === null || value === undefined || value === '') {
+  if (
+    value === null ||
+    value === undefined ||
+    value === '' ||
+    (typeof value === 'number' && Number.isNaN(value)) ||
+    (typeof value === 'string' && (value.trim() === '' || value === 'undefined' || value === 'null' || value === 'NaN'))
+  ) {
     return 'Not provided';
   }
 

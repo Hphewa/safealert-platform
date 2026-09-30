@@ -37,6 +37,13 @@ import {
   isResponderDecisionBusy,
   type ResponderDecisionAction
 } from '../decisionUi';
+import {
+  extractEmergencyCoordinates,
+  formatCoordinate,
+  initiateResidentCall,
+  initiateViewLocationRoute,
+  isValidPhoneNumber
+} from '../contactLocationUi';
 
 export function ResponderRequestDetailsScreen() {
   const router = useRouter();
@@ -482,6 +489,30 @@ export function ResponderRequestDetailsScreen() {
     );
   }
 
+  // LDFEW-267 / LDFEW-363: Extract and validate emergency GPS coordinates from the selected request
+  // so the responder can inspect exact coordinates and plan response actions safely.
+  const emergencyCoordinates = extractEmergencyCoordinates(responseRequest.location);
+  const canViewLocation = emergencyCoordinates.isValid;
+
+  // LDFEW-267 / LDFEW-362: Validate resident phone number before enabling call action.
+  // Prevents invalid external dialer invocation when phone data is missing or malformed.
+  const canCallResident = isValidPhoneNumber(responseRequest.contact?.phoneNumber);
+
+  const handleCallResidentPress = () => {
+    // Validate the saved Resident contact number before invoking
+    // the device dialer so malformed request data cannot trigger
+    // an invalid external action.
+    void initiateResidentCall(responseRequest.contact?.phoneNumber);
+  };
+
+  const handleViewLocationPress = () => {
+    // Reuse the GPS coordinates submitted with the emergency request
+    // so responders can act on the original emergency location.
+    if (emergencyCoordinates.isValid && emergencyCoordinates.latitude !== null && emergencyCoordinates.longitude !== null) {
+      initiateViewLocationRoute(emergencyCoordinates.latitude, emergencyCoordinates.longitude);
+    }
+  };
+
   return (
     <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
       <DetailsHeader errorMessage={refreshError} isRefreshing={isRefreshing} onBack={backToRequests} onRefresh={() => void refreshRequest()} />
@@ -721,8 +752,25 @@ export function ResponderRequestDetailsScreen() {
         </DetailsSection>
       ) : null}
 
-      <DetailsSection title="LOCATION">
-        <DetailRow label="GPS coordinates" value={formatLocation(responseRequest)} />
+      {/* LDFEW-267 / LDFEW-363: Clearly display emergency GPS / location information */}
+      <DetailsSection title="EMERGENCY LOCATION">
+        <DetailRow label="Latitude" value={formatCoordinate(emergencyCoordinates.latitude)} />
+        <DetailRow label="Longitude" value={formatCoordinate(emergencyCoordinates.longitude)} />
+        {/* LDFEW-267 / LDFEW-365: View Location / Route action ready for external mobile/map capability */}
+        <Pressable
+          accessibilityLabel="View Location / Route"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !canViewLocation }}
+          disabled={!canViewLocation}
+          onPress={handleViewLocationPress}
+          style={({ pressed }) => [
+            styles.secondaryActionButton,
+            !canViewLocation && styles.disabledButton,
+            pressed && canViewLocation && styles.pressed
+          ]}
+        >
+          <Text style={styles.secondaryActionButtonText}>View Location / Route</Text>
+        </Pressable>
       </DetailsSection>
 
       <DetailsSection title="PEOPLE">
@@ -743,9 +791,28 @@ export function ResponderRequestDetailsScreen() {
         <Text style={styles.description}>{displayValue(responseRequest.description)}</Text>
       </DetailsSection>
 
-      <DetailsSection title="CONTACT">
+      {/* LDFEW-267 / LDFEW-360: Clearly display resident contact information */}
+      <DetailsSection title="RESIDENT CONTACT">
         <DetailRow label="Resident name" value={responseRequest.contact?.name} />
-        <DetailRow label="Contact number" value={responseRequest.contact?.phoneNumber} />
+        <DetailRow label="Phone" value={responseRequest.contact?.phoneNumber} />
+        {responseRequest.contact?.email ? (
+          <DetailRow label="Email" value={responseRequest.contact.email} />
+        ) : null}
+        {/* LDFEW-267 / LDFEW-362: Call Resident action using native device dialer */}
+        <Pressable
+          accessibilityLabel="Call Resident"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !canCallResident }}
+          disabled={!canCallResident}
+          onPress={handleCallResidentPress}
+          style={({ pressed }) => [
+            styles.secondaryActionButton,
+            !canCallResident && styles.disabledButton,
+            pressed && canCallResident && styles.pressed
+          ]}
+        >
+          <Text style={styles.secondaryActionButtonText}>Call Resident</Text>
+        </Pressable>
       </DetailsSection>
 
       <DetailsSection title="SUBMITTED">
@@ -905,17 +972,6 @@ function formatAssistanceType(assistanceType: SafeResponseRequest['assistanceTyp
     .split('_')
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
-}
-
-function formatLocation(responseRequest: SafeResponseRequest) {
-  const coordinates = responseRequest.location?.coordinates;
-
-  if (!coordinates || coordinates.length !== 2) {
-    return 'Not provided';
-  }
-
-  const [longitude, latitude] = coordinates;
-  return `Latitude ${latitude}, Longitude ${longitude}`;
 }
 
 function formatVulnerablePeople(responseRequest: SafeResponseRequest) {
