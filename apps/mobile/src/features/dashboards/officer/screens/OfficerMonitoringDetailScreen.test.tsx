@@ -55,22 +55,18 @@ function renderDetail() {
 }
 
 it('loads evidence and routes active assessment lifecycle actions to existing screens', async () => {
-  const response = detail({ warnings: [{ id: 'warning-1', assessmentId: 'assessment-1', status: 'DRAFT', createdAt: '2026-09-26T12:30:00.000Z' }] });
-  state.get.mockResolvedValue(response); renderDetail();
-  await expect(state.loader!()).resolves.toEqual(response); state.data = response;
+  state.get.mockResolvedValue(detail()); renderDetail();
+  await expect(state.loader!()).resolves.toEqual(detail()); state.data = detail();
   const markup = renderDetail();
-  expect(markup).toContain('Road is flooded'); expect(markup).toContain('DRAFT'); expect(markup).toContain('1 new verified report');
+  expect(markup).toContain('Road is flooded'); expect(markup).toContain('1 new verified report');
   expect(markup).not.toContain('DELETE ASSESSMENT');
+  expect(markup).not.toContain('CREATE WARNING');
   state.actions.get('VIEW ASSESSMENT')!();
   expect(state.push).toHaveBeenLastCalledWith({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: 'assessment-1' } });
   state.actions.get('REASSESS RISK')!();
   expect(state.push).toHaveBeenLastCalledWith({ pathname: '/officer/assessments/create', params: { assessmentId: 'assessment-1' } });
   state.actions.get('CLOSE ASSESSMENT')!();
   expect(state.push).toHaveBeenLastCalledWith({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: 'assessment-1' } });
-  state.actions.get('CREATE WARNING')!();
-  expect(state.push).toHaveBeenLastCalledWith({ pathname: '/officer/warnings/create', params: { assessmentId: 'assessment-1' } });
-  state.actions.get('VIEW WARNING 1')!();
-  expect(state.push).toHaveBeenLastCalledWith({ pathname: '/officer/warnings/[warningId]', params: { warningId: 'warning-1' } });
 });
 
 it('shows the initial-save confirmation notice on monitoring detail', () => {
@@ -83,33 +79,18 @@ it('shows the initial-save confirmation notice on monitoring detail', () => {
   expect(renderDetail()).toContain('Risk assessment saved successfully. This incident is now available in Monitoring.');
 });
 
-it('shows and opens every warning associated with the visible assessment', () => {
-  state.data = detail({ warnings: [
-    { id: 'warning-1', assessmentId: 'assessment-1', status: 'DRAFT', createdAt: '2026-09-26T12:30:00.000Z' },
-    { id: 'warning-2', assessmentId: 'assessment-1', status: 'PUBLISHED', createdAt: '2026-09-26T12:45:00.000Z', publishedAt: '2026-09-26T13:00:00.000Z' }
-  ] });
-  const markup = renderDetail();
-  expect(markup).toContain('Warning 1 status: DRAFT');
-  expect(markup).toContain('Warning 2 status: PUBLISHED');
-  state.actions.get('VIEW WARNING 2')!();
-  expect(state.push).toHaveBeenLastCalledWith({ pathname: '/officer/warnings/[warningId]', params: { warningId: 'warning-2' } });
-});
-
 it('shows closed and no-visible-assessment states without offering lifecycle mutations', () => {
   state.data = detail({ currentAssessment: null, latestAssessment: { ...active, status: 'CLOSED', closureReason: 'INCIDENT_RESOLVED' }, hasNewVerifiedEvidence: false, newVerifiedReportsSinceAssessment: 0 });
   let markup = renderDetail();
-  expect(markup).toContain('CLOSED'); expect(markup).toContain('VIEW HISTORY'); expect(markup).not.toContain('CREATE WARNING');
+  expect(markup).toContain('CLOSED'); expect(markup).toContain('VIEW HISTORY');
   state.data = detail({ currentAssessment: null, latestAssessment: null, warnings: [], hasNewVerifiedEvidence: false, newVerifiedReportsSinceAssessment: 0 });
   markup = renderDetail();
   expect(markup).toContain('No active risk assessment'); expect(markup).not.toContain('DELETE ASSESSMENT');
 });
 
-it('keeps detail errors retryable and only offers warning creation for eligible active assessments', () => {
+it('keeps detail errors retryable', () => {
   state.error = 'Monitoring unavailable';
   expect(renderDetail()).toContain('Monitoring unavailable');
-  state.error = null;
-  state.data = detail({ currentAssessment: { ...active, finalRiskLevel: 'MODERATE' }, latestAssessment: { ...active, finalRiskLevel: 'MODERATE' } });
-  expect(renderDetail()).not.toContain('CREATE WARNING');
 });
 
 it('shows the replacement active risk and zero new evidence after reassessment refresh', () => {

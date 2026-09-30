@@ -51,18 +51,10 @@ vi.mock('../hooks/useAssessmentResource', () => ({
   })
 }));
 
-import { RiskAssessmentResultScreen } from './RiskAssessmentResultScreen';
 import { CreateWarningScreen } from './CreateWarningScreen';
 import { ReviewWarningScreen } from './ReviewWarningScreen';
 
 beforeEach(() => { state.risk = 'HIGH'; state.unavailable = false; state.missingSource = false; });
-it.each(['HIGH', 'CRITICAL', 'LOW', 'MODERATE'] as const)('%s: renders correct Create Warning availability on result and reopen', (risk) => {
-  state.risk = risk;
-  for (let open = 0; open < 2; open += 1) {
-    const markup = renderToStaticMarkup(<RiskAssessmentResultScreen />);
-    expect(markup.includes('Create Warning')).toBe(risk === 'HIGH' || risk === 'CRITICAL');
-  }
-});
 it.each(['LOW', 'MODERATE'] as const)('blocks the create form on direct navigation for %s', (risk) => {
   state.risk = risk;
   const markup = renderToStaticMarkup(<CreateWarningScreen />);
@@ -93,7 +85,6 @@ it('blocks review when the saved source report location is missing', () => {
 });
 it('does not offer creation before saved assessment loading completes', () => {
   state.unavailable = true;
-  expect(renderToStaticMarkup(<RiskAssessmentResultScreen />)).not.toContain('Create Warning');
   expect(renderToStaticMarkup(<CreateWarningScreen />)).not.toContain('aria-label="Affected Area');
 });
 it('renders the full review summary and disables edit/save while saving', () => {
