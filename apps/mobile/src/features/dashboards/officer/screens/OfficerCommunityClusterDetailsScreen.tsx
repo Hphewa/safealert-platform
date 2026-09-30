@@ -1,6 +1,6 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { SafeCommunityReportClusterDetail } from '@safealert/contracts';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -11,11 +11,13 @@ import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { MultiMarkerLocationPreview, type MultiMarkerLocation } from '../../shared/maps/MultiMarkerLocationPreview';
 import { geoJsonPointToMapCoordinates } from '../../shared/maps/types';
+import { reverseGeocodePlace } from '../../shared/maps/locationSearch';
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { dashboardTheme } from '../../shared/theme';
 import { badgeToneForReportStatus } from '../../shared/utils';
 import { officerBottomNavItems } from '../officerNavigation';
 import { getOfficerCommunityReportCluster } from '../api/communityReportClusterApi';
+import { hazardImageForResident } from '../../resident/reports';
 
 type LoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -27,6 +29,7 @@ export function OfficerCommunityClusterDetailsScreen() {
   const [cluster, setCluster] = useState<SafeCommunityReportClusterDetail | null>(null);
   const [status, setStatus] = useState<LoadStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [locationPlace, setLocationPlace] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
   const loadCluster = useCallback(async () => {
@@ -60,6 +63,22 @@ export function OfficerCommunityClusterDetailsScreen() {
     void loadCluster();
     return () => { requestIdRef.current += 1; };
   }, [loadCluster]));
+
+  useEffect(() => {
+    if (!cluster) {
+      setLocationPlace(null);
+      return;
+    }
+
+    let active = true;
+    const [longitude, latitude] = cluster.centerLocation.coordinates;
+    void reverseGeocodePlace(latitude, longitude).then((place) => {
+      if (active) setLocationPlace(place);
+    });
+    return () => {
+      active = false;
+    };
+  }, [cluster]);
 
   const markers: MultiMarkerLocation[] = cluster?.reports.flatMap((report, index) => {
     const coordinates = geoJsonPointToMapCoordinates(report.location);
@@ -96,6 +115,10 @@ export function OfficerCommunityClusterDetailsScreen() {
                 <Metric label="Pending" value={String(cluster.pendingReportCount)} />
                 <Metric label="Field checks" value={String(cluster.fieldConfirmationCount)} />
               </View>
+              <View style={styles.locationRow}>
+                <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="location-outline" size={18} />
+                <Text style={styles.bodyText}>{locationPlace ?? 'Finding incident location…'}</Text>
+              </View>
               <Text style={styles.bodyText}>First reported {formatDateTime(cluster.firstReportedAt)}</Text>
               <Text style={styles.bodyText}>Latest community report {formatDateTime(cluster.lastReportedAt)}</Text>
             </View>
@@ -110,15 +133,19 @@ export function OfficerCommunityClusterDetailsScreen() {
               {cluster.reports.map((report) => (
                 <View key={report.id} style={styles.reportCard}>
                   <View style={styles.reportHeader}>
+                  <View style={styles.reportTitleRow}>
+                    <Image accessibilityLabel={`${report.hazardType} hazard`} source={hazardImageForResident(report.hazardType)} style={styles.reportHazardImage} />
                     <Text style={styles.reportTitle}>{report.hazardType.replace(/_/g, ' ')}</Text>
+                  </View>
                     <StatusBadge label={report.status} tone={badgeToneForReportStatus(report.status)} />
                   </View>
                   <Text style={styles.bodyText}>{report.description}</Text>
                   <Text style={styles.metaText}>Reported {formatDateTime(report.createdAt)}</Text>
-                  <Text style={styles.metaText}>
-                    Evidence: {report.mediaReference ? 'Photo ' : ''}{report.voiceEvidence ? 'Voice ' : ''}{!report.mediaReference && !report.voiceEvidence ? 'None' : ''}
-                  </Text>
-                  <Text style={styles.metaText}>Field checks: {report.fieldConfirmationCount}</Text>
+                  <View style={styles.evidenceRow}>
+                    <EvidenceItem active={Boolean(report.mediaReference)} icon="camera-outline" label="Photo" />
+                    <EvidenceItem active={Boolean(report.voiceEvidence)} icon="mic-outline" label="Voice" />
+                    <EvidenceItem active={report.fieldConfirmationCount > 0} icon="people-outline" label={`${report.fieldConfirmationCount} field`} />
+                  </View>
                   {report.status === 'PENDING' ? (
                     <Pressable
                       accessibilityRole="button"
@@ -162,6 +189,15 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function EvidenceItem({ active, icon, label }: { active: boolean; icon: 'camera-outline' | 'mic-outline' | 'people-outline'; label: string }) {
+  return (
+    <View style={[styles.evidenceItem, !active && styles.evidenceItemInactive]}>
+      <DashboardGlyph color={active ? dashboardTheme.colors.primaryStrong : dashboardTheme.colors.muted} name={icon} size={14} />
+      <Text style={[styles.evidenceLabel, !active && styles.evidenceLabelInactive]}>{label}</Text>
+    </View>
+  );
+}
+
 function formatDateTime(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'time unavailable';
@@ -187,9 +223,17 @@ const styles = StyleSheet.create({
   panelTitle: { fontSize: 18, fontWeight: '800', color: dashboardTheme.colors.text },
   reportCard: { gap: 10, padding: 14, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surfaceMuted },
   reportHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  reportTitleRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  reportHazardImage: { width: 28, height: 28, resizeMode: 'contain' },
   reportTitle: { flex: 1, fontSize: 16, fontWeight: '800', color: dashboardTheme.colors.text },
   bodyText: { fontSize: 14, lineHeight: 20, color: dashboardTheme.colors.text },
+  locationRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
   metaText: { fontSize: 13, lineHeight: 19, color: dashboardTheme.colors.muted },
+  evidenceRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  evidenceItem: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 999, backgroundColor: dashboardTheme.colors.primarySoft },
+  evidenceItemInactive: { backgroundColor: dashboardTheme.colors.surfaceMuted },
+  evidenceLabel: { fontSize: 11, fontWeight: '700', color: dashboardTheme.colors.primaryStrong },
+  evidenceLabelInactive: { color: dashboardTheme.colors.muted },
   reviewButton: { minHeight: 46, alignItems: 'center', justifyContent: 'center', borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.primary },
   reviewButtonText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
   stateCard: { gap: 12, alignItems: 'center', padding: 20, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.md, backgroundColor: dashboardTheme.colors.surface },
@@ -198,4 +242,3 @@ const styles = StyleSheet.create({
   retryText: { fontSize: 14, fontWeight: '800', color: '#ffffff' },
   pressed: { opacity: 0.82 }
 });
-

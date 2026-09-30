@@ -1,6 +1,8 @@
 import { Image, StyleSheet, Text } from 'react-native';
 
 import locationPinImage from '../../../../../assets/hazards/location-pin.png';
+import photoEvidenceIcon from '../../../../../assets/evidence/photo-evidence.png';
+import voiceEvidenceIcon from '../../../../../assets/evidence/voice-evidence.png';
 
 type DashboardGlyphProps = {
   name: string;
@@ -9,38 +11,39 @@ type DashboardGlyphProps = {
 };
 
 const glyphMap: Record<string, string> = {
-  'home-outline': 'HM',
-  'notifications-outline': 'AL',
-  'document-text-outline': 'RP',
-  'person-outline': 'PR',
-  'person-circle-outline': 'PF',
-  'warning-outline': 'HZ',
+  'home-outline': '⌂',
+  'notifications-outline': '●',
+  'document-text-outline': '▤',
+  'person-outline': '●',
+  'person-circle-outline': '●',
+  'warning-outline': '!',
   'checkmark-done-outline': '✓',
-  'help-buoy-outline': 'HP',
-  'cloudy-rainy-outline': 'WX',
-  'water-outline': 'FL',
-  'create-outline': 'UP',
-  'shield-checkmark-outline': 'VF',
-  'alert-circle-outline': 'AI',
-  'trail-sign-outline': 'RD',
-  'flame-outline': 'FR',
-  'reader-outline': 'RV',
-  'speedometer-outline': 'RK',
-  'eye-outline': 'MN',
+  'help-buoy-outline': '◉',
+  'cloudy-rainy-outline': '☁',
+  'water-outline': '≈',
+  'create-outline': '✎',
+  'shield-checkmark-outline': '⬟',
+  'alert-circle-outline': '!',
+  'trail-sign-outline': '⚑',
+  'flame-outline': '♨',
+  'reader-outline': '▤',
+  'speedometer-outline': '◔',
+  'eye-outline': '◉',
   'locate-outline': 'NB',
-  'help-circle-outline': 'CN',
-  'leaf-outline': 'TR',
-  'rainy-outline': 'RN',
-  'book-outline': 'FG',
-  'list-outline': 'RQ',
-  'flash-outline': 'AC',
-  'time-outline': 'HS',
-  'search-outline': 'SR',
-  'bus-outline': 'EV',
-  'medical-outline': 'MD',
-  'map-outline': 'MP',
+  'help-circle-outline': '?',
+  'leaf-outline': '♧',
+  'rainy-outline': '☂',
+  'book-outline': '▥',
+  'list-outline': '☷',
+  'flash-outline': 'ϟ',
+  'time-outline': '◷',
+  'search-outline': '⌕',
+  'bus-outline': '▣',
+  'medical-outline': '+',
+  'map-outline': '⌖',
   'camera-outline': 'PH',
-  'refresh-outline': 'RF',
+  'refresh-outline': '↻',
+  'people-outline': '♟',
   'play-outline': '▶',
   'pause-outline': '⏸',
   'log-out-outline': 'LG',
@@ -58,6 +61,18 @@ export function DashboardGlyph({ name, color, size = 18 }: DashboardGlyphProps) 
         style={{ height: size + 8, width: size + 8 }}
       />
     );
+  }
+
+  if (name === 'location-outline' || name === 'map-outline') {
+    return <Image accessibilityLabel="Location" source={locationPinImage} style={{ height: size + 8, width: size + 8 }} />;
+  }
+
+  if (name === 'camera-outline') {
+    return <Image accessibilityLabel="Photo evidence" source={photoEvidenceIcon} style={{ height: size + 8, width: size + 8 }} />;
+  }
+
+  if (name === 'mic-outline') {
+    return <Image accessibilityLabel="Voice evidence" source={voiceEvidenceIcon} style={{ height: size + 8, width: size + 8 }} />;
   }
 
   const glyph = glyphMap[name] ?? '*';

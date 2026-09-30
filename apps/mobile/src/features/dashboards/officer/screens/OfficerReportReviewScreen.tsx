@@ -12,6 +12,7 @@ import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
+import { reverseGeocodePlace } from '../../shared/maps/locationSearch';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { badgeToneForReportStatus } from '../../shared/utils';
 import { VoiceNotePlayer } from '../../shared/voice/VoiceNotePlayer';
@@ -25,6 +26,7 @@ import {
   type OfficerReportChecklistKey,
   type OfficerReportReviewRecord
 } from '../reports';
+import { hazardImageForResident } from '../../resident/reports';
 
 type OfficerReviewAction = 'idle' | 'verifying' | 'rejecting';
 type OfficerReportLoadStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -67,6 +69,7 @@ export function OfficerReportReviewScreen() {
   const params = useLocalSearchParams<{ reportId?: string | string[] }>();
   const reportId = Array.isArray(params.reportId) ? params.reportId[0] : params.reportId;
   const [report, setReport] = useState<OfficerReportReviewRecord | null>(null);
+  const [locationPlace, setLocationPlace] = useState<string | null>(null);
   const [loadStatus, setLoadStatus] = useState<OfficerReportLoadStatus>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedAction, setSelectedAction] = useState<OfficerReviewAction>('idle');
@@ -129,6 +132,24 @@ export function OfficerReportReviewScreen() {
       );
     }
   }, [accessToken, reportId]);
+
+  useEffect(() => {
+    if (!report) {
+      setLocationPlace(null);
+      return;
+    }
+
+    let active = true;
+    if (!report.locationCoordinates) return;
+
+    void reverseGeocodePlace(report.locationCoordinates.latitude, report.locationCoordinates.longitude).then((place) => {
+      if (active) setLocationPlace(place);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [report]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -350,8 +371,16 @@ export function OfficerReportReviewScreen() {
           <PriorityBadge priority={report.severity} />
           <StatusBadge label={report.statusLabel} tone={badgeToneForReportStatus(report.status)} />
         </View>
-        <Text style={styles.heroTitle}>{report.hazardLabel}</Text>
-        <Text style={styles.heroSubtitle}>{report.locationLabel}</Text>
+        <View style={styles.heroTitleRow}>
+          <View style={styles.hazardIconWrap}>
+            <Image accessibilityLabel={`${report.hazardLabel} hazard`} source={hazardImageForResident(report.hazardType)} style={styles.heroHazardImage} />
+          </View>
+          <Text style={styles.heroTitle}>{report.hazardLabel}</Text>
+        </View>
+        <View style={styles.locationRow}>
+          <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="location-outline" size={18} />
+          <Text style={styles.heroSubtitle}>{locationPlace ?? 'Finding reported location…'}</Text>
+        </View>
         <View style={styles.summaryGrid}>
           <DetailMetric label="Time Reported" value={report.reportedTimeLabel} />
           <DetailMetric label="Latest Update" value={report.latestUpdateLabel} />
@@ -1070,6 +1099,29 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 22,
     color: dashboardTheme.colors.text
+  },
+  heroTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
+  },
+  hazardIconWrap: {
+    width: 50,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  heroHazardImage: {
+    width: 34,
+    height: 34,
+    resizeMode: 'contain'
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8
   },
   reasonInput: {
     minHeight: 112,

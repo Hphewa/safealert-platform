@@ -31,10 +31,13 @@ export type OfficerGroupedReportSummary = {
   status: ReportStatus;
   statusLabel: string;
   locationLabel: string;
+  locationCoordinates?: { latitude: number; longitude: number };
   latestUpdateLabel: string;
   communityReportsCount: number;
   communityReportsLabel: string;
   descriptionPreview: string;
+  hasPhotoEvidence?: boolean;
+  hasVoiceEvidence?: boolean;
   searchText: string;
   tone: BadgeTone;
   icon: DashboardIconName;
@@ -206,13 +209,16 @@ export function mapSafeReportToOfficerGroupedReportSummary(
     status: report.status,
     statusLabel: statusLabelForOfficer(report.status),
     locationLabel,
+    locationCoordinates: { latitude: report.location.coordinates[1], longitude: report.location.coordinates[0] },
     latestUpdateLabel: formatOfficerRelativeTime(report.updatedAt, now),
     communityReportsCount: 1,
     communityReportsLabel: formatCommunityReportsLabel(1),
     descriptionPreview: report.description,
+    hasPhotoEvidence: Boolean(report.mediaReference),
+    hasVoiceEvidence: Boolean(report.voiceEvidence),
     searchText: `${hazardLabelForOfficer(report.hazardType)} ${locationLabel} ${report.description}`.toLowerCase(),
     tone: hazardToneForOfficer(report.hazardType),
-    icon: iconForOfficerHazard(report.hazardType),
+    icon: hazardIconForOfficer(report.hazardType),
     href: `/officer/reports/${report.id}` as Href
   };
 }
@@ -315,7 +321,7 @@ function formatOfficerRelativeTime(value: string, now: Date) {
   return `${Math.floor(elapsedHours / 24)}d ago`;
 }
 
-function iconForOfficerHazard(hazardType: HazardType): DashboardIconName {
+export function hazardIconForOfficer(hazardType: HazardType): DashboardIconName {
   switch (hazardType) {
     case 'FLOOD':
       return 'water-outline';

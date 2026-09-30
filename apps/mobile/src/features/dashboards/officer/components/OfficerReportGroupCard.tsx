@@ -32,11 +32,27 @@ export function OfficerReportGroupCard({ report }: OfficerReportGroupCardProps) 
         <View style={styles.body}>
           <Text style={styles.location}>{report.locationLabel}</Text>
           <Text style={styles.reportCount}>{report.communityReportsLabel}</Text>
-          <Text style={styles.updateLabel}>Latest Update: {report.latestUpdateLabel}</Text>
+          <View style={styles.metaRow}>
+            <DashboardGlyph color={dashboardTheme.colors.muted} name="time-outline" size={14} />
+            <Text style={styles.updateLabel}>{report.latestUpdateLabel}</Text>
+          </View>
+          <View style={styles.evidenceRow}>
+            <EvidenceIcon active={Boolean(report.hasPhotoEvidence)} label="Photo" name="camera-outline" />
+            <EvidenceIcon active={Boolean(report.hasVoiceEvidence)} label="Voice" name="mic-outline" />
+          </View>
         </View>
         <DashboardGlyph color={dashboardTheme.colors.muted} name="chevron-forward" size={20} />
       </View>
     </Pressable>
+  );
+}
+
+function EvidenceIcon({ active, label, name }: { active: boolean; label: string; name: 'camera-outline' | 'mic-outline' }) {
+  return (
+    <View style={[styles.evidenceItem, !active && styles.evidenceItemInactive]}>
+      <DashboardGlyph color={active ? dashboardTheme.colors.primaryStrong : dashboardTheme.colors.muted} name={name} size={14} />
+      <Text style={[styles.evidenceLabel, !active && styles.evidenceLabelInactive]}>{label}</Text>
+    </View>
   );
 }
 
@@ -117,6 +133,36 @@ const styles = StyleSheet.create({
   },
   updateLabel: {
     fontSize: 14,
+    color: dashboardTheme.colors.muted
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5
+  },
+  evidenceRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2
+  },
+  evidenceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  evidenceItemInactive: {
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  evidenceLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  evidenceLabelInactive: {
     color: dashboardTheme.colors.muted
   }
 });
