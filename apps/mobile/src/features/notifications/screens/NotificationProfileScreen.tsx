@@ -1,16 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { getNotificationProfile, updateNotificationProfile } from '../api/notificationApi';
 import type { NotificationProfile } from '@safealert/contracts';
-import { WARNING_DISTRICTS, NOTIFICATION_COUNTRY, normalizeNotificationLocation } from '@safealert/contracts';
+import { WARNING_DISTRICTS, NOTIFICATION_COUNTRY } from '@safealert/contracts';
 import { ApiClientError } from '../../../services/api/client';
 import { useNativePushRegistration } from '../useNativePushRegistration';
 import { DashboardHeader } from '../../dashboards/shared/components/DashboardHeader';
 import { DashboardScreen } from '../../dashboards/shared/components/DashboardScreen';
-import { dashboardTheme } from '../../dashboards/shared/theme';
+import { cardShadow, dashboardTheme } from '../../dashboards/shared/theme';
 import { residentBottomNavItems } from '../../dashboards/resident/mockData';
 
 const fields = [
@@ -20,7 +20,7 @@ const fields = [
 
 export function NotificationProfileScreen() {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const [profile, setProfile] = useState<NotificationProfile>({});
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -28,6 +28,7 @@ export function NotificationProfileScreen() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [districtOpen, setDistrictOpen] = useState(false);
   const pushStatus = useNativePushRegistration(accessToken);
   const describeError = (failure: unknown) => failure instanceof ApiClientError
     ? failure.status === 401 ? 'Your session has expired. Sign in again.' : `${failure.message} (${failure.code})`
@@ -77,9 +78,19 @@ export function NotificationProfileScreen() {
 
   return (
     <DashboardScreen bottomNavItems={residentBottomNavItems}>
-      <DashboardHeader title="Resident Profile" description="Where you live and how we can contact you about warnings." />
-      <View style={styles.card}>
-        <Text style={styles.label}>LOCATION & CONTACT</Text>
+      <DashboardHeader title="Resident Profile" description="Manage your contact and location information for safety alerts." />
+      <View style={styles.profileCard}>
+        <View style={styles.identity}>
+          <View style={styles.avatar}><Text style={styles.avatarText}>{(user?.name?.[0] ?? 'R').toUpperCase()}</Text></View>
+          <View style={styles.identityText}><Text style={styles.name}>{user?.name ?? 'Resident'}</Text><Text style={styles.email}>{user?.email ?? '—'}</Text></View>
+        </View>
+        <View style={styles.section}>
+        <Text style={styles.sectionTitle}>PERSONAL INFORMATION</Text>
+        <View style={styles.field}><Text style={styles.label}>Name</Text><TextInput value={user?.name ?? ''} editable={false} style={[styles.input, styles.readOnly]} /></View>
+        <View style={styles.field}><Text style={styles.label}>Email</Text><TextInput value={user?.email ?? ''} editable={false} autoCapitalize="none" keyboardType="email-address" style={[styles.input, styles.readOnly]} /></View>
+        </View>
+        <View style={styles.section}>
+        <Text style={styles.sectionTitle}>LOCATION & CONTACT</Text>
         {loading ? <ActivityIndicator color={dashboardTheme.colors.primary} /> : fields.map((field) => (
           <View key={field.key} style={styles.field}>
             <Text style={styles.label}>{field.label}</Text>
@@ -97,21 +108,23 @@ export function NotificationProfileScreen() {
         ))}
 
         <Text style={styles.label}>District</Text>
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          {WARNING_DISTRICTS.map(district => {
-            const selected = normalizeNotificationLocation(values.district) === normalizeNotificationLocation(district);
-            return <Pressable key={district} accessibilityRole="radio" accessibilityState={{ checked: selected }}
-              disabled={!loaded || saving} onPress={() => setValues(current => ({ ...current, district }))}
-              style={[styles.input, { justifyContent: 'center', backgroundColor: selected ? dashboardTheme.colors.primarySoft : dashboardTheme.colors.surface }]}>
-              <Text>{district}</Text>
-            </Pressable>;
-          })}
+        <Pressable accessibilityRole="button" accessibilityLabel="Select district" accessibilityState={{ expanded: districtOpen }} disabled={!loaded || saving} onPress={() => setDistrictOpen(true)} style={styles.select}>
+          <Text style={values.district ? styles.selectText : styles.placeholder}>{values.district || 'Select your district'}</Text><Text style={styles.chevron}>⌄</Text>
+        </Pressable>
+        <View style={styles.country}><Text style={styles.countryLabel}>Country</Text><Text style={styles.countryValue}>{NOTIFICATION_COUNTRY}</Text></View>
         </View>
-        <Text style={styles.label}>Country</Text>
-        <Text>{NOTIFICATION_COUNTRY}</Text>
 
-        <View style={styles.warningsCard}>
-          <Text style={styles.label}>SAFETY ALERTS & WARNINGS</Text>
+      </View>
+      <View style={styles.profileActions}>
+        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+        {message ? <Text style={styles.success}>{message}</Text> : null}
+        {!loaded && !loading ? <Pressable accessibilityRole="button" onPress={load}><Text>Retry loading profile</Text></Pressable> : null}
+        <Pressable disabled={saving || loading || !loaded} onPress={() => void save()} style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
+          <Text style={styles.buttonText}>Save notification profile</Text>
+        </Pressable>
+      </View>
+      <View style={styles.warningsCard}>
+          <Text style={styles.sectionTitle}>SAFETY ALERTS & WARNINGS</Text>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Notifications & Warnings"
@@ -126,27 +139,48 @@ export function NotificationProfileScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.pushStatus}>
-          <Text style={styles.label}>Push notification status</Text>
-          <Text style={styles.statusText}>{pushStatus || (profile.pushToken ? 'Registered on your account' : 'Not registered')}</Text>
-        </View>
-
-        {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
-        {message ? <Text style={styles.success}>{message}</Text> : null}
-        {!loaded && !loading ? <Pressable accessibilityRole="button" onPress={load}><Text>Retry loading profile</Text></Pressable> : null}
-        <Pressable disabled={saving || loading || !loaded} onPress={() => void save()} style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
-          <Text style={styles.buttonText}>{saving ? 'Saving…' : 'Save notification profile'}</Text>
-        </Pressable>
+      <View style={styles.pushStatus}>
+        <Text style={styles.sectionTitle}>PUSH NOTIFICATION STATUS</Text>
+        <Text style={styles.statusText}>{pushStatus || (profile.pushToken ? 'Registered on your account' : 'Not registered')}</Text>
       </View>
+
+      <Modal transparent visible={districtOpen} animationType="fade" onRequestClose={() => setDistrictOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setDistrictOpen(false)}>
+          <View style={styles.modalCard}><Text style={styles.modalTitle}>Select district</Text><ScrollView>{WARNING_DISTRICTS.map(district => <Pressable key={district} accessibilityRole="radio" accessibilityState={{ checked: values.district === district }} onPress={() => { setValues(current => ({ ...current, district })); setDistrictOpen(false); }} style={[styles.option, values.district === district && styles.optionSelected]}><Text style={styles.optionText}>{district}</Text></Pressable>)}</ScrollView></View>
+        </Pressable>
+      </Modal>
     </DashboardScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  card: { gap: 16, padding: 18, borderRadius: 18, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border },
+  profileCard: { gap: 20, padding: 18, borderRadius: 22, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border, ...cardShadow },
+  identity: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingBottom: 4 },
+  avatar: { width: 64, height: 64, borderRadius: 32, alignItems: 'center', justifyContent: 'center', backgroundColor: dashboardTheme.colors.primarySoft },
+  avatarText: { fontSize: 26, fontWeight: '800', color: dashboardTheme.colors.primaryStrong },
+  identityText: { flex: 1, gap: 4 },
+  name: { fontSize: 21, fontWeight: '800', color: dashboardTheme.colors.text },
+  email: { fontSize: 14, color: dashboardTheme.colors.muted },
+  section: { gap: 14 },
+  profileActions: { gap: 10 },
+  sectionTitle: { fontSize: 12, letterSpacing: 0.8, fontWeight: '800', color: dashboardTheme.colors.primaryStrong },
   field: { gap: 7 },
   label: { fontSize: 14, fontWeight: '800', color: dashboardTheme.colors.text },
   input: { minHeight: 48, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: dashboardTheme.colors.border, color: dashboardTheme.colors.text, backgroundColor: dashboardTheme.colors.background, fontSize: 16 },
+  readOnly: { backgroundColor: dashboardTheme.colors.surfaceMuted, color: dashboardTheme.colors.muted },
+  select: { minHeight: 48, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: dashboardTheme.colors.border, backgroundColor: dashboardTheme.colors.background, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  selectText: { color: dashboardTheme.colors.text, fontSize: 16 },
+  placeholder: { color: dashboardTheme.colors.muted, fontSize: 16 },
+  chevron: { color: dashboardTheme.colors.primaryStrong, fontSize: 22, fontWeight: '800' },
+  country: { gap: 6, paddingVertical: 4 },
+  countryLabel: { fontSize: 13, color: dashboardTheme.colors.muted },
+  countryValue: { fontSize: 16, fontWeight: '700', color: dashboardTheme.colors.text },
+  modalBackdrop: { flex: 1, justifyContent: 'center', padding: 20, backgroundColor: 'rgba(15, 23, 42, 0.45)' },
+  modalCard: { maxHeight: '80%', borderRadius: 20, padding: 18, backgroundColor: dashboardTheme.colors.surface, ...cardShadow },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: dashboardTheme.colors.text, marginBottom: 10 },
+  option: { paddingVertical: 13, paddingHorizontal: 12, borderRadius: 10 },
+  optionSelected: { backgroundColor: dashboardTheme.colors.primarySoft },
+  optionText: { fontSize: 16, color: dashboardTheme.colors.text },
   warningsCard: { gap: 8, padding: 14, borderRadius: 14, backgroundColor: dashboardTheme.colors.primarySoft, borderWidth: 1, borderColor: dashboardTheme.colors.border },
   warningsButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 },
   warningsContent: { gap: 4, flex: 1, paddingRight: 10 },

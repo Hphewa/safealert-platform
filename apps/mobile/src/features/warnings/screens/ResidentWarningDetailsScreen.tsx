@@ -328,6 +328,15 @@ export function ResidentWarningDetailsScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        onPress={() => router.back()}
+        style={({ pressed }) => [styles.backIcon, pressed && styles.dimmed]}
+      >
+        <Text style={styles.backIconText}>←</Text>
+        <Text style={styles.backIconLabel}>Warning Details</Text>
+      </Pressable>
       {/* ── Risk level badge ── */}
       <Text
         style={[styles.riskBadge, isCritical ? styles.riskCritical : styles.riskHigh]}
@@ -793,6 +802,24 @@ const styles = StyleSheet.create({
   backPressable: {
     alignItems: 'center',
     paddingVertical: 4,
+  },
+  backIcon: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 4,
+  },
+  backIconText: {
+    fontSize: 28,
+    lineHeight: 32,
+    color: dashboardTheme.colors.primaryStrong,
+  },
+  backIconLabel: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text,
   },
   back: {
     color: dashboardTheme.colors.primaryStrong,
