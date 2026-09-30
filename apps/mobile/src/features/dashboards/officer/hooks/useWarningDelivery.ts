@@ -16,7 +16,10 @@ type DeliveryState = {
 export function useWarningDelivery(warningId: string | undefined, accessToken: string | null, enabled: boolean) {
   const [state, setState] = useState<DeliveryState | null>(null);
   const [revision, setRevision] = useState(0);
-  const reload = useCallback(() => setRevision(value => value + 1), []);
+  const reload = useCallback(() => {
+    setState(null);
+    setRevision(value => value + 1);
+  }, []);
 
   useFocusEffect(useCallback(() => {
     if (!warningId || !accessToken || !enabled) return;

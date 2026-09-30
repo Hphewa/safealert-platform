@@ -279,6 +279,7 @@ export function ResidentWarningDetailsScreen() {
   const [saving, setSaving] = useState(false);
   const [response, setResponse] = useState<WarningAcknowledgementResponse | null>(null);
   const [isGuidanceOpen, setIsGuidanceOpen] = useState(false);
+  const acknowledgementInFlight = useRef(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -309,7 +310,8 @@ export function ResidentWarningDetailsScreen() {
   };
 
   const acknowledge = async () => {
-    if (!accessToken || !warning || !response || saving) return;
+    if (!accessToken || !warning || !response || saving || acknowledgementInFlight.current) return;
+    acknowledgementInFlight.current = true;
     setSaving(true);
     try {
       const result = await acknowledgeResidentWarning(warning.id, { response }, accessToken);
@@ -317,6 +319,7 @@ export function ResidentWarningDetailsScreen() {
     } catch {
       setError('Unable to acknowledge this warning.');
     } finally {
+      acknowledgementInFlight.current = false;
       setSaving(false);
     }
   };

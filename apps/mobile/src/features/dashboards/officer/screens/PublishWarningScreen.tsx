@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   WARNING_DISTRICTS,
@@ -267,6 +267,12 @@ export function PublishWarningScreen() {
   const [editForm, setEditForm] = useState<WarningForm>(initialWarningForm);
   const [editErrors, setEditErrors] = useState<WarningFormErrors>({});
   const [acknowledgements, setAcknowledgements] = useState<WarningAcknowledgementsResponse | null>(null);
+  const [acknowledgementsLoading, setAcknowledgementsLoading] = useState(false);
+  const [acknowledgementsError, setAcknowledgementsError] = useState<string | null>(null);
+  const [acknowledgementsRevision, setAcknowledgementsRevision] = useState(0);
+  const acknowledgementsRequest = useRef(0);
+  const publishInFlight = useRef(false);
+  const lifecycleInFlight = useRef(false);
 
   const goBack = () => {
     const destination = returnTo?.startsWith('/officer/') || returnTo === '/officer'
@@ -298,22 +304,51 @@ export function PublishWarningScreen() {
     if (!warning || warning.id !== warningId) return;
     setNotificationTarget(warning.notificationTarget ?? { scope: 'AFFECTED_AREA' });
   }, [warning?.id, warning?.notificationTarget, warningId]);
-  useEffect(() => { if (!accessToken || !warningId || !hasPublishedHistory) return; void getWarningAcknowledgements(warningId, accessToken).then(setAcknowledgements).catch(() => setAcknowledgements(null)); }, [accessToken, warningId, hasPublishedHistory]);
+  useEffect(() => {
+    const requestId = ++acknowledgementsRequest.current;
+    if (!accessToken || !warningId || !hasPublishedHistory) {
+      setAcknowledgements(null);
+      setAcknowledgementsLoading(false);
+      setAcknowledgementsError(null);
+      return;
+    }
+    let active = true;
+    setAcknowledgements(null);
+    setAcknowledgementsLoading(true);
+    setAcknowledgementsError(null);
+    void getWarningAcknowledgements(warningId, accessToken)
+      .then((result) => { if (active) setAcknowledgements(result); })
+      .catch(() => { if (active) setAcknowledgementsError('Unable to load resident responses.'); })
+      .finally(() => {
+        if (active && requestId === acknowledgementsRequest.current) {
+          setAcknowledgementsLoading(false);
+        }
+      });
+    return () => { active = false; acknowledgementsRequest.current += 1; };
+  }, [accessToken, warningId, hasPublishedHistory, acknowledgementsRevision]);
+
+  const retryAcknowledgements = () => {
+    if (acknowledgementsLoading) return;
+    setAcknowledgementsRevision((value) => value + 1);
+  };
 
   const publish = async () => {
-    if (!accessToken || !warningId || busy) return;
+    if (!accessToken || !warningId || busy || publishInFlight.current) return;
     if (!isPublishableNotificationTarget(notificationTarget)) {
       setActionError('Select a district before publishing this warning.');
       return;
     }
+    publishInFlight.current = true;
     setBusy(true);
     setActionError(null);
     try {
-      const result = await publishWarning(warningId, { notificationTarget }, accessToken);
-      setPublishedWarning(result.warning);
+      await publishWarning(warningId, { notificationTarget }, accessToken);
+      setPublishedWarning(null);
+      await resource.reload();
     } catch (failure) {
       setActionError(warningPublishErrorMessage(failure));
     } finally {
+      publishInFlight.current = false;
       setBusy(false);
     }
   };
@@ -337,9 +372,10 @@ export function PublishWarningScreen() {
   // LDFEW-115: save content edits via PATCH. The service discards assessmentId; it is
   // not sent to keep the request clean and avoid confusion in the update schema.
   const saveEdit = async () => {
-    if (!accessToken || !warningId || lifecycleBusy) return;
+    if (!accessToken || !warningId || lifecycleBusy || lifecycleInFlight.current) return;
     const errors = validateWarningForm(editForm);
     if (Object.keys(errors).length > 0) { setEditErrors(errors); return; }
+    lifecycleInFlight.current = true;
     setLifecycleBusy(true);
     setActionError(null);
     try {
@@ -359,13 +395,15 @@ export function PublishWarningScreen() {
     } catch (failure) {
       setActionError(warningLifecycleErrorMessage(failure));
     } finally {
+      lifecycleInFlight.current = false;
       setLifecycleBusy(false);
     }
   };
 
   // LDFEW-115: perform the confirmed cancel or archive transition.
   const confirmLifecycleAction = async (action: 'cancel' | 'archive') => {
-    if (!accessToken || !warningId || lifecycleBusy) return;
+    if (!accessToken || !warningId || lifecycleBusy || lifecycleInFlight.current) return;
+    lifecycleInFlight.current = true;
     setLifecycleBusy(true);
     setActionError(null);
     try {
@@ -384,6 +422,7 @@ export function PublishWarningScreen() {
     } catch (failure) {
       setActionError(warningLifecycleErrorMessage(failure));
     } finally {
+      lifecycleInFlight.current = false;
       setLifecycleBusy(false);
     }
   };
@@ -413,7 +452,12 @@ export function PublishWarningScreen() {
       <AssessmentDetail label="Published At" value={formatWarningDate(publishedWarning.publishedAt)} />
       <AssessmentButton label="View Warning" onPress={() => router.replace({ pathname: '/officer/warnings/[warningId]', params: { warningId, mode: 'view', ...(returnTo ? { returnTo } : {}) } })} />
       <WarningDeliveryPanel delivery={delivery.data} loading={delivery.loading} error={delivery.error} onRetry={delivery.reload} />
-      {acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
+      <ResidentResponsesState
+        data={acknowledgements}
+        loading={acknowledgementsLoading}
+        error={acknowledgementsError}
+        onRetry={retryAcknowledgements}
+      />
       <LifecycleActions
         visible
         canEdit={canEdit}
@@ -441,7 +485,12 @@ export function PublishWarningScreen() {
       {displayedWarning.status === 'DRAFT' ? <NotificationTargetSelector target={notificationTarget} onChange={setNotificationTarget} affectedArea={displayedWarning.affectedArea} /> : <View style={styles.infoCard}><Text style={styles.cardTitle}>Notification Target</Text><Text style={styles.cardSubtitle}>{hasPublishedHistory ? 'Target selected when this warning was published' : 'This warning was cancelled before publication.'}</Text><AssessmentDetail label="Target" value={hasPublishedHistory ? targetLabel(displayedWarning.notificationTarget, displayedWarning.affectedArea) : 'Not published'} /></View>}
       {actionError ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{actionError}</Text> : null}
       {hasPublishedHistory ? <WarningDeliveryPanel delivery={delivery.data} loading={delivery.loading} error={delivery.error} onRetry={delivery.reload} /> : null}
-      {hasPublishedHistory && acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
+      {hasPublishedHistory ? <ResidentResponsesState
+        data={acknowledgements}
+        loading={acknowledgementsLoading}
+        error={acknowledgementsError}
+        onRetry={retryAcknowledgements}
+      /> : null}
       {displayedWarning.status === 'DRAFT' ? !displayedWarning.affectedArea.trim() ? <Text accessibilityRole="alert" style={assessmentStyles.error}>The saved warning has no affected area.</Text> : !isPublishableNotificationTarget(notificationTarget) ? <Text accessibilityRole="alert" style={assessmentStyles.error}>Select a district before publishing this warning.</Text> : confirming ? <>
         <Text style={warningStyles.notice}>Review the saved warning details and confirm the selected notification target before publishing.</Text>
         <AssessmentButton label="Cancel" secondary disabled={busy} onPress={() => setConfirming(false)} />
@@ -536,6 +585,27 @@ function ResidentResponses({ data }: { data: WarningAcknowledgementsResponse }) 
   return <View style={responseStyles.card}><View><Text style={responseStyles.title}>Resident Responses</Text><Text style={responseStyles.subtitle}>Confirmed responses from residents who acknowledged this warning.</Text></View><View style={responseStyles.summary}>{[['Total', data.summary.total, 'total'], ['I am Safe', data.summary.safe, 'safe'], ['Evacuating', data.summary.evacuating, 'evacuating'], ['Need Assistance', data.summary.needAssistance, 'assistance']].map(([label, count, tone]) => <View key={String(label)} style={[responseStyles.stat, responseStyles[tone as 'total' | 'safe' | 'evacuating' | 'assistance']]}><Text style={responseStyles.statLabel}>{label}</Text><Text style={responseStyles.statCount}>{count}</Text></View>)}</View>{data.acknowledgements.length ? data.acknowledgements.map(item => <View key={`${item.warningId}-${item.residentId}`} style={responseStyles.person}><View style={responseStyles.personHeader}><Text style={responseStyles.name}>{item.resident.name}</Text><View style={[responseStyles.responseBadge, responseStyles[item.response.toLowerCase() as 'safeBadge' | 'evacuatingBadge' | 'need_assistanceBadge']]}><Text style={responseStyles.responseBadgeText}>{responseLabel(item.response)}</Text></View></View>{item.resident.district ? <Text style={responseStyles.detail}>District · {item.resident.district}</Text> : null}{item.resident.area ? <Text style={responseStyles.detail}>Area · {item.resident.area}</Text> : null}<Text style={responseStyles.detail}>Submitted · {new Date(item.acknowledgedAt).toLocaleString()}</Text></View>) : <View style={responseStyles.empty}><Text style={responseStyles.emptyTitle}>No resident responses yet</Text><Text style={responseStyles.emptyText}>Residents who acknowledge this warning will appear here.</Text></View>}</View>;
 }
 
+function ResidentResponsesState({ data, loading, error, onRetry }: {
+  data: WarningAcknowledgementsResponse | null;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+}) {
+  if (loading) {
+    return <View style={responseStyles.feedback}>
+      <ActivityIndicator color={dashboardTheme.colors.primary} />
+      <Text style={responseStyles.emptyText}>Loading resident responses...</Text>
+    </View>;
+  }
+  if (error) {
+    return <View style={responseStyles.feedback}>
+      <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text>
+      <AssessmentButton label="Retry resident responses" onPress={onRetry} />
+    </View>;
+  }
+  return data ? <ResidentResponses data={data} /> : null;
+}
+
 const publishStyles = {
   targetCard: { gap: 12, padding: 16, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surfaceMuted } as const,
   targetOption: { minHeight: 48, paddingHorizontal: 12, borderRadius: dashboardTheme.radius.sm, flexDirection: 'row' as const, alignItems: 'center' as const, gap: 10, borderWidth: 1, borderColor: dashboardTheme.colors.border, backgroundColor: dashboardTheme.colors.surface } as const,
@@ -587,4 +657,4 @@ const lifecycleStyles = StyleSheet.create({
   success: { color: dashboardTheme.colors.success, fontSize: 14, fontWeight: '700', paddingVertical: 8 },
 });
 const styles = StyleSheet.create({ publishedPanel: { gap: 16, padding: 20, borderRadius: 18, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border, ...cardShadow }, publishedHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }, headerCopy: { flex: 1, gap: 6 }, eyebrow: { color: dashboardTheme.colors.primaryStrong, fontSize: 11, fontWeight: '900', letterSpacing: 1 }, publishedTitle: { color: dashboardTheme.colors.text, fontSize: 25, fontWeight: '900' }, statusPill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 9, backgroundColor: dashboardTheme.colors.successSoft }, statusDot: { color: dashboardTheme.colors.success, fontSize: 12 }, statusText: { color: '#15803d', fontSize: 12, fontWeight: '900', letterSpacing: 0.5 }, infoCard: { gap: 8, padding: 20, borderRadius: 16, backgroundColor: dashboardTheme.colors.primarySoft, borderWidth: 1, borderColor: '#bfdbfe', ...cardShadow }, cardTitle: { color: dashboardTheme.colors.text, fontSize: 19, fontWeight: '900' }, cardSubtitle: { color: dashboardTheme.colors.muted, fontSize: 13, lineHeight: 19 }, neutralState: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 10, backgroundColor: dashboardTheme.colors.surface }, neutralIcon: { width: 22, height: 22, borderRadius: 11, textAlign: 'center', lineHeight: 22, color: dashboardTheme.colors.primaryStrong, backgroundColor: dashboardTheme.colors.primarySoft, fontWeight: '900' }, neutralText: { flex: 1, color: dashboardTheme.colors.muted, fontSize: 13, lineHeight: 18 } });
-const responseStyles = { card: { gap: 14, marginTop: 16, padding: 20, borderRadius: 16, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border, ...cardShadow } as const, title: { color: dashboardTheme.colors.text, fontSize: 20, fontWeight: '900' as const }, subtitle: { color: dashboardTheme.colors.muted, fontSize: 13, lineHeight: 19 }, summary: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 9 }, stat: { flexGrow: 1, flexBasis: '46%' as const, minWidth: 120, gap: 6, padding: 13, borderRadius: 12, borderWidth: 1 }, total: { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }, safe: { backgroundColor: dashboardTheme.colors.successSoft, borderColor: '#bbf7d0' }, evacuating: { backgroundColor: dashboardTheme.colors.highSoft, borderColor: '#fed7aa' }, assistance: { backgroundColor: dashboardTheme.colors.criticalSoft, borderColor: '#fecaca' }, statLabel: { color: dashboardTheme.colors.muted, fontSize: 12, fontWeight: '800' as const }, statCount: { color: dashboardTheme.colors.text, fontSize: 24, fontWeight: '900' as const }, person: { gap: 7, padding: 15, borderRadius: 12, backgroundColor: dashboardTheme.colors.surfaceMuted, borderWidth: 1, borderColor: dashboardTheme.colors.border }, personHeader: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, gap: 8 }, name: { flex: 1, color: dashboardTheme.colors.text, fontSize: 16, fontWeight: '900' as const }, detail: { color: dashboardTheme.colors.muted, fontSize: 13 }, responseBadge: { maxWidth: '62%' as const, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 8 }, safeBadge: { backgroundColor: dashboardTheme.colors.successSoft }, evacuatingBadge: { backgroundColor: dashboardTheme.colors.highSoft }, need_assistanceBadge: { backgroundColor: dashboardTheme.colors.criticalSoft }, responseBadgeText: { color: dashboardTheme.colors.text, fontSize: 12, fontWeight: '800' as const }, empty: { alignItems: 'center' as const, gap: 5, paddingVertical: 14 }, emptyTitle: { color: dashboardTheme.colors.text, fontWeight: '800' as const }, emptyText: { color: dashboardTheme.colors.muted, fontSize: 13, textAlign: 'center' as const } };
+const responseStyles = { card: { gap: 14, marginTop: 16, padding: 20, borderRadius: 16, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border, ...cardShadow } as const, feedback: { gap: 12, alignItems: 'center' as const, marginTop: 16, padding: 20, borderRadius: 16, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border }, title: { color: dashboardTheme.colors.text, fontSize: 20, fontWeight: '900' as const }, subtitle: { color: dashboardTheme.colors.muted, fontSize: 13, lineHeight: 19 }, summary: { flexDirection: 'row' as const, flexWrap: 'wrap' as const, gap: 9 }, stat: { flexGrow: 1, flexBasis: '46%' as const, minWidth: 120, gap: 6, padding: 13, borderRadius: 12, borderWidth: 1 }, total: { backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }, safe: { backgroundColor: dashboardTheme.colors.successSoft, borderColor: '#bbf7d0' }, evacuating: { backgroundColor: dashboardTheme.colors.highSoft, borderColor: '#fed7aa' }, assistance: { backgroundColor: dashboardTheme.colors.criticalSoft, borderColor: '#fecaca' }, statLabel: { color: dashboardTheme.colors.muted, fontSize: 12, fontWeight: '800' as const }, statCount: { color: dashboardTheme.colors.text, fontSize: 24, fontWeight: '900' as const }, person: { gap: 7, padding: 15, borderRadius: 12, backgroundColor: dashboardTheme.colors.surfaceMuted, borderWidth: 1, borderColor: dashboardTheme.colors.border }, personHeader: { flexDirection: 'row' as const, alignItems: 'center' as const, justifyContent: 'space-between' as const, gap: 8 }, name: { flex: 1, color: dashboardTheme.colors.text, fontSize: 16, fontWeight: '900' as const }, detail: { color: dashboardTheme.colors.muted, fontSize: 13 }, responseBadge: { maxWidth: '62%' as const, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 8 }, safeBadge: { backgroundColor: dashboardTheme.colors.successSoft }, evacuatingBadge: { backgroundColor: dashboardTheme.colors.highSoft }, need_assistanceBadge: { backgroundColor: dashboardTheme.colors.criticalSoft }, responseBadgeText: { color: dashboardTheme.colors.text, fontSize: 12, fontWeight: '800' as const }, empty: { alignItems: 'center' as const, gap: 5, paddingVertical: 14 }, emptyTitle: { color: dashboardTheme.colors.text, fontWeight: '800' as const }, emptyText: { color: dashboardTheme.colors.muted, fontSize: 13, textAlign: 'center' as const } };

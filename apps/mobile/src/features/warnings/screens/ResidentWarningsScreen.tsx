@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../auth/hooks/useAuth';
@@ -13,22 +13,28 @@ import { DashboardGlyph } from '../../dashboards/shared/components/DashboardGlyp
 export function ResidentWarningsScreen() {
   const router = useRouter(); const { accessToken } = useAuth();
   const [warnings, setWarnings] = useState<ResidentWarning[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
+  const requestInFlight = useRef(false);
   const load = useCallback(() => {
     if (!accessToken) {
       setWarnings([]);
       setLoading(false);
       return;
     }
+    if (requestInFlight.current) return;
 
     let active = true;
+    requestInFlight.current = true;
     setLoading(true);
     setError(null);
     void listResidentWarnings(accessToken)
       .then(result => { if (active) setWarnings(result.warnings); })
       .catch(() => { if (active) setError('Unable to load active warnings.'); })
-      .finally(() => { if (active) setLoading(false); });
+      .finally(() => {
+        requestInFlight.current = false;
+        if (active) setLoading(false);
+      });
 
-    return () => { active = false; };
+    return () => { active = false; requestInFlight.current = false; };
   }, [accessToken]);
   useFocusEffect(useCallback(() => load(), [load]));
 

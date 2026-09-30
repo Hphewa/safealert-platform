@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 
@@ -35,6 +35,8 @@ export function NotificationProfileScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [districtOpen, setDistrictOpen] = useState(false);
+  const requestInFlight = useRef(false);
+  const saveInFlight = useRef(false);
   const pushStatus = useNativePushRegistration(accessToken);
   const selectedDistrict = canonicalDistrict(values.district);
   const describeError = (failure: unknown) => failure instanceof ApiClientError
@@ -43,11 +45,15 @@ export function NotificationProfileScreen() {
 
   const load = useCallback(() => {
     if (!accessToken) { setLoading(false); return; }
+    if (requestInFlight.current) return;
+    let active = true;
+    requestInFlight.current = true;
     setLoading(true);
     setError(null);
     setLoaded(false);
     void getNotificationProfile(accessToken)
       .then((result) => {
+        if (!active) return;
         setProfile(result.profile);
         setLoaded(true);
         setValues({
@@ -57,13 +63,18 @@ export function NotificationProfileScreen() {
           phoneNumber: result.profile.phoneNumber ?? ''
         });
       })
-      .catch(failure => setError(describeError(failure)))
-      .finally(() => setLoading(false));
+      .catch(failure => { if (active) setError(describeError(failure)); })
+      .finally(() => {
+        requestInFlight.current = false;
+        if (active) setLoading(false);
+      });
+    return () => { active = false; requestInFlight.current = false; };
   }, [accessToken]);
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => load(), [load]));
 
   const save = async () => {
-    if (!accessToken || saving) return;
+    if (!accessToken || saving || saveInFlight.current) return;
+    saveInFlight.current = true;
     setSaving(true);
     setError(null);
     setMessage(null);
@@ -80,6 +91,7 @@ export function NotificationProfileScreen() {
     } catch (failure) {
       setError(describeError(failure));
     } finally {
+      saveInFlight.current = false;
       setSaving(false);
     }
   };
@@ -127,8 +139,8 @@ export function NotificationProfileScreen() {
         {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
         {message ? <Text style={styles.success}>{message}</Text> : null}
         {!loaded && !loading ? <Pressable accessibilityRole="button" onPress={load}><Text>Retry loading profile</Text></Pressable> : null}
-        <Pressable disabled={saving || loading || !loaded} onPress={() => void save()} style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
-          <Text style={styles.buttonText}>Save notification profile</Text>
+        <Pressable accessibilityState={{ disabled: saving || loading || !loaded }} disabled={saving || loading || !loaded} onPress={() => void save()} style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
+          <Text style={styles.buttonText}>{saving ? 'Saving…' : 'Save notification profile'}</Text>
         </Pressable>
       </View>
       <View style={styles.warningsCard}>
