@@ -42,6 +42,14 @@ function formatWarningDate(value: string | undefined) {
   return value ? new Date(value).toLocaleString() : 'Not recorded';
 }
 
+type NotificationTargetSelection =
+  | Exclude<WarningNotificationTarget, { scope: 'DISTRICT' }>
+  | { scope: 'DISTRICT'; district?: WarningDistrict };
+
+function isPublishableNotificationTarget(target: NotificationTargetSelection): target is WarningNotificationTarget {
+  return target.scope !== 'DISTRICT' || Boolean(target.district);
+}
+
 function TargetOption({ label, selected, onPress }: {
   label: string; selected: boolean; onPress: () => void;
 }) {
@@ -154,13 +162,17 @@ function DistrictSelect({ selectedDistrict, onChange }: {
 }
 
 function NotificationTargetSelector({ target, onChange, affectedArea }: {
-  target: WarningNotificationTarget; onChange: (target: WarningNotificationTarget) => void; affectedArea: string;
+  target: NotificationTargetSelection; onChange: (target: NotificationTargetSelection) => void; affectedArea: string;
 }) {
   return <View style={publishStyles.targetCard}>
     <Text style={assessmentStyles.heading}>Notification Target</Text>
     <Text style={assessmentStyles.helper}>Choose who should receive this warning. This does not change the warning's affected area.</Text>
     <TargetOption label="Affected Area" selected={target.scope === 'AFFECTED_AREA'} onPress={() => onChange({ scope: 'AFFECTED_AREA' })} />
-    <TargetOption label="District" selected={target.scope === 'DISTRICT'} onPress={() => onChange({ scope: 'DISTRICT', district: target.scope === 'DISTRICT' ? target.district : 'Colombo' })} />
+    <TargetOption
+      label="District"
+      selected={target.scope === 'DISTRICT'}
+      onPress={() => onChange(target.scope === 'DISTRICT' ? target : { scope: 'DISTRICT' })}
+    />
     {target.scope === 'AFFECTED_AREA' ? <AssessmentDetail label="Selected area" value={affectedArea} /> : null}
     {target.scope === 'WHOLE_COUNTRY' ? <AssessmentDetail label="Country" value="Sri Lanka" /> : null}
     {target.scope === 'DISTRICT' ? <DistrictSelect selectedDistrict={target.district} onChange={(district) => onChange({ scope: 'DISTRICT', district })} /> : null}
@@ -245,7 +257,7 @@ export function PublishWarningScreen() {
   const [confirming, setConfirming] = useState(false);
   const [publishedResult, setPublishedWarning] = useState<SafeWarning | null>(null);
   const publishedWarning = publishedResult && publishedResult.id === warningId ? publishedResult : null;
-  const [notificationTarget, setNotificationTarget] = useState<WarningNotificationTarget>({ scope: 'AFFECTED_AREA' });
+  const [notificationTarget, setNotificationTarget] = useState<NotificationTargetSelection>({ scope: 'AFFECTED_AREA' });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<'cancel' | 'archive' | null>(null);
@@ -282,10 +294,18 @@ export function PublishWarningScreen() {
   const displayedWarning = publishedWarning ?? warning;
   const hasPublishedHistory = displayedWarning?.status === 'PUBLISHED' || Boolean(displayedWarning?.publishedAt);
   const delivery = useWarningDelivery(warningId, accessToken, hasPublishedHistory);
+  useEffect(() => {
+    if (!warning || warning.id !== warningId) return;
+    setNotificationTarget(warning.notificationTarget ?? { scope: 'AFFECTED_AREA' });
+  }, [warning?.id, warning?.notificationTarget, warningId]);
   useEffect(() => { if (!accessToken || !warningId || !hasPublishedHistory) return; void getWarningAcknowledgements(warningId, accessToken).then(setAcknowledgements).catch(() => setAcknowledgements(null)); }, [accessToken, warningId, hasPublishedHistory]);
 
   const publish = async () => {
     if (!accessToken || !warningId || busy) return;
+    if (!isPublishableNotificationTarget(notificationTarget)) {
+      setActionError('Select a district before publishing this warning.');
+      return;
+    }
     setBusy(true);
     setActionError(null);
     try {
@@ -422,7 +442,7 @@ export function PublishWarningScreen() {
       {actionError ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{actionError}</Text> : null}
       {hasPublishedHistory ? <WarningDeliveryPanel delivery={delivery.data} loading={delivery.loading} error={delivery.error} onRetry={delivery.reload} /> : null}
       {hasPublishedHistory && acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
-      {displayedWarning.status === 'DRAFT' ? !displayedWarning.affectedArea.trim() ? <Text accessibilityRole="alert" style={assessmentStyles.error}>The saved warning has no affected area.</Text> : confirming ? <>
+      {displayedWarning.status === 'DRAFT' ? !displayedWarning.affectedArea.trim() ? <Text accessibilityRole="alert" style={assessmentStyles.error}>The saved warning has no affected area.</Text> : !isPublishableNotificationTarget(notificationTarget) ? <Text accessibilityRole="alert" style={assessmentStyles.error}>Select a district before publishing this warning.</Text> : confirming ? <>
         <Text style={warningStyles.notice}>Review the saved warning details and confirm the selected notification target before publishing.</Text>
         <AssessmentButton label="Cancel" secondary disabled={busy} onPress={() => setConfirming(false)} />
         <AssessmentButton label={busy ? 'Publishing…' : 'Confirm & Publish'} disabled={busy} onPress={() => void publish()} />

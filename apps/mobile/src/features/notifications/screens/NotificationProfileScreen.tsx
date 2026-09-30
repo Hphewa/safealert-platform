@@ -5,7 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { getNotificationProfile, updateNotificationProfile } from '../api/notificationApi';
 import type { NotificationProfile } from '@safealert/contracts';
-import { WARNING_DISTRICTS, NOTIFICATION_COUNTRY } from '@safealert/contracts';
+import { normalizeNotificationLocation, WARNING_DISTRICTS, NOTIFICATION_COUNTRY, type WarningDistrict } from '@safealert/contracts';
 import { ApiClientError } from '../../../services/api/client';
 import { useNativePushRegistration } from '../useNativePushRegistration';
 import { DashboardHeader } from '../../dashboards/shared/components/DashboardHeader';
@@ -17,6 +17,12 @@ const fields = [
   { key: 'area', label: 'Area / Locality', placeholder: 'Your existing locality name' },
   { key: 'phoneNumber', label: 'Phone number', placeholder: 'e.g. 0771234567', keyboardType: 'phone-pad' as const }
 ] as const;
+
+function canonicalDistrict(value: string | null | undefined): WarningDistrict | undefined {
+  const normalized = normalizeNotificationLocation(value);
+  if (!normalized) return undefined;
+  return WARNING_DISTRICTS.find((district) => normalizeNotificationLocation(district) === normalized);
+}
 
 export function NotificationProfileScreen() {
   const router = useRouter();
@@ -30,6 +36,7 @@ export function NotificationProfileScreen() {
   const [loaded, setLoaded] = useState(false);
   const [districtOpen, setDistrictOpen] = useState(false);
   const pushStatus = useNativePushRegistration(accessToken);
+  const selectedDistrict = canonicalDistrict(values.district);
   const describeError = (failure: unknown) => failure instanceof ApiClientError
     ? failure.status === 401 ? 'Your session has expired. Sign in again.' : `${failure.message} (${failure.code})`
     : 'Unable to complete the request. Please retry.';
@@ -45,7 +52,7 @@ export function NotificationProfileScreen() {
         setLoaded(true);
         setValues({
           area: result.profile.area ?? '',
-          district: result.profile.district ?? '',
+          district: canonicalDistrict(result.profile.district) ?? '',
           country: result.profile.country ?? '',
           phoneNumber: result.profile.phoneNumber ?? ''
         });
@@ -61,9 +68,10 @@ export function NotificationProfileScreen() {
     setError(null);
     setMessage(null);
     try {
+      const district = canonicalDistrict(values.district);
       const result = await updateNotificationProfile({
         area: values.area?.trim() || null,
-        district: values.district?.trim() || null,
+        district: district ?? null,
         country: NOTIFICATION_COUNTRY,
         phoneNumber: values.phoneNumber?.trim() || null
       }, accessToken);
@@ -109,7 +117,7 @@ export function NotificationProfileScreen() {
 
         <Text style={styles.label}>District</Text>
         <Pressable accessibilityRole="button" accessibilityLabel="Select district" accessibilityState={{ expanded: districtOpen }} disabled={!loaded || saving} onPress={() => setDistrictOpen(true)} style={styles.select}>
-          <Text style={values.district ? styles.selectText : styles.placeholder}>{values.district || 'Select your district'}</Text><Text style={styles.chevron}>⌄</Text>
+          <Text style={selectedDistrict ? styles.selectText : styles.placeholder}>{selectedDistrict ?? 'Select your district'}</Text><Text style={styles.chevron}>⌄</Text>
         </Pressable>
         <View style={styles.country}><Text style={styles.countryLabel}>Country</Text><Text style={styles.countryValue}>{NOTIFICATION_COUNTRY}</Text></View>
         </View>
@@ -146,7 +154,7 @@ export function NotificationProfileScreen() {
 
       <Modal transparent visible={districtOpen} animationType="fade" onRequestClose={() => setDistrictOpen(false)}>
         <Pressable style={styles.modalBackdrop} onPress={() => setDistrictOpen(false)}>
-          <View style={styles.modalCard}><Text style={styles.modalTitle}>Select district</Text><ScrollView>{WARNING_DISTRICTS.map(district => <Pressable key={district} accessibilityRole="radio" accessibilityState={{ checked: values.district === district }} onPress={() => { setValues(current => ({ ...current, district })); setDistrictOpen(false); }} style={[styles.option, values.district === district && styles.optionSelected]}><Text style={styles.optionText}>{district}</Text></Pressable>)}</ScrollView></View>
+          <View style={styles.modalCard}><Text style={styles.modalTitle}>Select district</Text><ScrollView>{WARNING_DISTRICTS.map(district => { const selected = canonicalDistrict(values.district) === district; return <Pressable key={district} accessibilityRole="radio" accessibilityState={{ checked: selected }} onPress={() => { setValues(current => ({ ...current, district })); setDistrictOpen(false); }} style={[styles.option, selected && styles.optionSelected]}><Text style={styles.optionText}>{district}</Text></Pressable>; })}</ScrollView></View>
         </Pressable>
       </Modal>
     </DashboardScreen>
