@@ -54,7 +54,32 @@ export const responseRequestProgressSchema = z
       .max(1000, 'Responder remarks must be at most 1000 characters.')
       .optional()
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.status !== 'COMPLETED') {
+      if (data.assistanceProvided !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Assistance provided is only allowed when status is COMPLETED.',
+          path: ['assistanceProvided']
+        });
+      }
+      if (data.completionSummary !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Completion summary is only allowed when status is COMPLETED.',
+          path: ['completionSummary']
+        });
+      }
+      if (data.responderRemarks !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Responder remarks are only allowed when status is COMPLETED.',
+          path: ['responderRemarks']
+        });
+      }
+    }
+  });
 
 const geoJsonPointSchema = z
   .object({

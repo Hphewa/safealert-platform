@@ -68,6 +68,9 @@ export function ResponderRequestDetailsScreen() {
     : (responseRequest?.fieldNotes ?? '');
   const setFieldNotesInput = (value: string) => {
     setFieldNotesDraft({ id: responseRequest?.id ?? '', value });
+    if (fieldUpdateFeedback?.kind === 'error') {
+      setFieldUpdateFeedback(null);
+    }
   };
 
   // Synchronous ref gate prevents rapid multiple button presses from firing duplicate
@@ -195,7 +198,7 @@ export function ResponderRequestDetailsScreen() {
       return;
     }
 
-    // LDFEW-266 / LDFEW-352: Validate required completion information before final completion.
+    // LDFEW-266 / LDFEW-352 / LDFEW-353: Validate required completion information before final completion.
     // When completing an IN_PROGRESS request, ensure that required details (assistance provided
     // and completion outcome) are present and conform to boundary rules.
     const hasCompletionActivity = Boolean(
@@ -615,7 +618,10 @@ export function ResponderRequestDetailsScreen() {
               onChangeText={setFieldNotesInput}
               placeholder="Record operational observations, hazards encountered, or supply updates..."
               placeholderTextColor={dashboardTheme.colors.muted}
-              style={styles.textAreaInput}
+              style={[
+                styles.textAreaInput,
+                currentFieldFeedback?.kind === 'error' ? styles.inputErrorBorder : null
+              ]}
               value={fieldNotesInput}
             />
             <Text style={styles.charCount}>{fieldNotesInput.length} / 2000</Text>

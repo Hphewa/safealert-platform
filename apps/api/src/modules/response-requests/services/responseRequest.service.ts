@@ -333,8 +333,8 @@ export class ResponseRequestService {
     actor: ResponderActionActor | null | undefined,
     nextStatus: ResponseStatus,
     completionDetails?: {
-      assistanceProvided: string;
-      completionSummary: string;
+      assistanceProvided?: string;
+      completionSummary?: string;
       responderRemarks?: string;
     }
   ) {
@@ -368,7 +368,7 @@ export class ResponseRequestService {
       );
     }
 
-    // LDFEW-356: Ensure required completion details are validated before transitioning to COMPLETED
+    // LDFEW-266 / LDFEW-353: Ensure required completion details are validated before transitioning to COMPLETED
     if (nextStatus === 'COMPLETED') {
       if (!completionDetails || (!completionDetails.assistanceProvided && !completionDetails.completionSummary)) {
         throw new ApiError(
@@ -406,12 +406,20 @@ export class ResponseRequestService {
       }
     }
 
+    const validatedCompletionDetails = nextStatus === 'COMPLETED' && completionDetails?.assistanceProvided && completionDetails?.completionSummary
+      ? {
+          assistanceProvided: completionDetails.assistanceProvided.trim(),
+          completionSummary: completionDetails.completionSummary.trim(),
+          ...(completionDetails.responderRemarks?.trim() ? { responderRemarks: completionDetails.responderRemarks.trim() } : {})
+        }
+      : undefined;
+
     const updatedRequest = await this.repository.updateResponseRequestProgress(
       requestId,
       responderId,
       responseRequest.status,
       nextStatus,
-      completionDetails
+      validatedCompletionDetails
     );
 
     if (!updatedRequest) {

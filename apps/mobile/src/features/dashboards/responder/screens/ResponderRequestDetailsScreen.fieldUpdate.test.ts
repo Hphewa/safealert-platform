@@ -290,6 +290,33 @@ describe('LDFEW-351: Field Update UI Section in Responder Request Details', () =
       expect(text).toContain('Field update notes must be at least 3 characters.');
       expect(saveResponderFieldUpdate).not.toHaveBeenCalled();
     });
+
+    it('shows validation error when notes exceed 2000 characters and does not call API', async () => {
+      const input = getFieldNotesInput();
+      input?.onChangeText?.('a'.repeat(2001));
+
+      const saveBtn = getSaveFieldUpdateButton();
+      saveBtn?.onPress();
+
+      const text = screenText(renderDetails());
+      expect(text).toContain('Field update notes must be at most 2000 characters.');
+      expect(saveResponderFieldUpdate).not.toHaveBeenCalled();
+    });
+
+    it('clears field update error dynamically when user types to correct input', async () => {
+      const input = getFieldNotesInput();
+      input?.onChangeText?.('');
+
+      const saveBtn = getSaveFieldUpdateButton();
+      saveBtn?.onPress();
+
+      expect(screenText(renderDetails())).toContain('Field update notes cannot be empty.');
+
+      // Start typing
+      getFieldNotesInput()?.onChangeText?.('Road cleared.');
+
+      expect(screenText(renderDetails())).not.toContain('Field update notes cannot be empty.');
+    });
   });
 
   describe('Successful Save and Payload Verification', () => {

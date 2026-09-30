@@ -192,12 +192,12 @@ export function createResponseRequestController(responseRequestService: Response
     }
 
     const parsed = responseRequestProgressSchema.parse(request.body);
-    // LDFEW-356: Extract completion details when completing the request
-    const completionDetails = parsed.status === 'COMPLETED' && parsed.assistanceProvided !== undefined && parsed.completionSummary !== undefined
+    // LDFEW-266 / LDFEW-353: Extract completion details when completing the request
+    const completionDetails = parsed.status === 'COMPLETED'
       ? {
-          assistanceProvided: parsed.assistanceProvided,
-          completionSummary: parsed.completionSummary,
-          ...(parsed.responderRemarks ? { responderRemarks: parsed.responderRemarks } : {})
+          ...(parsed.assistanceProvided !== undefined ? { assistanceProvided: parsed.assistanceProvided } : {}),
+          ...(parsed.completionSummary !== undefined ? { completionSummary: parsed.completionSummary } : {}),
+          ...(parsed.responderRemarks !== undefined ? { responderRemarks: parsed.responderRemarks } : {})
         }
       : undefined;
 

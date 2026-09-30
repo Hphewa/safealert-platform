@@ -332,6 +332,19 @@ describe('LDFEW-352: Mobile-Friendly Completion Details Form in Responder Reques
       expect(updateResponderRequestProgress).not.toHaveBeenCalled();
     });
 
+    it('prevents submission and displays inline errors when attempting to complete with empty fields entered', async () => {
+      getAssistanceInput()?.onChangeText?.('');
+      getSummaryInput()?.onChangeText?.('');
+
+      const completeBtn = getCompleteRequestButton();
+      await completeBtn?.onPress();
+
+      const text = screenText(renderDetails());
+      expect(text).toContain('Assistance provided is required.');
+      expect(text).toContain('Completion summary is required.');
+      expect(updateResponderRequestProgress).not.toHaveBeenCalled();
+    });
+
     it('clears field-level error dynamically when the responder types into that input', async () => {
       // Trigger validation error on Assistance Provided
       getAssistanceInput()?.onChangeText?.('');
@@ -345,6 +358,18 @@ describe('LDFEW-352: Mobile-Friendly Completion Details Form in Responder Reques
 
       // The field error should be cleared immediately upon editing
       expect(screenText(renderDetails())).not.toContain('Assistance provided is required.');
+    });
+
+    it('clears completion summary error dynamically when the responder types into summary input', async () => {
+      getAssistanceInput()?.onChangeText?.('Valid assistance provided.');
+      getSummaryInput()?.onChangeText?.('');
+      getCompleteRequestButton()?.onPress();
+
+      expect(screenText(renderDetails())).toContain('Completion summary is required.');
+
+      getSummaryInput()?.onChangeText?.('Patient is stable.');
+
+      expect(screenText(renderDetails())).not.toContain('Completion summary is required.');
     });
   });
 
