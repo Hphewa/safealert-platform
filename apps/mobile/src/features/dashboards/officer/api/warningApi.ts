@@ -27,6 +27,11 @@ export function archiveWarning(id: string, accessToken: string) {
 export function getWarningAcknowledgements(id: string, accessToken: string) {
   return apiRequest<WarningAcknowledgementsResponse>(`/warnings/${encodeURIComponent(id)}/acknowledgements`, { accessToken });
 }
+export type WarningDeliverySummary = { recipientCount: number; sms: { sent: number; failed: number; skipped: number }; push: { sent: number; failed: number; skipped: number } };
+export type FailedWarningDelivery = { id: string; resident: string; channel: 'SMS' | 'PUSH'; status: 'FAILED'; provider?: string; reason: string; attemptCount: number; lastAttemptAt: string; phone?: string };
+export function getWarningDelivery(id: string, accessToken: string) {
+  return apiRequest<{ summary: WarningDeliverySummary; failedDeliveries: FailedWarningDelivery[] }>(`/warnings/${encodeURIComponent(id)}/delivery`, { accessToken });
+}
 
 export async function saveWarningWithPhotos(input: CreateWarningRequest, photos: WarningPhoto[], accessToken: string,
   uploaded: Map<string, string>, onProgress: (message: string) => void, isCurrent: () => boolean = () => true) {

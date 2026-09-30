@@ -37,6 +37,7 @@ export const WarningDeliveryModel =
   mongoose.model<WarningDeliveryDocument>('WarningDelivery', warningDeliverySchema);
 
 export function toSafeWarningDelivery(delivery: WarningDeliveryDocument): SafeWarningNotificationDelivery {
+  const attempts = delivery.attempts ?? [];
   return {
     id: delivery._id.toString(),
     warningId: delivery.warningId.toString(),
@@ -51,7 +52,7 @@ export function toSafeWarningDelivery(delivery: WarningDeliveryDocument): SafeWa
     ...(delivery.errorMessage ? { errorMessage: delivery.errorMessage } : {}),
     ...(delivery.sentAt ? { sentAt: delivery.sentAt.toISOString() } : {}),
     attemptCount: delivery.attemptCount,
-    attempts: delivery.attempts.map((attempt) => ({ attempt: attempt.attempt, status: attempt.status, attemptedAt: attempt.attemptedAt.toISOString(), ...(attempt.provider ? { provider: attempt.provider } : {}), ...(attempt.providerStatus ? { providerStatus: attempt.providerStatus } : {}), ...(attempt.errorCode ? { errorCode: attempt.errorCode } : {}), ...(attempt.errorMessage ? { errorMessage: attempt.errorMessage } : {}) })),
+    attempts: attempts.map((attempt) => ({ attempt: attempt.attempt, status: attempt.status, attemptedAt: attempt.attemptedAt.toISOString(), ...(attempt.provider ? { provider: attempt.provider } : {}), ...(attempt.providerStatus ? { providerStatus: attempt.providerStatus } : {}), ...(attempt.errorCode ? { errorCode: attempt.errorCode } : {}), ...(attempt.errorMessage ? { errorMessage: attempt.errorMessage } : {}) })),
     createdAt: delivery.createdAt.toISOString(),
     updatedAt: delivery.updatedAt.toISOString()
   };

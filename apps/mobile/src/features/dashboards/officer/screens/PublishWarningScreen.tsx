@@ -9,13 +9,14 @@ import {
   type WarningNotificationTarget
 } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { archiveWarning, cancelWarning, getWarning, getWarningAcknowledgements, publishWarning, updateWarning } from '../api/warningApi';
+import { archiveWarning, cancelWarning, getWarning, getWarningAcknowledgements, getWarningDelivery, publishWarning, updateWarning, type WarningDeliverySummary, type FailedWarningDelivery } from '../api/warningApi';
 import type { WarningAcknowledgementsResponse, WarningAcknowledgementResponse } from '@safealert/contracts';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import {
   AssessmentButton, AssessmentDetail, AssessmentLoadState, assessmentStyles
 } from '../components/RiskAssessmentComponents';
 import { WarningPage, warningStyles } from '../components/WarningComponents';
+import { WarningDeliveryPanel } from '../components/WarningDeliveryPanel';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { warningLifecycleErrorMessage, warningPublishErrorMessage } from '../riskAssessmentForm';
@@ -98,6 +99,9 @@ export function PublishWarningScreen() {
   const [editForm, setEditForm] = useState<WarningForm>(initialWarningForm);
   const [editErrors, setEditErrors] = useState<WarningFormErrors>({});
   const [acknowledgements, setAcknowledgements] = useState<WarningAcknowledgementsResponse | null>(null);
+  const [delivery, setDelivery] = useState<{ summary: WarningDeliverySummary; failedDeliveries: FailedWarningDelivery[] } | null>(null);
+  const [deliveryLoading, setDeliveryLoading] = useState(false);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
   const goBack = () => {
     if (router.canGoBack()) {
@@ -115,6 +119,11 @@ export function PublishWarningScreen() {
   const resource = useAssessmentResource(load);
   const warning = resource.data?.warning;
   useEffect(() => { if (!accessToken || !warningId || (warning?.status !== 'PUBLISHED' && !publishedWarning)) return; void getWarningAcknowledgements(warningId, accessToken).then(setAcknowledgements).catch(() => setAcknowledgements(null)); }, [accessToken, warningId, warning?.status, publishedWarning]);
+  useEffect(() => {
+    if (!accessToken || !warningId || (warning?.status !== 'PUBLISHED' && !publishedWarning)) return;
+    setDeliveryLoading(true); setDeliveryError(null);
+    void getWarningDelivery(warningId, accessToken).then(setDelivery).catch(() => setDeliveryError('Unable to load delivery status.')).finally(() => setDeliveryLoading(false));
+  }, [accessToken, warningId, warning?.status, publishedWarning]);
 
   const publish = async () => {
     if (!accessToken || !warningId || busy) return;
@@ -236,7 +245,7 @@ export function PublishWarningScreen() {
       <AssessmentDetail label="Current Status" value={displayedWarning.status} />
       {isPublished ? <View style={styles.infoCard}><Text style={styles.cardTitle}>Notification Target</Text><Text style={styles.cardSubtitle}>Who received this warning</Text><AssessmentDetail label="Target" value={targetLabel(displayedWarning.notificationTarget, displayedWarning.affectedArea)} /></View> : <NotificationTargetSelector target={notificationTarget} onChange={setNotificationTarget} affectedArea={displayedWarning.affectedArea} />}
       {actionError ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{actionError}</Text> : null}
-      {isPublished ? <View style={styles.infoCard}><Text style={styles.cardTitle}>Notification Delivery</Text><Text style={styles.cardSubtitle}>Delivery status is shown only when available.</Text><View style={styles.neutralState}><Text style={styles.neutralIcon}>i</Text><Text style={styles.neutralText}>Delivery details are not available on this screen.</Text></View></View> : null}
+      {isPublished ? <WarningDeliveryPanel delivery={delivery} loading={deliveryLoading} error={deliveryError} onRetry={() => { if (!accessToken || !warningId) return; setDeliveryLoading(true); setDeliveryError(null); void getWarningDelivery(warningId, accessToken).then(setDelivery).catch(() => setDeliveryError('Unable to load delivery status.')).finally(() => setDeliveryLoading(false)); }} /> : null}
       {isPublished && acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
       {displayedWarning.status === 'DRAFT' ? !displayedWarning.affectedArea.trim() ? <Text accessibilityRole="alert" style={assessmentStyles.error}>The saved warning has no affected area.</Text> : confirming ? <>
         <Text style={warningStyles.notice}>Review the saved warning details and confirm the selected notification target before publishing.</Text>

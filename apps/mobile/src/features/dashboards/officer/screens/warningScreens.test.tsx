@@ -19,7 +19,8 @@ vi.mock('react-native', () => {
     Pressable: ({ children, disabled }: { children?: ReactNode; disabled?: boolean }) => <button disabled={disabled}>{children}</button>,
     TextInput: ({ accessibilityLabel, value }: { accessibilityLabel: string; value: string }) => <input aria-label={accessibilityLabel} value={value} readOnly />,
     ActivityIndicator: () => <span>Loading</span>, Image: () => <span>Image</span>,
-    Platform: { OS: 'android' }, StyleSheet: { create: (styles: unknown) => styles }
+    Platform: { OS: 'android', select: (options: { android?: unknown; default?: unknown }) => options.android ?? options.default },
+    StyleSheet: { create: (styles: unknown) => styles }
   };
 });
 vi.mock('expo-router', () => ({
