@@ -85,9 +85,10 @@ function ConfirmDialog({ title, message, confirmLabel, onCancel, onConfirm, busy
 export function PublishWarningScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ warningId?: string | string[]; mode?: string | string[] }>();
+  const params = useLocalSearchParams<{ warningId?: string | string[]; mode?: string | string[]; returnTo?: string | string[] }>();
   const warningId = Array.isArray(params.warningId) ? params.warningId[0] : params.warningId;
   const mode = Array.isArray(params.mode) ? params.mode[0] : params.mode;
+  const returnTo = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
   const [confirming, setConfirming] = useState(false);
   const [publishedResult, setPublishedWarning] = useState<SafeWarning | null>(null);
   const publishedWarning = publishedResult && publishedResult.id === warningId ? publishedResult : null;
@@ -108,7 +109,10 @@ export function PublishWarningScreen() {
       return;
     }
 
-    router.replace('/officer');
+    const fallback = returnTo?.startsWith('/officer/') || returnTo === '/officer'
+      ? returnTo
+      : '/officer/warnings';
+    router.replace(fallback);
   };
 
   const load = useCallback(async () => {
@@ -227,7 +231,8 @@ export function PublishWarningScreen() {
       <AssessmentDetail label="Affected Area" value={publishedWarning.affectedArea} />
       <AssessmentDetail label="Notification Target" value={targetLabel(publishedWarning.notificationTarget, publishedWarning.affectedArea)} />
       <AssessmentDetail label="Published At" value={publishedWarning.publishedAt ? new Date(publishedWarning.publishedAt).toLocaleString() : 'Just now'} />
-      <AssessmentButton label="View Warning" onPress={() => router.replace({ pathname: '/officer/warnings/[warningId]', params: { warningId } })} />
+      <AssessmentButton label="View Warning" onPress={() => router.replace({ pathname: '/officer/warnings/[warningId]', params: { warningId, mode: 'view', ...(returnTo ? { returnTo } : {}) } })} />
+      <WarningDeliveryPanel delivery={delivery.data} loading={delivery.loading} error={delivery.error} onRetry={delivery.reload} />
       {acknowledgements ? <ResidentResponses data={acknowledgements} /> : null}
     </View> : <View style={assessmentStyles.card}>
       <Text style={assessmentStyles.heading}>Warning Details</Text>

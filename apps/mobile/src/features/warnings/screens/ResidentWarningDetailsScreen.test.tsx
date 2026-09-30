@@ -14,7 +14,7 @@ const lifecycle = vi.hoisted(() => ({
   effectDeps: [] as string[],
   params: { warningId: 'warning-1' } as Record<string, string | string[] | undefined>,
 }));
-const navigation = vi.hoisted(() => ({ back: vi.fn() }));
+const navigation = vi.hoisted(() => ({ back: vi.fn(), canGoBack: vi.fn(() => true), replace: vi.fn() }));
 const gestures = vi.hoisted(() => ({
   handlers: {} as {
     onMoveShouldSetPanResponder?: (event: unknown, gesture: { dy: number; dx: number }) => boolean;
@@ -25,6 +25,7 @@ const gestures = vi.hoisted(() => ({
 
 vi.mock('react', async (importOriginal) => ({
   ...await importOriginal<typeof React>(),
+  useCallback: (callback: unknown) => callback,
   useEffect: (callback: () => void, deps?: unknown[]) => {
     // Only re-run an effect when its dependencies change, so the real fetch
     // effect is exercised once per mount like it is on a device.
@@ -48,6 +49,13 @@ vi.mock('react', async (importOriginal) => ({
 vi.mock('expo-router', () => ({
   useLocalSearchParams: () => lifecycle.params,
   useRouter: () => navigation,
+  useFocusEffect: (callback: () => void | (() => void)) => {
+    const index = lifecycle.effectCursor++;
+    const key = `focus-${index}`;
+    if (lifecycle.effectDeps[index] === key) return;
+    lifecycle.effectDeps[index] = key;
+    callback();
+  },
 }));
 
 vi.mock('react-native', () => ({
@@ -69,6 +77,7 @@ vi.mock('react-native', () => ({
     children?: React.ReactNode; onPress?: () => void; disabled?: boolean; accessibilityLabel?: string;
   }) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>,
   ScrollView: ({ children }: { children?: React.ReactNode }) => <section>{children}</section>,
+  Platform: { select: (options: { default?: unknown }) => options.default },
   StyleSheet: { create: (styles: unknown) => styles },
   Text: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
   View: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,

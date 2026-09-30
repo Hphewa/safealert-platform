@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { getNotificationProfile, updateNotificationProfile } from '../api/notificationApi';
@@ -53,7 +53,7 @@ export function NotificationProfileScreen() {
       .catch(failure => setError(describeError(failure)))
       .finally(() => setLoading(false));
   }, [accessToken]);
-  useEffect(load, [load]);
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   const save = async () => {
     if (!accessToken || saving) return;
@@ -133,7 +133,7 @@ export function NotificationProfileScreen() {
           >
             <View style={styles.warningsContent}>
               <Text style={styles.warningsTitle}>Notifications & Warnings</Text>
-              <Text style={styles.warningsSubtitle}>View active safety warnings and notifications.</Text>
+              <Text style={styles.warningsSubtitle}>View active safety warnings.</Text>
             </View>
             <Text style={styles.arrowText}>›</Text>
           </Pressable>

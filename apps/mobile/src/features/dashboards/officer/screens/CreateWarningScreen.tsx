@@ -20,8 +20,9 @@ import { ReviewWarningScreen } from './ReviewWarningScreen';
 export function CreateWarningScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ assessmentId?: string | string[] }>();
+  const params = useLocalSearchParams<{ assessmentId?: string | string[]; returnTo?: string | string[] }>();
   const assessmentId = Array.isArray(params.assessmentId) ? params.assessmentId[0] : params.assessmentId;
+  const returnTo = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
   const [form, setForm] = useState<WarningForm>(initialWarningForm);
   const [errors, setErrors] = useState<WarningFormErrors>({});
   const [review, setReview] = useState<CreateWarningRequest | null>(null);
@@ -51,7 +52,16 @@ export function CreateWarningScreen() {
     return () => { generation.current += 1; };
   }, [accessToken, assessmentId]));
 
-  const back = () => router.back();
+  const back = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    const fallback = returnTo?.startsWith('/officer/') || returnTo === '/officer'
+      ? returnTo
+      : '/officer/warnings';
+    router.replace(fallback);
+  };
   const update = (field: keyof WarningForm, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
     setErrors((current) => { const next = { ...current }; delete next[field]; return next; });
@@ -113,10 +123,10 @@ export function CreateWarningScreen() {
         <AssessmentDetail label="Warning Reference" value={saved.id} />
         <AssessmentDetail label="Status" value={saved.status} />
         <AssessmentButton label="Publish Warning" onPress={() => router.push({
-          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id, mode: 'published' }
+          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id, mode: 'published', returnTo: returnTo ?? '/officer/warnings' }
         })} />
         <AssessmentButton label="View Warning" secondary onPress={() => router.push({
-          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id, mode: 'view' }
+          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id, mode: 'view', returnTo: returnTo ?? '/officer/warnings' }
         })} />
       </View> : <>
         {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}

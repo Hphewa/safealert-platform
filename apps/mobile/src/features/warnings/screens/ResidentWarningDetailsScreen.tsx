@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import type { TextStyle, ViewStyle } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../auth/hooks/useAuth';
 import { acknowledgeResidentWarning, getResidentWarning } from '../api/residentWarningApi';
 import type { ResidentWarning, WarningAcknowledgementResponse } from '@safealert/contracts';
@@ -269,7 +269,8 @@ function SafetyGuidanceSheet({
 // ---------------------------------------------------------------------------
 
 export function ResidentWarningDetailsScreen() {
-  const { warningId } = useLocalSearchParams<{ warningId: string }>();
+  const params = useLocalSearchParams<{ warningId?: string | string[] }>();
+  const warningId = Array.isArray(params.warningId) ? params.warningId[0] : params.warningId;
   const { accessToken } = useAuth();
   const router = useRouter();
 
@@ -279,12 +280,33 @@ export function ResidentWarningDetailsScreen() {
   const [response, setResponse] = useState<WarningAcknowledgementResponse | null>(null);
   const [isGuidanceOpen, setIsGuidanceOpen] = useState(false);
 
-  useEffect(() => {
-    if (!accessToken || !warningId) return;
-    void getResidentWarning(warningId, accessToken)
-      .then((r) => setWarning(r.warning))
-      .catch(() => setError('This warning is unavailable.'));
-  }, [accessToken, warningId]);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setWarning(null);
+      setError(null);
+      setResponse(null);
+
+      if (!accessToken || !warningId) {
+        setError('This warning is unavailable.');
+        return () => { active = false; };
+      }
+
+      void getResidentWarning(warningId, accessToken)
+        .then((result) => { if (active) setWarning(result.warning); })
+        .catch(() => { if (active) setError('This warning is unavailable.'); });
+
+      return () => { active = false; };
+    }, [accessToken, warningId])
+  );
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/resident/warnings');
+  };
 
   const acknowledge = async () => {
     if (!accessToken || !warning || !response || saving) return;
@@ -311,7 +333,7 @@ export function ResidentWarningDetailsScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>{error ?? 'Warning unavailable.'}</Text>
-        <Pressable accessibilityRole="button" onPress={() => router.back()}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={goBack}>
           <Text style={styles.back}>Go back</Text>
         </Pressable>
       </View>
@@ -332,7 +354,7 @@ export function ResidentWarningDetailsScreen() {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Go back"
-        onPress={() => router.back()}
+        onPress={goBack}
         style={({ pressed }) => [styles.backIcon, pressed && styles.dimmed]}
       >
         <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.primaryStrong} size={22} />
@@ -415,7 +437,7 @@ export function ResidentWarningDetailsScreen() {
 
       <Pressable
         accessibilityRole="button"
-        onPress={() => router.back()}
+        onPress={goBack}
         style={styles.backPressable}
       >
         <Text style={styles.back}>Back to active warnings</Text>

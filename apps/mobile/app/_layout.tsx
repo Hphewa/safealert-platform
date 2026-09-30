@@ -2,12 +2,13 @@ import { Stack } from 'expo-router';
 
 import { AuthProvider } from '../src/features/auth/context/AuthContext';
 import { useEffect } from 'react';
-import { useRouter } from 'expo-router';
+import { usePathname, useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 
 function NotificationTapHandler() {
   const router = useRouter();
+  const pathname = usePathname();
   useEffect(() => {
     // Remote notification support is not available in Expo Go. Avoid importing
     // expo-notifications there because the module logs an error during startup.
@@ -19,6 +20,7 @@ function NotificationTapHandler() {
       const openWarning = (response: { notification?: { request?: { content?: { data?: Record<string, unknown> } } } }) => {
         const warningId = response.notification?.request?.content?.data?.warningId;
         if (active && typeof warningId === 'string' && warningId) {
+          if (pathname === `/resident/warnings/${warningId}`) return;
           router.push({ pathname: '/resident/warnings/[warningId]', params: { warningId } });
         }
       };
@@ -28,7 +30,7 @@ function NotificationTapHandler() {
       if (initial) openWarning(initial as Parameters<typeof openWarning>[0]);
     }).catch(() => undefined);
     return () => { active = false; remove?.(); };
-  }, [router]);
+  }, [pathname, router]);
   return null;
 }
 

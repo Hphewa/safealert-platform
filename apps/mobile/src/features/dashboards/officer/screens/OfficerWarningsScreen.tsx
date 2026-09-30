@@ -221,12 +221,12 @@ export function OfficerWarningsScreen() {
                   {warningId ? (
                     <AssessmentButton
                       label={row.status === 'PUBLISHED' ? 'View Published Warning' : row.status === 'DRAFT' ? 'View/Edit Draft' : 'View Warning'}
-                      onPress={() => router.push({ pathname: '/officer/warnings/[warningId]', params: { warningId, mode: row.status === 'PUBLISHED' ? 'published' : row.status === 'DRAFT' ? 'draft' : 'view' } })}
+                      onPress={() => router.push({ pathname: '/officer/warnings/[warningId]', params: { warningId, mode: row.status === 'PUBLISHED' ? 'published' : row.status === 'DRAFT' ? 'draft' : 'view', returnTo: '/officer/warnings' } })}
                     />
                   ) : (
                     <AssessmentButton
                       label="Create Warning"
-                      onPress={() => router.push({ pathname: '/officer/warnings/create', params: { assessmentId: row.assessmentId } })}
+                      onPress={() => router.push({ pathname: '/officer/warnings/create', params: { assessmentId: row.assessmentId, returnTo: '/officer/warnings' } })}
                     />
                   )}
                 </View>

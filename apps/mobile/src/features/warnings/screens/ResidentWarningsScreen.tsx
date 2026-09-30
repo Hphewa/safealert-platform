@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../auth/hooks/useAuth';
 import { listResidentWarnings } from '../api/residentWarningApi';
 import type { ResidentWarning } from '@safealert/contracts';
@@ -13,10 +13,34 @@ import { DashboardGlyph } from '../../dashboards/shared/components/DashboardGlyp
 export function ResidentWarningsScreen() {
   const router = useRouter(); const { accessToken } = useAuth();
   const [warnings, setWarnings] = useState<ResidentWarning[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
-  const load = useCallback(() => { if (!accessToken) return; setLoading(true); setError(null); void listResidentWarnings(accessToken).then(r => setWarnings(r.warnings)).catch(() => setError('Unable to load active warnings.')).finally(() => setLoading(false)); }, [accessToken]);
-  useEffect(load, [load]);
+  const load = useCallback(() => {
+    if (!accessToken) {
+      setWarnings([]);
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+    setLoading(true);
+    setError(null);
+    void listResidentWarnings(accessToken)
+      .then(result => { if (active) setWarnings(result.warnings); })
+      .catch(() => { if (active) setError('Unable to load active warnings.'); })
+      .finally(() => { if (active) setLoading(false); });
+
+    return () => { active = false; };
+  }, [accessToken]);
+  useFocusEffect(useCallback(() => load(), [load]));
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/resident/notification-profile');
+  };
   return <DashboardScreen bottomNavItems={residentBottomNavItems} contentContainerStyle={styles.content}>
-    <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={() => router.back()} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+    <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={goBack} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
       <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.primaryStrong} size={22} /><Text style={styles.backText}>Back</Text>
     </Pressable>
     <DashboardHeader title="Active Warnings" description="Published warnings relevant to your profile." />
