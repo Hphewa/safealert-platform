@@ -139,7 +139,7 @@ describe('resident emergency request detail presentation', () => {
 
     expect(completionSection).toBeDefined();
     expect(completionSection?.fields).toEqual([
-      { label: 'Completed date / time', value: expect.any(String) },
+      { label: 'Completed at', value: expect.any(String) },
       { label: 'Assistance provided', value: 'Delivered food rations and potable water.' },
       { label: 'Completion summary', value: 'Resident received supplies in good order.' }
     ]);
@@ -154,27 +154,30 @@ describe('resident emergency request detail presentation', () => {
     expect(allValues).not.toContain('Internal note: resident was agitated initially.');
   });
 
-  it('does not display completion details section when status is not COMPLETED', () => {
-    const inProgressRequest: SafeResponseRequest = {
-      ...summary,
-      id: '507f1f77bcf86cd799439011',
-      residentId: 'resident-1',
-      assignedResponderId: 'responder-1',
-      status: 'IN_PROGRESS',
-      affectedPeople: 1,
-      injuredPeople: 0,
-      medicalNeeds: false,
-      vulnerablePeople: { children: 0, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 },
-      roadAccessibility: 'ACCESSIBLE',
-      contact: { name: 'Resident', phoneNumber: '+94-77-555-1234' },
-      description: 'Need help.',
-      location: { type: 'Point', coordinates: [79.8612, 6.9271] },
-      updatedAt: '2026-09-24T11:00:00.000Z'
-    };
+  it.each(['NEW', 'ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS', 'CANCELLED'] as const)(
+    'does not display completion details section when status is %s',
+    (nonCompletedStatus) => {
+      const nonCompletedRequest: SafeResponseRequest = {
+        ...summary,
+        id: '507f1f77bcf86cd799439011',
+        residentId: 'resident-1',
+        assignedResponderId: 'responder-1',
+        status: nonCompletedStatus,
+        affectedPeople: 1,
+        injuredPeople: 0,
+        medicalNeeds: false,
+        vulnerablePeople: { children: 0, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 },
+        roadAccessibility: 'ACCESSIBLE',
+        contact: { name: 'Resident', phoneNumber: '+94-77-555-1234' },
+        description: 'Need help.',
+        location: { type: 'Point', coordinates: [79.8612, 6.9271] },
+        updatedAt: '2026-09-24T11:00:00.000Z'
+      };
 
-    const details = presentResidentEmergencyRequestDetails(inProgressRequest);
-    const completionSection = details.sections.find((section) => section.title === 'Completion Details');
-    expect(completionSection).toBeUndefined();
-  });
+      const details = presentResidentEmergencyRequestDetails(nonCompletedRequest);
+      const completionSection = details.sections.find((section) => section.title === 'Completion Details');
+      expect(completionSection).toBeUndefined();
+    }
+  );
 });
 

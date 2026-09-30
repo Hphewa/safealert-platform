@@ -81,7 +81,7 @@ export function presentResidentEmergencyRequestDetails(request: SafeResponseRequ
             {
               title: 'Completion Details',
               fields: [
-                { label: 'Completed date / time', value: formatResidentReportDateTime(request.completedAt) },
+                { label: 'Completed at', value: formatResidentReportDateTime(request.completedAt) },
                 { label: 'Assistance provided', value: detailText(request.assistanceProvided) },
                 { label: 'Completion summary', value: detailText(request.completionSummary) }
               ]

@@ -425,11 +425,31 @@ describe('LDFEW-353: Backend Completion Details - AUTHORIZATION & LIFECYCLE PRES
     expect(response.body.error?.code).toBe('REQUEST_NOT_ASSIGNED');
   });
 
-  it('rejects invalid lifecycle transition ASSIGNED -> COMPLETED with 409 INVALID_PROGRESS_TRANSITION', async () => {
-    const { app, token } = setupContext({ status: 'ASSIGNED' });
+  it.each(['NEW', 'ASSIGNED', 'DISPATCHED', 'ARRIVED', 'COMPLETED', 'CANCELLED'] as const)(
+    'rejects invalid lifecycle transition %s -> COMPLETED with 409 INVALID_PROGRESS_TRANSITION',
+    async (nonInProgressStatus) => {
+      const { app, token } = setupContext({ status: nonInProgressStatus });
+
+      const response = await request(app)
+        .patch(progressPath)
+        .auth(token(), { type: 'bearer' })
+        .send({
+          status: 'COMPLETED',
+          assistanceProvided: 'Valid assistance',
+          completionSummary: 'Valid summary'
+        });
+
+      expect(response.status).toBe(409);
+      expect(response.body.error?.code).toBe('INVALID_PROGRESS_TRANSITION');
+    }
+  );
+
+  it('rejects completing a nonexistent request with 404 REQUEST_NOT_FOUND', async () => {
+    const { app, token } = setupContext();
+    const missingId = '507f1f77bcf86cd799439099';
 
     const response = await request(app)
-      .patch(progressPath)
+      .patch(`/api/v1/response-requests/${missingId}/progress`)
       .auth(token(), { type: 'bearer' })
       .send({
         status: 'COMPLETED',
@@ -437,7 +457,95 @@ describe('LDFEW-353: Backend Completion Details - AUTHORIZATION & LIFECYCLE PRES
         completionSummary: 'Valid summary'
       });
 
-    expect(response.status).toBe(409);
-    expect(response.body.error?.code).toBe('INVALID_PROGRESS_TRANSITION');
+    expect(response.status).toBe(404);
+    expect(response.body.error?.code).toBe('REQUEST_NOT_FOUND');
+  });
+
+  it('rejects completing with a malformed ObjectId with 400 INVALID_REQUEST_ID', async () => {
+    const { app, token } = setupContext();
+
+    const response = await request(app)
+      .patch('/api/v1/response-requests/not-a-valid-id/progress')
+      .auth(token(), { type: 'bearer' })
+      .send({
+        status: 'COMPLETED',
+        assistanceProvided: 'Valid assistance',
+        completionSummary: 'Valid summary'
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error?.code).toBe('INVALID_REQUEST_ID');
+  });
+});
+
+describe('LDFEW-359: Persistence and Verification of Completed Request Across Roles', () => {
+  it('persists completion details and server timestamp, allows resident tracking, and locks further responder updates', async () => {
+    const { app, token, repository } = setupContext();
+    const responderToken = token(assignedResponderId, 'EMERGENCY_RESPONDER');
+    const residentToken = token(residentId, 'RESIDENT');
+
+    const assistanceProvided = 'Relocated resident to designated safety zone and provided water.';
+    const completionSummary = 'All persons secure; no immediate hazards remaining.';
+    const responderRemarks = 'Shelter coordinator notified for continued supply monitoring.';
+
+    // 1. Assigned responder completes the IN_PROGRESS request
+    const completeResponse = await request(app)
+      .patch(progressPath)
+      .auth(responderToken, { type: 'bearer' })
+      .send({
+        status: 'COMPLETED',
+        assistanceProvided,
+        completionSummary,
+        responderRemarks
+      });
+
+    expect(completeResponse.status).toBe(200);
+    expect(completeResponse.body.status).toBe('COMPLETED');
+    expect(completeResponse.body.assistanceProvided).toBe(assistanceProvided);
+    expect(completeResponse.body.completionSummary).toBe(completionSummary);
+    expect(completeResponse.body.responderRemarks).toBe(responderRemarks);
+    expect(completeResponse.body.completedAt).toBeDefined();
+    expect(new Date(completeResponse.body.completedAt).getTime()).not.toBeNaN();
+
+    // 2. Verify backend repository directly reflects the persisted completion details
+    const stored = await repository.findResponseRequestForProgress(requestId);
+    expect(stored?.status).toBe('COMPLETED');
+    expect(stored?.assistanceProvided).toBe(assistanceProvided);
+    expect(stored?.completionSummary).toBe(completionSummary);
+    expect(stored?.responderRemarks).toBe(responderRemarks);
+    expect(stored?.completedAt).toBe(completeResponse.body.completedAt);
+
+    // 3. Resident tracks the completed request via GET /mine/:requestId
+    const residentResponse = await request(app)
+      .get(`/api/v1/response-requests/mine/${requestId}`)
+      .auth(residentToken, { type: 'bearer' });
+
+    expect(residentResponse.status).toBe(200);
+    expect(residentResponse.body.responseRequest.status).toBe('COMPLETED');
+    expect(residentResponse.body.responseRequest.assistanceProvided).toBe(assistanceProvided);
+    expect(residentResponse.body.responseRequest.completionSummary).toBe(completionSummary);
+    expect(residentResponse.body.responseRequest.completedAt).toBe(completeResponse.body.completedAt);
+
+    // 4. Further field updates on the COMPLETED request must be rejected (terminal lifecycle)
+    const fieldUpdateResponse = await request(app)
+      .patch(`/api/v1/response-requests/${requestId}/field-update`)
+      .auth(responderToken, { type: 'bearer' })
+      .send({ fieldNotes: 'Late operational note after completion.' });
+
+    expect(fieldUpdateResponse.status).toBe(409);
+    expect(fieldUpdateResponse.body.error?.code).toBe('INVALID_REQUEST_STATUS');
+
+    // 5. Repeated completion attempts on the already-COMPLETED request must be rejected
+    const repeatCompleteResponse = await request(app)
+      .patch(progressPath)
+      .auth(responderToken, { type: 'bearer' })
+      .send({
+        status: 'COMPLETED',
+        assistanceProvided,
+        completionSummary
+      });
+
+    expect(repeatCompleteResponse.status).toBe(409);
+    expect(repeatCompleteResponse.body.error?.code).toBe('INVALID_PROGRESS_TRANSITION');
   });
 });

@@ -544,6 +544,36 @@ describe('LDFEW-352: Mobile-Friendly Completion Details Form in Responder Reques
       expect(updateResponderRequestProgress).toHaveBeenCalledTimes(2);
       expect(screenText(renderDetails())).toContain('Emergency response completed');
     });
+
+    it('handles unauthorized responder error (403 REQUEST_NOT_ASSIGNED) with clear error message and retains draft inputs', async () => {
+      vi.mocked(updateResponderRequestProgress).mockRejectedValueOnce(
+        new ApiClientError(403, 'REQUEST_NOT_ASSIGNED', 'Only the responder assigned to this request can update its progress.')
+      );
+
+      getAssistanceInput()?.onChangeText?.('Delivered first aid and warm blanket.');
+      getSummaryInput()?.onChangeText?.('Threat stabilized.');
+
+      await getCompleteRequestButton()?.onPress();
+
+      expect(screenText(renderDetails())).toContain('Only the responder assigned to this request can update its progress.');
+      expect(getAssistanceInput()?.value).toBe('Delivered first aid and warm blanket.');
+      expect(getSummaryInput()?.value).toBe('Threat stabilized.');
+    });
+
+    it('handles invalid lifecycle transition (409 INVALID_PROGRESS_TRANSITION) gracefully and retains draft inputs', async () => {
+      vi.mocked(updateResponderRequestProgress).mockRejectedValueOnce(
+        new ApiClientError(409, 'INVALID_PROGRESS_TRANSITION', 'This progress change is not allowed. Refresh the request to see its current status.')
+      );
+
+      getAssistanceInput()?.onChangeText?.('Provided shelter materials.');
+      getSummaryInput()?.onChangeText?.('Resident relocated.');
+
+      await getCompleteRequestButton()?.onPress();
+
+      expect(screenText(renderDetails())).toContain('This progress change is not allowed. Refresh the request to see its current status.');
+      expect(getAssistanceInput()?.value).toBe('Provided shelter materials.');
+      expect(getSummaryInput()?.value).toBe('Resident relocated.');
+    });
   });
 
   describe('Lifecycle-Aware Form Visibility and Read-Only Completion Details', () => {
