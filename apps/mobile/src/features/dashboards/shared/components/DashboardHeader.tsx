@@ -13,6 +13,7 @@ type DashboardHeaderProps = {
   titleAlign?: 'left' | 'center';
   trailingIcon?: DashboardIconName;
   trailingBadgeCount?: number;
+  trailingAccessibilityLabel?: string;
   onTrailingPress?: () => void;
   showLogoutButton?: boolean;
 };
@@ -24,6 +25,7 @@ export function DashboardHeader({
   titleAlign = 'left',
   trailingIcon,
   trailingBadgeCount,
+  trailingAccessibilityLabel,
   onTrailingPress,
   showLogoutButton = false
 }: DashboardHeaderProps) {
@@ -36,6 +38,7 @@ export function DashboardHeader({
         <Text style={[styles.title, { textAlign: headerTextAlign }]}>{title}</Text>
         {trailingIcon ? (
           <Pressable
+            accessibilityLabel={trailingAccessibilityLabel ?? 'Header action'}
             accessibilityRole="button"
             onPress={onTrailingPress}
             style={({ pressed }) => [styles.iconButton, pressed && styles.iconButtonPressed]}
@@ -43,7 +46,7 @@ export function DashboardHeader({
             <DashboardGlyph color={dashboardTheme.colors.text} name={trailingIcon} size={18} />
             {typeof trailingBadgeCount === 'number' && trailingBadgeCount > 0 ? (
               <View style={styles.badge}>
-                <Text style={styles.badgeText}>{trailingBadgeCount}</Text>
+                <Text style={styles.badgeText}>{trailingBadgeCount > 99 ? '99+' : trailingBadgeCount}</Text>
               </View>
             ) : null}
           </Pressable>

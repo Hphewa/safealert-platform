@@ -1,17 +1,80 @@
-import { StyleSheet, View } from 'react-native';
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import type { ResidentWarning } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 
 import { ActionCard } from '../../shared/components/ActionCard';
 import { DashboardHeader } from '../../shared/components/DashboardHeader';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
+import { dashboardTheme, cardShadow } from '../../shared/theme';
 import { getFirstName } from '../../shared/utils';
 import { residentBottomNavItems, residentPrimaryActions } from '../mockData';
+import { listResidentWarnings } from '../../../warnings/api/residentWarningApi';
+
+function publishedLabel(publishedAt?: string) {
+  if (!publishedAt) return 'Published recently';
+  const date = new Date(publishedAt);
+  if (Number.isNaN(date.getTime())) return 'Published recently';
+  return date.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
+}
+
+function warningTone(riskLevel: ResidentWarning['riskLevel']) {
+  return riskLevel === 'CRITICAL'
+    ? { accent: dashboardTheme.colors.critical, soft: dashboardTheme.colors.criticalSoft }
+    : { accent: dashboardTheme.colors.high, soft: dashboardTheme.colors.highSoft };
+}
 
 export function ResidentDashboardScreen() {
-  const { user } = useAuth();
+  const { accessToken, user } = useAuth();
+  const router = useRouter();
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [warnings, setWarnings] = useState<ResidentWarning[]>([]);
+  const [notificationsLoading, setNotificationsLoading] = useState(true);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
+  const requestInFlight = useRef(false);
   const firstName = user ? getFirstName(user.name) : 'Resident';
   const [primaryCard, reportsCard, helpCard] = residentPrimaryActions;
+
+  const loadWarnings = useCallback(() => {
+    if (!accessToken) {
+      setWarnings([]);
+      setNotificationsLoading(false);
+      setNotificationsError(null);
+      return;
+    }
+    if (requestInFlight.current) return;
+
+    let active = true;
+    requestInFlight.current = true;
+    setNotificationsLoading(true);
+    setNotificationsError(null);
+    void listResidentWarnings(accessToken)
+      .then((result) => {
+        if (active) setWarnings(result.warnings);
+      })
+      .catch(() => {
+        if (active) setNotificationsError('Unable to load notifications.');
+      })
+      .finally(() => {
+        requestInFlight.current = false;
+        if (active) setNotificationsLoading(false);
+      });
+
+    return () => {
+      active = false;
+      requestInFlight.current = false;
+    };
+  }, [accessToken]);
+
+  useFocusEffect(useCallback(() => loadWarnings(), [loadWarnings]));
+
+  const openWarning = (warningId: string) => {
+    setNotificationsOpen(false);
+    router.push({ pathname: '/resident/warnings/[warningId]', params: { warningId } });
+  };
 
   return (
     <DashboardScreen bottomNavItems={residentBottomNavItems}>
@@ -20,6 +83,9 @@ export function ResidentDashboardScreen() {
         subtitle={`Hello, ${firstName}`}
         title="SafeAlert"
         titleAlign="center"
+        trailingAccessibilityLabel="Notifications"
+        trailingIcon="notifications-outline"
+        onTrailingPress={() => setNotificationsOpen(true)}
         showLogoutButton
       />
 
@@ -46,6 +112,115 @@ export function ResidentDashboardScreen() {
           title={helpCard.title}
         />
       </View>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setNotificationsOpen(false)}
+        transparent
+        visible={notificationsOpen}
+      >
+        <Pressable style={styles.notificationBackdrop} onPress={() => setNotificationsOpen(false)}>
+          <Pressable style={styles.notificationPanel} onPress={() => undefined}>
+            <View style={styles.notificationHeader}>
+              <View style={styles.notificationHeaderLead}>
+                <View style={styles.notificationHeaderIcon}>
+                  <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="notifications-outline" size={18} />
+                </View>
+                <View style={styles.notificationHeaderCopy}>
+                  <Text style={styles.notificationTitle}>Notifications</Text>
+                  <Text style={styles.notificationSubtitle}>
+                    {notificationsLoading
+                      ? 'Checking for active warnings…'
+                      : notificationsError
+                        ? 'Could not refresh right now'
+                        : warnings.length === 0
+                          ? 'No active warnings'
+                          : `${warnings.length} active warning${warnings.length === 1 ? '' : 's'}`}
+                  </Text>
+                </View>
+              </View>
+              <Pressable
+                accessibilityLabel="Close notifications"
+                accessibilityRole="button"
+                onPress={() => setNotificationsOpen(false)}
+                style={styles.closeButton}
+              >
+                <Text style={styles.closeText}>×</Text>
+              </Pressable>
+            </View>
+
+            {notificationsLoading ? (
+              <View style={styles.notificationState}>
+                <ActivityIndicator color={dashboardTheme.colors.primary} size="small" />
+                <Text style={styles.notificationStateText}>Loading notifications…</Text>
+              </View>
+            ) : notificationsError ? (
+              <View style={styles.notificationState}>
+                <Text style={styles.notificationStateTitle}>Unable to load notifications</Text>
+                <Pressable accessibilityRole="button" onPress={() => void loadWarnings()} style={styles.retryButton}>
+                  <Text style={styles.retryText}>Retry</Text>
+                </Pressable>
+              </View>
+            ) : warnings.length === 0 ? (
+              <View style={styles.notificationState}>
+                <Text style={styles.notificationStateTitle}>No active notifications</Text>
+                <Text style={styles.notificationStateText}>You have no published warnings for your profile.</Text>
+              </View>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator contentContainerStyle={styles.notificationList}>
+                {warnings.map((warning) => {
+                  const tone = warningTone(warning.riskLevel);
+                  return (
+                    <Pressable
+                      accessibilityLabel={`View ${warning.riskLevel.toLowerCase()} notification for ${warning.affectedArea}`}
+                      accessibilityRole="button"
+                      key={warning.id}
+                      onPress={() => openWarning(warning.id)}
+                      style={({ pressed }) => [
+                        styles.notificationItem,
+                        { borderLeftColor: tone.accent },
+                        pressed && styles.notificationItemPressed
+                      ]}
+                    >
+                      <View style={[styles.notificationItemIcon, { backgroundColor: tone.soft }]}>
+                        <DashboardGlyph color={tone.accent} name="warning-outline" size={16} />
+                      </View>
+                      <View style={styles.notificationItemContent}>
+                        <View style={styles.notificationItemTitleRow}>
+                          <Text style={[styles.notificationRisk, { color: tone.accent, backgroundColor: tone.soft }]}>
+                            {warning.riskLevel}
+                          </Text>
+                          <Text style={styles.notificationItemTitle} numberOfLines={1}>{warning.affectedArea}</Text>
+                        </View>
+                        <Text style={styles.notificationItemMessage} numberOfLines={2}>{warning.message}</Text>
+                        <View style={styles.notificationItemFooter}>
+                          <Text style={styles.notificationItemTime}>{publishedLabel(warning.publishedAt)}</Text>
+                          <View style={styles.viewNotificationRow}>
+                            <Text style={styles.viewNotification}>View warning</Text>
+                            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="chevron-forward" size={14} />
+                          </View>
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="See all active warnings"
+              onPress={() => {
+                setNotificationsOpen(false);
+                router.push('/resident/warnings');
+              }}
+              style={({ pressed }) => [styles.seeAllButton, pressed && styles.notificationItemPressed]}
+            >
+              <Text style={styles.seeAllText}>See all active warnings</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </DashboardScreen>
   );
 }
@@ -55,5 +230,78 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 14
-  }
+  },
+  notificationBackdrop: {
+    flex: 1,
+    alignItems: 'flex-end',
+    paddingHorizontal: 12,
+    paddingTop: 68,
+    backgroundColor: 'rgba(15, 23, 42, 0.28)'
+  },
+  notificationPanel: {
+    width: '100%',
+    maxWidth: 390,
+    maxHeight: '78%',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: 22,
+    backgroundColor: dashboardTheme.colors.surface,
+    ...cardShadow
+  },
+  notificationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: dashboardTheme.colors.border,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  notificationHeaderLead: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  notificationHeaderIcon: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 19, backgroundColor: dashboardTheme.colors.primarySoft },
+  notificationHeaderCopy: { flex: 1, gap: 2 },
+  notificationTitle: { fontSize: 19, fontWeight: '800', color: dashboardTheme.colors.text },
+  notificationSubtitle: { fontSize: 12, color: dashboardTheme.colors.muted },
+  closeButton: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 17, backgroundColor: dashboardTheme.colors.surface },
+  closeText: { fontSize: 24, lineHeight: 26, color: dashboardTheme.colors.muted },
+  notificationList: { paddingVertical: 2 },
+  notificationItem: {
+    flexDirection: 'row',
+    gap: 10,
+    marginHorizontal: 12,
+    marginTop: 10,
+    padding: 12,
+    borderLeftWidth: 4,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: 14,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  notificationItemPressed: { opacity: 0.72 },
+  notificationItemIcon: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 14
+  },
+  notificationItemContent: { flex: 1, gap: 4 },
+  notificationItemTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  notificationRisk: { overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
+  notificationItemTitle: { flex: 1, fontSize: 14, fontWeight: '800', color: dashboardTheme.colors.text },
+  notificationItemMessage: { fontSize: 13, lineHeight: 18, color: dashboardTheme.colors.text },
+  notificationItemFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  notificationItemTime: { fontSize: 11, color: dashboardTheme.colors.muted },
+  viewNotificationRow: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  viewNotification: { fontSize: 12, fontWeight: '800', color: dashboardTheme.colors.primaryStrong },
+  notificationState: { alignItems: 'center', gap: 8, paddingHorizontal: 18, paddingVertical: 24 },
+  notificationStateTitle: { fontSize: 14, fontWeight: '800', color: dashboardTheme.colors.text, textAlign: 'center' },
+  notificationStateText: { fontSize: 13, lineHeight: 18, color: dashboardTheme.colors.muted, textAlign: 'center' },
+  retryButton: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 16, borderRadius: 10, backgroundColor: dashboardTheme.colors.primarySoft },
+  retryText: { fontSize: 13, fontWeight: '800', color: dashboardTheme.colors.primaryStrong },
+  seeAllButton: { minHeight: 48, marginHorizontal: 12, marginTop: 10, marginBottom: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: dashboardTheme.colors.primarySoft, borderRadius: 12, backgroundColor: dashboardTheme.colors.primarySoft },
+  seeAllText: { fontSize: 13, fontWeight: '800', color: dashboardTheme.colors.primaryStrong }
 });
