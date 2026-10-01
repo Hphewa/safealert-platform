@@ -51,6 +51,7 @@ export function ResponderDashboardScreen() {
     const loadId = ++queueLoadId.current;
     if (!accessToken) {
       setQueueState({ pending: [], assigned: [] });
+      clearResponderRequestCache();
       setLoadState('error');
       setIsRefreshing(false);
       setErrorMessage('Your session has expired. Please log in again.');
@@ -92,6 +93,9 @@ export function ResponderDashboardScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (!accessToken) {
+        clearResponderRequestCache();
+      }
       // Show confirmed progress immediately on return, then revalidate with the API.
       // Immediately purge requests that have been accepted or declined by this responder from Pending.
       setQueueState((current) => ({

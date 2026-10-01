@@ -14,7 +14,7 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
   async createResponseRequest(input: CreateResponseRequestInput): Promise<SafeResponseRequest> {
     const now = new Date().toISOString();
     const responseRequest: SafeResponseRequest = {
-      id: crypto.randomUUID(),
+      id: crypto.randomBytes(12).toString('hex'),
       residentId: input.residentId,
       assistanceType: input.assistanceType,
       location: input.location,

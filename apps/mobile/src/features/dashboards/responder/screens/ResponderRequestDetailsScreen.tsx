@@ -51,9 +51,19 @@ export function ResponderRequestDetailsScreen() {
   const params = useLocalSearchParams<{ requestId?: string | string[]; sourceTab?: string | string[] }>();
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
   const [updatedRequest, setUpdatedRequest] = useState<SafeResponseRequest | null>(null);
-  const responseRequest = updatedRequest?.id === requestId && (updatedRequest?.assignedResponderId === user?.id || updatedRequest?.status === 'NEW')
-    ? updatedRequest
-    : requestId ? getCachedResponderRequest(requestId) : null;
+  const cached = requestId ? getCachedResponderRequest(requestId) : null;
+  const safeCached =
+    cached && requestId && (cached.status === 'NEW' || (user?.id && cached.assignedResponderId === user.id))
+      ? cached
+      : null;
+  const safeUpdated =
+    updatedRequest &&
+    requestId &&
+    updatedRequest.id === requestId &&
+    (updatedRequest.status === 'NEW' || (user?.id && updatedRequest.assignedResponderId === user.id))
+      ? updatedRequest
+      : null;
+  const responseRequest = safeUpdated ?? safeCached;
   const [decisionAction, setDecisionAction] = useState<ResponderDecisionAction>('idle');
   // Synchronous ref gate prevents rapid multiple button presses from firing duplicate
   // concurrent network requests for accept or decline before React commits the busy state.
@@ -175,8 +185,17 @@ export function ResponderRequestDetailsScreen() {
           setRemarksDraft(null);
         }
       }
-    } catch {
-      setRefreshError('Unable to refresh request details. Please check your connection and try again.');
+    } catch (error) {
+      if (error instanceof ApiClientError && (error.status === 403 || error.status === 404)) {
+        setUpdatedRequest(null);
+        setRefreshError(
+          error.status === 403
+            ? 'You are not authorized to view this emergency request.'
+            : 'This emergency request could not be found.'
+        );
+      } else {
+        setRefreshError('Unable to refresh request details. Please check your connection and try again.');
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -521,6 +540,13 @@ export function ResponderRequestDetailsScreen() {
       );
     }
 
+    const isAccessRestricted = refreshError === 'You are not authorized to view this emergency request.';
+    const isNetworkError = Boolean(
+      refreshError &&
+      !isAccessRestricted &&
+      refreshError !== 'This emergency request could not be found.'
+    );
+
     return (
       <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
         <DetailsHeader onBack={backToRequests} onRefresh={() => void refreshRequest()} />
@@ -528,8 +554,13 @@ export function ResponderRequestDetailsScreen() {
           <View style={styles.noticeIconWrap}>
             <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={22} />
           </View>
-          <Text style={styles.noticeTitle}>Request not available</Text>
-          <Text style={styles.noticeBody}>This emergency request could not be found.</Text>
+          <Text style={styles.noticeTitle}>
+            {isAccessRestricted ? 'Access Restricted' : 'Request not available'}
+          </Text>
+          <Text style={styles.noticeBody}>
+            {refreshError ?? 'This emergency request could not be found.'}
+          </Text>
+          {isNetworkError ? <RetryDetailsButton onPress={() => void refreshRequest()} /> : null}
           <BackToRequestsButton onPress={backToRequests} />
         </View>
       </DashboardScreen>
@@ -1040,6 +1071,19 @@ function DetailRow({ label, value }: { label: string; value: string | number | n
   );
 }
 
+function RetryDetailsButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      accessibilityLabel="Retry loading request"
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [styles.retryNoticeButton, pressed && styles.pressed]}
+    >
+      <Text style={styles.retryNoticeButtonText}>Retry</Text>
+    </Pressable>
+  );
+}
+
 function BackToRequestsButton({ onPress }: { onPress: () => void }) {
   return (
     <Pressable
@@ -1299,6 +1343,22 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: '#ffffff'
+  },
+  retryNoticeButton: {
+    minHeight: 44,
+    minWidth: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.surface,
+    borderWidth: 1.5,
+    borderColor: dashboardTheme.colors.primaryStrong
+  },
+  retryNoticeButtonText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
   },
   pressed: {
     opacity: 0.8
