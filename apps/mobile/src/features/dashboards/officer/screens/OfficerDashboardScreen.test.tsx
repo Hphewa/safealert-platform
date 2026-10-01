@@ -27,6 +27,7 @@ vi.mock('react-native', () => {
   const container = ({ children }: { children?: ReactNode }) => <div>{children}</div>;
   return {
     View: container, Text: container, ScrollView: container,
+    useWindowDimensions: () => ({ width: 390, height: 844, scale: 1, fontScale: 1 }),
     Platform: { select: (values: { web?: unknown; default?: unknown }) => values.default ?? values.web },
     Pressable: ({ children, disabled, accessibilityLabel, onPress }: {
       children?: ReactNode; disabled?: boolean; accessibilityLabel?: string; onPress?: () => void;

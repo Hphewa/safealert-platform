@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { canCreateWarning, type IncidentMonitoringSummary, type WarningRiskLevel } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -52,6 +52,8 @@ function warningStatusTone(status: WarningCardStatus): BadgeTone {
 export function OfficerWarningsScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isCompactLayout = width < 600;
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
 
@@ -121,12 +123,7 @@ export function OfficerWarningsScreen() {
       </View>
 
       {!loading && !error ? (
-        <ScrollView
-          horizontal
-          nestedScrollEnabled
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.summaryRow}
-        >
+        <View style={[styles.summaryRow, isCompactLayout && styles.summaryRowCompact]}>
           {([
             { label: 'Needs Warning', count: counts.needsWarning },
             { label: 'Draft', count: counts.draft },
@@ -144,7 +141,7 @@ export function OfficerWarningsScreen() {
               <Text style={styles.summaryLabel}>{tile.label}</Text>
             </View>
           ))}
-        </ScrollView>
+        </View>
       ) : null}
 
       <AssessmentButton label="Refresh warnings" secondary disabled={loading} onPress={() => void reload()} />
@@ -245,7 +242,8 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 22, backgroundColor: dashboardTheme.colors.surface },
   headerCopy: { flex: 1, gap: 2 },
-  summaryRow: { flexGrow: 1, flexDirection: 'row', gap: 8 },
+  summaryRow: { flexDirection: 'row', gap: 8 },
+  summaryRowCompact: { flexWrap: 'wrap' },
   summaryTile: { flex: 1, minWidth: 112, gap: 2, alignItems: 'center', paddingVertical: 8, paddingHorizontal: 6, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surface },
   summaryValue: { fontSize: 20, fontWeight: '800', color: dashboardTheme.colors.text },
   summaryLabel: { fontSize: 11, fontWeight: '700', textAlign: 'center', color: dashboardTheme.colors.muted },

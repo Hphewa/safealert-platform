@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { canCreateWarning, type GetPendingOfficerReportsResponse, type IncidentMonitoringSummary, type IncidentWithReportsResponse } from '@safealert/contracts';
 
@@ -36,17 +36,11 @@ const dashboardQuickActions = [
   }
 ];
 
-function riskRank(risk: string | undefined) {
-  if (risk === 'CRITICAL') return 4;
-  if (risk === 'HIGH') return 3;
-  if (risk === 'MODERATE') return 2;
-  if (risk === 'LOW') return 1;
-  return 0;
-}
-
 export function OfficerDashboardScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const isCompactLayout = width < 600;
   const loadDashboard = useCallback(async (): Promise<OfficerDashboardData> => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
     const [pendingReports, assessmentQueue, monitoring] = await Promise.all([
@@ -86,13 +80,6 @@ export function OfficerDashboardScreen() {
     () => data?.monitoring.reduce((total, item) => total + item.newVerifiedReportsSinceAssessment, 0) ?? 0,
     [data]
   );
-  const highestRisk = useMemo(() => {
-    const risks = data?.monitoring
-      .map((item) => item.currentAssessment?.finalRiskLevel ?? item.latestAssessment?.finalRiskLevel)
-      .filter((risk) => Boolean(risk)) ?? [];
-    return risks.sort((a, b) => riskRank(b) - riskRank(a))[0] ?? 'None';
-  }, [data]);
-
   return (
     <DashboardScreen bottomNavItems={officerBottomNavItems} contentContainerStyle={styles.content}>
       <DashboardHeader title="Officer Dashboard" trailingIcon="person-circle-outline" onTrailingPress={() => router.push('/officer/profile')} />
@@ -143,24 +130,52 @@ export function OfficerDashboardScreen() {
             </View>
           </DashboardSection>
 
-          <DashboardSection actionHref="/officer/monitoring" actionLabel="Open Monitoring" title="Active Monitoring">
-            <View style={styles.monitoringCard}>
-              <View style={styles.monitoringStats}>
-                <View style={styles.monitoringStat}><Text style={styles.monitoringValue}>{data.monitoring.length}</Text><Text style={styles.monitoringLabel}>Active incidents</Text></View>
-                <View style={styles.monitoringStat}><Text style={styles.monitoringValue}>{newEvidenceCount}</Text><Text style={styles.monitoringLabel}>New verified reports</Text></View>
-                <View style={styles.monitoringStat}><Text style={styles.monitoringValue}>{highestRisk}</Text><Text style={styles.monitoringLabel}>Highest current risk</Text></View>
-              </View>
-              <Text style={styles.message}>Track assessed incidents and newly verified evidence from the Monitoring workspace.</Text>
+          <View style={styles.monitoringCard}>
+            <View style={styles.monitoringHeader}>
+              <Text style={styles.monitoringEyebrow}>ACTIVE MONITORING</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Open Monitoring"
+                onPress={() => router.push('/officer/monitoring')}
+                style={({ pressed }) => [styles.monitoringAction, pressed && styles.pressed]}
+              >
+                <Text style={styles.monitoringActionText}>Open Monitoring</Text>
+                <Text style={styles.monitoringChevron}>&gt;</Text>
+              </Pressable>
             </View>
-          </DashboardSection>
+            <View style={styles.monitoringInner}>
+              <View style={styles.monitoringStats}>
+                <View style={styles.monitoringStat}>
+                  <Text style={styles.monitoringValue}>{data.monitoring.length}</Text>
+                  <Text style={styles.monitoringLabel}>Active incidents</Text>
+                </View>
+                <View style={styles.monitoringStat}>
+                  <Text style={styles.monitoringValue}>{newEvidenceCount}</Text>
+                  <Text style={styles.monitoringLabel}>New verified reports</Text>
+                </View>
+                <View style={styles.monitoringStat}>
+                  <Text style={styles.monitoringValue}>{warningCounts.needsWarning}</Text>
+                  <Text style={styles.monitoringLabel}>Warnings needed</Text>
+                </View>
+              </View>
+              <View style={styles.monitoringNote}>
+                <View style={styles.monitoringNoteBar} />
+                <Text style={styles.monitoringDescription}>
+                  Monitor assessed incidents and newly verified evidence.{`\n`}
+                  HIGH and CRITICAL risks may require a public warning.
+                </Text>
+              </View>
+            </View>
+          </View>
 
           <DashboardSection title="Quick Actions">
-            <View style={styles.actionGrid}>
+            <View style={[styles.actionGrid, isCompactLayout && styles.actionGridCompact]}>
               {dashboardQuickActions.map((action, index) => (
                 <ActionCard
                   href={action.href}
                   icon={action.icon}
                   key={`${action.title}-${index}`}
+                  layout={isCompactLayout ? 'row' : 'column'}
                   subtitle={action.subtitle}
                   title={action.title}
                   variant={index === 0 ? 'primary' : 'default'}
@@ -237,11 +252,47 @@ const styles = StyleSheet.create({
   monitoringCard: {
     gap: 16,
     padding: 18,
+    borderRadius: dashboardTheme.radius.lg,
+    backgroundColor: dashboardTheme.colors.surfaceMuted,
+    ...cardShadow
+  },
+  monitoringHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
+  },
+  monitoringEyebrow: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '800',
+    letterSpacing: 1,
+    color: dashboardTheme.colors.text
+  },
+  monitoringAction: {
+    minHeight: 40,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    borderRadius: dashboardTheme.radius.sm
+  },
+  monitoringActionText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  monitoringChevron: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  monitoringInner: {
+    gap: 16,
+    padding: 16,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.surface,
-    ...cardShadow
+    backgroundColor: dashboardTheme.colors.surface
   },
   monitoringStats: {
     flexDirection: 'row',
@@ -250,24 +301,52 @@ const styles = StyleSheet.create({
   },
   monitoringStat: {
     flex: 1,
-    minWidth: 120,
-    gap: 3
+    minWidth: 140,
+    gap: 5,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
   },
   monitoringValue: {
     fontSize: 24,
+    lineHeight: 29,
     fontWeight: '800',
     color: dashboardTheme.colors.text
   },
   monitoringLabel: {
-    fontSize: 12,
-    lineHeight: 17,
-    fontWeight: '700',
-    color: dashboardTheme.colors.muted
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '600',
+    color: dashboardTheme.colors.text
+  },
+  monitoringNote: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 10,
+    paddingTop: 2
+  },
+  monitoringNoteBar: {
+    width: 3,
+    borderRadius: 3,
+    backgroundColor: dashboardTheme.colors.primary
+  },
+  monitoringDescription: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 20,
+    color: dashboardTheme.colors.text
   },
   actionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 14
+  },
+  actionGridCompact: {
+    flexDirection: 'column',
+    flexWrap: 'nowrap',
+    gap: 12
   },
   list: {
     gap: 12,
