@@ -144,11 +144,11 @@ export function OfficerWarningsScreen() {
       {!loading && !error ? (
         <View style={[styles.summaryRow, isCompactLayout && styles.summaryRowCompact]}>
           {([
-            { label: 'Needs warning', count: counts.needsWarning, icon: 'warning-outline', color: dashboardTheme.colors.critical, softColor: dashboardTheme.colors.criticalSoft },
-            { label: 'Drafts', count: counts.draft, icon: 'create-outline', color: dashboardTheme.colors.high, softColor: dashboardTheme.colors.highSoft },
-            { label: 'Published', count: counts.published, icon: 'checkmark-done-outline', color: dashboardTheme.colors.success, softColor: dashboardTheme.colors.successSoft },
-            { label: 'Cancelled', count: counts.cancelled, icon: 'alert-circle-outline', color: dashboardTheme.colors.critical, softColor: dashboardTheme.colors.criticalSoft },
-            { label: 'Archived', count: counts.archived, icon: 'book-outline', color: dashboardTheme.colors.muted, softColor: dashboardTheme.colors.surfaceMuted }
+            { label: 'Needs warning', count: counts.needsWarning, icon: 'warning-outline' },
+            { label: 'Drafts', count: counts.draft, icon: 'create-outline' },
+            { label: 'Published', count: counts.published, icon: 'checkmark-done-outline' },
+            { label: 'Cancelled', count: counts.cancelled, icon: 'alert-circle-outline' },
+            { label: 'Archived', count: counts.archived, icon: 'book-outline' }
           ]).map((tile) => (
             <View
               accessible
@@ -156,8 +156,8 @@ export function OfficerWarningsScreen() {
               key={tile.label}
               style={[styles.summaryTile, !isCompactLayout && styles.summaryTileWeb]}
             >
-              <View style={[styles.summaryIcon, !isCompactLayout && styles.summaryIconWeb, { backgroundColor: tile.softColor }]}>
-                <DashboardGlyph color={tile.color} name={tile.icon} size={isCompactLayout ? 18 : 21} />
+              <View style={[styles.summaryIcon, !isCompactLayout && styles.summaryIconWeb]}>
+                <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name={tile.icon} size={isCompactLayout ? 18 : 21} />
               </View>
               <View style={styles.summaryCopy}>
                 <Text style={[styles.summaryLabel, !isCompactLayout && styles.summaryLabelWeb]}>{tile.label}</Text>
@@ -269,11 +269,11 @@ export function OfficerWarningsScreen() {
                 >
                   <View
                     pointerEvents="none"
-                    style={[styles.warningAccent, row.risk === 'CRITICAL' ? styles.criticalCard : styles.highCard]}
+                    style={styles.warningAccent}
                   />
                   <View style={[styles.warningLayout, isCompactLayout && styles.warningLayoutCompact]}>
-                    <View style={[styles.warningIcon, row.risk === 'CRITICAL' ? styles.criticalIcon : styles.highIcon]}>
-                      <DashboardGlyph color={row.risk === 'CRITICAL' ? dashboardTheme.colors.critical : dashboardTheme.colors.high} name={warningIconForHazard(row.hazardType)} size={22} />
+                    <View style={styles.warningIcon}>
+                      <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name={warningIconForHazard(row.hazardType)} size={22} />
                     </View>
                     <View style={styles.warningContent}>
                       <View style={styles.warningTitleRow}>
@@ -325,7 +325,7 @@ const styles = StyleSheet.create({
   summaryRowCompact: { flexWrap: 'wrap' },
   summaryTile: { flex: 1, minWidth: 112, flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 10, paddingHorizontal: 10, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 16, backgroundColor: dashboardTheme.colors.surface, ...cardShadow },
   summaryTileWeb: { minHeight: 78, gap: 12, paddingVertical: 14, paddingHorizontal: 15 },
-  summaryIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 17 },
+  summaryIcon: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center', borderRadius: 17, backgroundColor: dashboardTheme.colors.surfaceMuted },
   summaryIconWeb: { width: 42, height: 42, borderRadius: 21 },
   summaryCopy: { flex: 1, gap: 1 },
   summaryValue: { fontSize: 20, lineHeight: 23, fontWeight: '800', color: dashboardTheme.colors.text },
@@ -350,14 +350,12 @@ const styles = StyleSheet.create({
   chipText: { fontSize: 12, fontWeight: '700', color: dashboardTheme.colors.text },
   chipTextSelected: { color: dashboardTheme.colors.primaryStrong },
   warningCard: { position: 'relative', gap: 8, padding: 14, paddingLeft: 18, borderRadius: 16, ...cardShadow },
-  warningAccent: { position: 'absolute', top: 12, bottom: 12, left: 7, width: 4, borderRadius: 2 },
-  highCard: { backgroundColor: dashboardTheme.colors.high },
-  criticalCard: { backgroundColor: dashboardTheme.colors.critical },
+  warningAccent: { position: 'absolute', top: 12, bottom: 12, left: 7, width: 3, borderRadius: 2, backgroundColor: dashboardTheme.colors.border },
   warningLayout: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   warningLayoutCompact: { flexDirection: 'column', alignItems: 'stretch' },
   warningIcon: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 23 },
-  highIcon: { backgroundColor: dashboardTheme.colors.highSoft },
-  criticalIcon: { backgroundColor: dashboardTheme.colors.criticalSoft },
+  highIcon: { backgroundColor: dashboardTheme.colors.surfaceMuted },
+  criticalIcon: { backgroundColor: dashboardTheme.colors.surfaceMuted },
   warningContent: { flex: 1, gap: 5, minWidth: 0 },
   warningTitleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 7 },
   warningTitle: { flexShrink: 1, fontSize: 17, fontWeight: '800', color: dashboardTheme.colors.text },
@@ -368,7 +366,7 @@ const styles = StyleSheet.create({
   dateTime: { fontSize: 11, fontWeight: '600', color: dashboardTheme.colors.muted },
   warningAction: { minWidth: 126, minHeight: 42, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 10, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 10, backgroundColor: dashboardTheme.colors.surface },
   draftAction: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.primary },
-  createAction: { borderColor: dashboardTheme.colors.success, backgroundColor: dashboardTheme.colors.success },
+  createAction: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.primary },
   warningActionText: { fontSize: 12, fontWeight: '800', color: dashboardTheme.colors.primaryStrong },
   primaryActionText: { color: '#ffffff' },
   emptyCard: { gap: 6, alignItems: 'center', padding: 18, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.md, backgroundColor: dashboardTheme.colors.surface },
