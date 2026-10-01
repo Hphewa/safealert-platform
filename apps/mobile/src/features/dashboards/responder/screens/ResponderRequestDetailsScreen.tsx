@@ -53,6 +53,8 @@ export function ResponderRequestDetailsScreen() {
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
   const [updatedRequest, setUpdatedRequest] = useState<SafeResponseRequest | null>(null);
 
+  const syncFeedbackHolder: { current?: (synced: SafeResponseRequest) => void } = {};
+
   // LDFEW-336: Refresh authoritative request data when background synchronization confirms updates
   const handleSyncSuccess = useCallback((syncedRequests: SafeResponseRequest[]) => {
     if (!requestId) return;
@@ -60,6 +62,7 @@ export function ResponderRequestDetailsScreen() {
     if (syncedThis) {
       setUpdatedRequest(syncedThis);
       updateCachedResponderRequest(syncedThis);
+      syncFeedbackHolder.current?.(syncedThis);
     }
   }, [requestId]);
 
@@ -181,6 +184,39 @@ export function ResponderRequestDetailsScreen() {
   const [externalAction, setExternalAction] = useState<'call' | 'location' | null>(null);
   const externalActionContext = useRef({ requestId, accessToken, request: responseRequest, connectivity: offline.connectivity });
   externalActionContext.current = { requestId, accessToken, request: responseRequest, connectivity: offline.connectivity };
+
+  // Synchronize local feedback and drafts with confirmed backend request after sync,
+  // replacing stale "Saved offline" messages with confirmed status and clearing completion drafts.
+  syncFeedbackHolder.current = (synced: SafeResponseRequest) => {
+    setProgressFeedback((prev) => {
+      if (prev?.kind === 'success' && prev.message.includes('Saved offline')) {
+        return {
+          requestId: synced.id,
+          kind: 'success',
+          message: `Progress synchronized: ${progressStatusLabel(synced.status)}.`
+        };
+      }
+      return prev;
+    });
+    setFieldUpdateFeedback((prev) => {
+      if (prev?.kind === 'success' && prev.message.includes('Saved offline')) {
+        return {
+          requestId: synced.id,
+          kind: 'success',
+          message: 'Field update synchronized with server.'
+        };
+      }
+      return prev;
+    });
+    if (synced.fieldNotes) {
+      setFieldNotesDraft({ id: synced.id, value: synced.fieldNotes });
+    }
+    if (synced.status === 'COMPLETED') {
+      setAssistanceDraft(null);
+      setSummaryDraft(null);
+      setRemarksDraft(null);
+    }
+  };
 
   const refreshRequest = useCallback(async () => {
     if (!requestId || !accessToken?.trim()) {

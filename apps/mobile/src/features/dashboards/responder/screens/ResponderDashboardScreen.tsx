@@ -13,6 +13,7 @@ import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { responderBottomNavItems } from '../mockData';
 import { clearResponderRequestCache, getCachedAssignedResponderRequests, getCachedResponderRequest, replaceResponderRequestCache } from '../requestDetailsCache';
+import { projectQueuedUpdates } from '../offline/responderUpdateQueue';
 import { useResponderOffline } from '../offline/useResponderOffline';
 import { ResponderOfflineStatus } from '../offline/ResponderOfflineStatus';
 import { parseResponderRequestTab, responderRequestDetailsHref } from '../requestDetails';
@@ -153,9 +154,24 @@ export function ResponderDashboardScreen() {
     }, [loadQueues, user?.id])
   );
 
-  const tabCounts = useMemo(() => getResponderQueueCounts(queueState), [queueState]);
+  // Apply queued offline updates as an overlay on top of assigned requests so the
+  // dashboard accurately reflects in-progress and completed work while offline,
+  // preventing stale status badges and outdated active queue membership.
+  const effectiveQueueState = useMemo((): ResponderQueueState => {
+    if (!offline.items.length) {
+      return queueState;
+    }
+    return {
+      pending: queueState.pending,
+      assigned: queueState.assigned
+        .map((request) => projectQueuedUpdates(request, offline.items).request)
+        .filter((request) => isActiveAssignedResponseStatus(request.status))
+    };
+  }, [queueState, offline.items]);
 
-  const visibleRequests = getVisibleResponderRequests(queueState, activeTab);
+  const tabCounts = useMemo(() => getResponderQueueCounts(effectiveQueueState), [effectiveQueueState]);
+
+  const visibleRequests = getVisibleResponderRequests(effectiveQueueState, activeTab);
   const isLoading = loadState === 'loading';
 
   return (

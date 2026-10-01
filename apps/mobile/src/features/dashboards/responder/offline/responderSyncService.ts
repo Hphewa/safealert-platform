@@ -410,6 +410,11 @@ export function createResponderSyncService(
                 temporaryFailureCounts.delete(validItem.localId);
                 cache.updateCachedResponderRequest(serverRequest);
                 continue; // Continue FIFO queue drain for subsequent items
+              } else {
+                // The server state changed while offline (e.g., request cancelled by resident).
+                // Update local cache with authoritative server state so UI components immediately
+                // recognize the conflict and prevent stale local data from masking server truth.
+                cache.updateCachedResponderRequest(serverRequest);
               }
             }
           } catch {

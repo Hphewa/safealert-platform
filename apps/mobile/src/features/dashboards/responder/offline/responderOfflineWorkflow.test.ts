@@ -19,6 +19,12 @@ import {
   getCachedResponderRequest,
   updateCachedResponderRequest
 } from '../requestDetailsCache';
+import {
+  isActiveAssignedResponseStatus,
+  getResponderQueueCounts,
+  getVisibleResponderRequests,
+  type ResponderQueueState
+} from '../queueState';
 
 const serverState = vi.hoisted(() => ({
   request: null as SafeResponseRequest | null
@@ -749,6 +755,175 @@ describe('LDFEW-337: End-to-End Responder Offline, Sync, Failure, and Persistenc
     }
     expect(queue.getSnapshot(mockResponderId).items).toHaveLength(0);
     expect(serverState.request?.fieldNotes).toBe('All clear on site.');
+  });
+
+  // =========================================================================
+  // Scenario 21: Conflict Handling (LDFEW-398 / LDFEW-402)
+  // Server state changes while offline (e.g. cancelled by resident).
+  // Auto-sync hits 409 conflict, fetches latest server state, updates local cache
+  // with authoritative data, flags conflict, and prevents overwriting server truth.
+  // =========================================================================
+  it('Scenario 21: Server-side conflict (409) updates cache with authoritative state and halts replay without data loss', async () => {
+    // 1. Initial assigned state cached locally
+    updateCachedResponderRequest(serverRequest);
+    expect(getCachedResponderRequest(mockRequestId)?.status).toBe('ASSIGNED');
+
+    // 2. Responder goes offline and saves progress DISPATCHED
+    setNetworkOnline(false);
+    const saveResult = await saveResponderUpdate(
+      {
+        request: serverRequest,
+        user: responderUser,
+        accessToken: mockToken,
+        update: { type: 'progress', payload: { status: 'DISPATCHED' } }
+      },
+      queue,
+      connectivityStore.getSnapshot
+    );
+    expect(saveResult.saved).toBe('local');
+    expect(queue.getSnapshot(mockResponderId).items).toHaveLength(1);
+
+    // 3. While responder was offline, resident cancelled the request on the server
+    serverRequest.status = 'CANCELLED';
+    serverRequest.cancelledAt = new Date().toISOString();
+
+    // 4. Mock API rejecting the progress transition with 409 conflict
+    api.updateResponderRequestProgress = vi.fn(async () => {
+      throw new ApiClientError(
+        409,
+        'INVALID_PROGRESS_TRANSITION',
+        'Cannot update emergency request progress from CANCELLED to DISPATCHED.'
+      );
+    });
+
+    // 5. Connectivity returns, triggering sync
+    setNetworkOnline(true);
+    syncService.setActiveSession({ owner: mockResponderId, accessToken: mockToken });
+
+    const syncResult = await syncService.syncQueue(mockResponderId, mockToken);
+
+    // 6. Sync must report failure due to conflict
+    expect(syncResult.success).toBe(false);
+    expect(syncResult.remainingCount).toBe(1);
+    expect(syncResult.error).toBe('This emergency request has changed on the server. Please review its status.');
+
+    // 7. Verify local cache was updated with the authoritative CANCELLED server state
+    const cachedAfterConflict = getCachedResponderRequest(mockRequestId);
+    expect(cachedAfterConflict?.status).toBe('CANCELLED');
+
+    // 8. Verify projectQueuedUpdates detects the lifecycle conflict
+    const projection = projectQueuedUpdates(cachedAfterConflict!, queue.getSnapshot(mockResponderId).items);
+    expect(projection.conflict).toBe(true);
+
+    // 9. Subsequent sync attempts do not hammer backend; permanent conflict is remembered
+    const repeatedSync = await syncService.syncQueue(mockResponderId, mockToken);
+    expect(repeatedSync.success).toBe(false);
+    expect(api.updateResponderRequestProgress).toHaveBeenCalledTimes(1); // Not called again
+  });
+
+  // =========================================================================
+  // Scenario 22: Dashboard Queue Projection (LDFEW-402)
+  // Offline updates are projected onto assigned requests so the dashboard
+  // accurately reflects in-progress and completed work without waiting for reconnect.
+  // =========================================================================
+  it('Scenario 22: Dashboard queue projection updates status badges and removes completed requests while offline', async () => {
+    // 1. Initial assigned request on dashboard
+    const initialAssigned = [{ ...serverRequest, status: 'ASSIGNED' as const }];
+    const baseQueueState: ResponderQueueState = {
+      pending: [],
+      assigned: initialAssigned
+    };
+
+    // 2. Responder goes offline and dispatches the request
+    setNetworkOnline(false);
+    await saveResponderUpdate(
+      {
+        request: initialAssigned[0],
+        user: responderUser,
+        accessToken: mockToken,
+        update: { type: 'progress', payload: { status: 'DISPATCHED' } }
+      },
+      queue,
+      connectivityStore.getSnapshot
+    );
+
+    const queuedItems = queue.getSnapshot(mockResponderId).items;
+    expect(queuedItems).toHaveLength(1);
+
+    // 3. Compute effective dashboard state overlaying offline items
+    const effectiveDispatched: ResponderQueueState = {
+      pending: baseQueueState.pending,
+      assigned: baseQueueState.assigned
+        .map((req) => projectQueuedUpdates(req, queuedItems).request)
+        .filter((req) => isActiveAssignedResponseStatus(req.status))
+    };
+
+    // Active count remains 1, but status badge reflects DISPATCHED
+    const countsDispatched = getResponderQueueCounts(effectiveDispatched);
+    expect(countsDispatched.ASSIGNED).toBe(1);
+    const visibleDispatched = getVisibleResponderRequests(effectiveDispatched, 'ASSIGNED');
+    expect(visibleDispatched).toHaveLength(1);
+    expect(visibleDispatched[0].status).toBe('DISPATCHED');
+
+    // 4. Responder steps through ARRIVED -> IN_PROGRESS -> COMPLETED while still offline
+    await saveResponderUpdate(
+      {
+        request: initialAssigned[0],
+        user: responderUser,
+        accessToken: mockToken,
+        update: { type: 'progress', payload: { status: 'ARRIVED' } }
+      },
+      queue,
+      connectivityStore.getSnapshot
+    );
+
+    await saveResponderUpdate(
+      {
+        request: initialAssigned[0],
+        user: responderUser,
+        accessToken: mockToken,
+        update: { type: 'progress', payload: { status: 'IN_PROGRESS' } }
+      },
+      queue,
+      connectivityStore.getSnapshot
+    );
+
+    await saveResponderUpdate(
+      {
+        request: initialAssigned[0],
+        user: responderUser,
+        accessToken: mockToken,
+        update: {
+          type: 'progress',
+          payload: {
+            status: 'COMPLETED',
+            completionDetails: {
+              assistanceProvided: 'First aid and hydration administered.',
+              completionSummary: 'Patient stabilized.'
+            }
+          }
+        }
+      },
+      queue,
+      connectivityStore.getSnapshot
+    );
+
+    const allQueuedItems = queue.getSnapshot(mockResponderId).items;
+    expect(allQueuedItems).toHaveLength(4);
+
+    // 5. Compute effective dashboard state overlaying offline completion
+    const effectiveCompleted: ResponderQueueState = {
+      pending: baseQueueState.pending,
+      assigned: baseQueueState.assigned
+        .map((req) => projectQueuedUpdates(req, allQueuedItems).request)
+        .filter((req) => isActiveAssignedResponseStatus(req.status))
+    };
+
+    // Completed request is filtered out from active assigned queue
+    const countsCompleted = getResponderQueueCounts(effectiveCompleted);
+    expect(countsCompleted.ASSIGNED).toBe(0);
+    const visibleCompleted = getVisibleResponderRequests(effectiveCompleted, 'ASSIGNED');
+    expect(visibleCompleted).toHaveLength(0);
   });
 });
 
