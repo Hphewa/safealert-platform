@@ -16,7 +16,6 @@ import { useAuth } from '../../auth/hooks/useAuth';
 import { acknowledgeResidentWarning, getResidentWarning } from '../api/residentWarningApi';
 import type { ResidentWarning, WarningAcknowledgementResponse } from '@safealert/contracts';
 import { cardShadow, dashboardTheme } from '../../dashboards/shared/theme';
-import { DashboardGlyph } from '../../dashboards/shared/components/DashboardGlyph';
 
 // ---------------------------------------------------------------------------
 // Safety Guidance (LDFEW-116)
@@ -360,7 +359,6 @@ export function ResidentWarningDetailsScreen() {
         onPress={goBack}
         style={({ pressed }) => [styles.backIcon, pressed && styles.dimmed]}
       >
-        <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.primaryStrong} size={22} />
         <Text style={styles.backIconLabel}>Warning Details</Text>
       </Pressable>
       {/* ── Risk level badge ── */}
