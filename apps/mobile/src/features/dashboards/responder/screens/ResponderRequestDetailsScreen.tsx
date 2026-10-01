@@ -142,6 +142,10 @@ export function ResponderRequestDetailsScreen() {
   // LDFEW-266 / LDFEW-355: Revalidate request data from backend to display previously saved updates
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const externalActionInFlight = useRef(false);
+  const [externalAction, setExternalAction] = useState<'call' | 'location' | null>(null);
+  const externalActionContext = useRef({ requestId, accessToken, request: responseRequest });
+  externalActionContext.current = { requestId, accessToken, request: responseRequest };
 
   const refreshRequest = useCallback(async () => {
     if (!requestId || !accessToken?.trim()) {
@@ -498,20 +502,47 @@ export function ResponderRequestDetailsScreen() {
   // Prevents invalid external dialer invocation when phone data is missing or malformed.
   const canCallResident = isValidPhoneNumber(responseRequest.contact?.phoneNumber);
 
-  const handleCallResidentPress = () => {
-    // Validate the saved Resident contact number before invoking
-    // the device dialer so malformed request data cannot trigger
-    // an invalid external action.
-    void initiateResidentCall(responseRequest.contact?.phoneNumber);
-  };
-
-  const handleViewLocationPress = () => {
-    // Reuse the GPS coordinates submitted with the emergency request
-    // so responders can act on the original emergency location.
-    if (emergencyCoordinates.isValid && emergencyCoordinates.latitude !== null && emergencyCoordinates.longitude !== null) {
-      initiateViewLocationRoute(emergencyCoordinates.latitude, emergencyCoordinates.longitude);
+  const openContactAction = async (action: 'call' | 'location') => {
+    // A ref closes the gap before React disables the buttons after the first tap.
+    if (externalActionInFlight.current) return;
+    const context = externalActionContext.current;
+    if (context.requestId !== requestId || context.accessToken !== accessToken) return;
+    const current = context.request;
+    const coordinates = extractEmergencyCoordinates(current?.location);
+    const phone = current?.contact?.phoneNumber;
+    if (!current || current.id !== requestId
+      || (action === 'call' ? !isValidPhoneNumber(phone) : !coordinates.isValid)) {
+      showContactActionFeedback(
+        action === 'call' ? 'Phone number unavailable' : 'Emergency location unavailable',
+        'Refresh the request details and try again.'
+      );
+      return;
+    }
+    externalActionInFlight.current = true;
+    setExternalAction(action);
+    const isCurrentRequest = () => externalActionContext.current.requestId === requestId
+      && externalActionContext.current.accessToken === accessToken;
+    try {
+      const opened = action === 'call'
+        ? await initiateResidentCall(phone)
+        : await initiateViewLocationRoute(coordinates.latitude, coordinates.longitude);
+      if (!opened && isCurrentRequest()) {
+        showContactActionFeedback(
+          action === 'call' ? 'Unable to make call' : 'Unable to open location',
+          action === 'call' ? 'The phone application could not be opened. Please try again.'
+            : 'The map or browser could not be opened. Please try again.'
+        );
+      }
+    } catch {
+      if (isCurrentRequest()) showContactActionFeedback('Something went wrong', 'Please try again.');
+    } finally {
+      externalActionInFlight.current = false;
+      setExternalAction(null);
     }
   };
+
+  const handleCallResidentPress = () => { void openContactAction('call'); };
+  const handleViewLocationPress = () => { void openContactAction('location'); };
 
   return (
     <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
@@ -756,16 +787,16 @@ export function ResponderRequestDetailsScreen() {
       <DetailsSection title="EMERGENCY LOCATION">
         <DetailRow label="Latitude" value={formatCoordinate(emergencyCoordinates.latitude)} />
         <DetailRow label="Longitude" value={formatCoordinate(emergencyCoordinates.longitude)} />
-        {/* LDFEW-267 / LDFEW-365: View Location / Route action ready for external mobile/map capability */}
+        {!canViewLocation ? <Text style={styles.description}>Emergency location unavailable</Text> : null}
         <Pressable
           accessibilityLabel="View Location / Route"
           accessibilityRole="button"
-          accessibilityState={{ disabled: !canViewLocation }}
-          disabled={!canViewLocation}
+          accessibilityState={{ disabled: !canViewLocation || externalAction !== null, busy: externalAction === 'location' }}
+          disabled={!canViewLocation || externalAction !== null}
           onPress={handleViewLocationPress}
           style={({ pressed }) => [
             styles.secondaryActionButton,
-            !canViewLocation && styles.disabledButton,
+            (!canViewLocation || externalAction !== null) && styles.disabledButton,
             pressed && canViewLocation && styles.pressed
           ]}
         >
@@ -794,7 +825,7 @@ export function ResponderRequestDetailsScreen() {
       {/* LDFEW-267 / LDFEW-360: Clearly display resident contact information */}
       <DetailsSection title="RESIDENT CONTACT">
         <DetailRow label="Resident name" value={responseRequest.contact?.name} />
-        <DetailRow label="Phone" value={responseRequest.contact?.phoneNumber} />
+        <DetailRow label="Phone" value={canCallResident ? responseRequest.contact?.phoneNumber : 'Phone number unavailable'} />
         {responseRequest.contact?.email ? (
           <DetailRow label="Email" value={responseRequest.contact.email} />
         ) : null}
@@ -802,12 +833,12 @@ export function ResponderRequestDetailsScreen() {
         <Pressable
           accessibilityLabel="Call Resident"
           accessibilityRole="button"
-          accessibilityState={{ disabled: !canCallResident }}
-          disabled={!canCallResident}
+          accessibilityState={{ disabled: !canCallResident || externalAction !== null, busy: externalAction === 'call' }}
+          disabled={!canCallResident || externalAction !== null}
           onPress={handleCallResidentPress}
           style={({ pressed }) => [
             styles.secondaryActionButton,
-            !canCallResident && styles.disabledButton,
+            (!canCallResident || externalAction !== null) && styles.disabledButton,
             pressed && canCallResident && styles.pressed
           ]}
         >
@@ -830,6 +861,12 @@ export function ResponderRequestDetailsScreen() {
       <BackToRequestsButton onPress={backToRequests} />
     </DashboardScreen>
   );
+}
+
+function showContactActionFeedback(title: string, message: string) {
+  // React Native Alert has no browser implementation; reuse the screen's web alert pattern.
+  if (Platform.OS === 'web') globalThis.alert(`${title}\n${message}`);
+  else Alert.alert(title, message);
 }
 
 function ResponderDecisionActions({
