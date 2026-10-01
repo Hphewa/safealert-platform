@@ -34,10 +34,20 @@ type LoadState = 'loading' | 'ready' | 'error';
 
 export function ResponderDashboardScreen() {
   const { accessToken, user } = useAuth();
-  const offline = useResponderOffline(user, accessToken ?? '');
   const router = useRouter();
   const { tab } = useLocalSearchParams<{ tab?: string | string[] }>();
   const queueLoadId = useRef(0);
+  const loadQueuesRef = useRef<() => Promise<void>>(async () => undefined);
+
+
+  // Automatically refresh authoritative queue lists when background sync succeeds (LDFEW-336)
+  const offline = useResponderOffline(user, accessToken ?? '', {
+    accessToken,
+    onSyncSuccess: useCallback(async () => {
+      await loadQueuesRef.current();
+    }, [])
+  });
+
   // Route state restores the selected queue on Back without first rendering Pending.
   const activeTab = parseResponderRequestTab(tab) ?? 'PENDING';
   const setActiveTab = (tab: RequestTab) => router.setParams({ tab });
@@ -110,6 +120,7 @@ export function ResponderDashboardScreen() {
       setErrorMessage(errorMessageFor(error));
     }
   }, [accessToken, user?.id, offline.connectivity]);
+  loadQueuesRef.current = loadQueues;
 
   useFocusEffect(
     useCallback(() => {

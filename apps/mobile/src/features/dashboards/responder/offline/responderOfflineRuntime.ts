@@ -4,6 +4,11 @@ import { AppState } from 'react-native';
 import { apiBaseUrl } from '../../../../services/api/client';
 import { createConnectivityStore } from './connectivity';
 import { createResponderUpdateQueue } from './responderUpdateQueue';
+import { createResponderSyncService } from './responderSyncService';
+import { updateResponderRequestProgress } from '../api/responderProgressApi';
+import { saveResponderFieldUpdate } from '../api/responderFieldUpdateApi';
+import { getResponderRequestById } from '../api/responderRequestsApi';
+import { updateCachedResponderRequest } from '../requestDetailsCache';
 
 // Browsers need a CORS-enabled reachability target, including localhost testing.
 // Reuse SafeAlert's public health endpoint instead of depending on an unrelated website.
@@ -43,3 +48,19 @@ export const responderConnectivity = createConnectivityStore({
     return () => { active = false; stopNetwork(); foreground.remove(); };
   }
 });
+
+// Single shared synchronization service instance wired with the persistent queue,
+// network connectivity monitor, backend API endpoints, and local request cache.
+export const responderSyncService = createResponderSyncService(
+  responderUpdateQueue,
+  responderConnectivity,
+  {
+    updateResponderRequestProgress,
+    saveResponderFieldUpdate,
+    getResponderRequestById
+  },
+  {
+    updateCachedResponderRequest
+  }
+);
+

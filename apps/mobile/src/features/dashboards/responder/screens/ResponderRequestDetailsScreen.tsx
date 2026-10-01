@@ -51,8 +51,23 @@ export function ResponderRequestDetailsScreen() {
   const { accessToken, user } = useAuth();
   const params = useLocalSearchParams<{ requestId?: string | string[]; sourceTab?: string | string[] }>();
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
-  const offline = useResponderOffline(user, `${accessToken ?? ''}:${requestId ?? ''}`);
   const [updatedRequest, setUpdatedRequest] = useState<SafeResponseRequest | null>(null);
+
+  // LDFEW-336: Refresh authoritative request data when background synchronization confirms updates
+  const handleSyncSuccess = useCallback((syncedRequests: SafeResponseRequest[]) => {
+    if (!requestId) return;
+    const syncedThis = syncedRequests.find((r) => r.id === requestId);
+    if (syncedThis) {
+      setUpdatedRequest(syncedThis);
+      updateCachedResponderRequest(syncedThis);
+    }
+  }, [requestId]);
+
+  const offline = useResponderOffline(user, `${accessToken ?? ''}:${requestId ?? ''}`, {
+    accessToken,
+    onSyncSuccess: handleSyncSuccess
+  });
+
   const cached = requestId ? getCachedResponderRequest(requestId) : null;
   const safeCached =
     cached && requestId && (cached.status === 'NEW' || (user?.id && cached.assignedResponderId === user.id))
