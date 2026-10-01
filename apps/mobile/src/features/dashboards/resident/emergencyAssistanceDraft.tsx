@@ -251,12 +251,24 @@ export function validateEmergencyAssistanceDraft(
 
   if (!trimmedContactName || !trimmedContactEmail) {
     errors.contactDetails = 'Your account contact information is required.';
+  } else if (trimmedContactName.length < 2) {
+    errors.contactDetails = 'Contact name must be at least 2 characters.';
   } else if (!trimmedContactPhoneNumber) {
     errors.contactDetails = 'Enter a contact phone number.';
+  } else {
+    // Validate phone number format and length to ensure compatibility with backend telecom schema (7-32 chars, min 7 digits)
+    const digitsOnly = trimmedContactPhoneNumber.replace(/\D/g, '');
+    const hasValidPhoneFormat = /^[\d\s+\-()]{7,32}$/.test(trimmedContactPhoneNumber);
+    if (!hasValidPhoneFormat || digitsOnly.length < 7) {
+      errors.contactDetails = 'Enter a valid phone number.';
+    }
   }
 
+  // Description validation: enforce required text and 3-character minimum matching backend persistence schema
   if (!trimmedDescription) {
     errors.emergencyDescription = 'Describe the emergency.';
+  } else if (trimmedDescription.length < 3) {
+    errors.emergencyDescription = 'Description must be at least 3 characters.';
   } else if (trimmedDescription.length > emergencyDescriptionMaxLength) {
     errors.emergencyDescription = `Keep the description under ${emergencyDescriptionMaxLength} characters.`;
   }

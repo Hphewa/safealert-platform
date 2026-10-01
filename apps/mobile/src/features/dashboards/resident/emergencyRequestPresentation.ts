@@ -123,7 +123,12 @@ export function presentResidentEmergencyRequestDetails(request: SafeResponseRequ
 }
 
 function detailText(value: unknown): string {
-  return typeof value === 'string' && value.trim() ? value.trim() : 'Not provided';
+  if (typeof value !== 'string') return 'Not provided';
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === 'undefined' || trimmed === 'null' || trimmed === 'NaN') {
+    return 'Not provided';
+  }
+  return trimmed;
 }
 
 function detailCount(value: unknown): string {
