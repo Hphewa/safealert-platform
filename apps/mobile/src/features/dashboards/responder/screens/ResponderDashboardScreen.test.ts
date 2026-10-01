@@ -44,6 +44,7 @@ vi.mock('expo-router', () => ({
 vi.mock('react-native', () => ({
   ActivityIndicator: 'span', Pressable: 'button', Text: 'span', TextInput: 'input', View: 'div',
   Alert: { alert: vi.fn() },
+  Platform: { OS: 'ios' },
   StyleSheet: { create: (styles: unknown) => styles }
 }));
 vi.mock('@/features/auth/hooks/useAuth', () => ({
@@ -506,5 +507,128 @@ describe('responder dashboard return navigation', () => {
     await Promise.resolve();
     expect(visibleStatuses()).toEqual(['DISPATCHED']);
     expect(getCachedResponderRequest(assigned.id)).toEqual(latest);
+  });
+});
+
+describe('responder accept and decline flows (LDFEW-389)', () => {
+  it('confirms, declines a NEW request, shows feedback, navigates back, and updates pending queue', async () => {
+    updateCachedResponderRequest(pending);
+    lifecycle.params = { requestId: pending.id, sourceTab: 'PENDING' };
+    const declined = { ...pending, declinedByResponderIds: ['responder-a'] };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(declined));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.mocked(listPendingResponderRequests).mockResolvedValue([]);
+
+    // 1. Responder initiates decline
+    detailsButton('Decline Request').onPress();
+
+    // 2. Alert confirmation is shown to prevent accidental declines
+    expect(Alert.alert).toHaveBeenCalledWith(
+      'Decline this emergency request?',
+      'The request will remain available to other responders.',
+      expect.any(Array)
+    );
+
+    // 3. Confirm decline via destructive button callback
+    const declineAction = vi.mocked(Alert.alert).mock.lastCall?.[2]?.find((btn) => btn.text === 'Decline');
+    expect(declineAction).toBeDefined();
+    declineAction?.onPress?.();
+
+    // 4. API request is dispatched with correct path and method
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining(`/response-requests/responder/requests/${pending.id}/decline`),
+      expect.objectContaining({ method: 'PATCH' })
+    ));
+
+    // 5. Success alert is shown explaining the request remains available to other responders
+    await vi.waitFor(() => expect(Alert.alert).toHaveBeenCalledWith(
+      'Request declined',
+      'Request declined. It remains available to other responders.',
+      expect.any(Array)
+    ));
+
+    // 6. Navigation callback returns to requests
+    vi.mocked(Alert.alert).mock.lastCall?.[2]?.[0]?.onPress?.();
+    expect(navigation.replace).toHaveBeenCalledWith('/responder');
+
+    // 7. On return to dashboard, declined request is no longer present in Pending queue
+    lifecycle.slots = [];
+    lifecycle.params = {};
+    render();
+    lifecycle.focus();
+    await vi.waitFor(() => expect(screenText(render())).not.toContain('Loading requests...'));
+    expect(visibleStatuses()).toEqual([]);
+    expect(tabButton('Pending').props.count).toBe(0);
+    expect(screenText(render())).toContain('No pending requests');
+  });
+
+  it('prevents duplicate network requests when Accept Request is tapped rapidly', async () => {
+    updateCachedResponderRequest(pending);
+    lifecycle.params = { requestId: pending.id, sourceTab: 'PENDING' };
+    const transport = deferred<Response>();
+    const fetchMock = vi.fn<typeof fetch>().mockReturnValueOnce(transport.promise);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const button = detailsButton('Accept Request');
+    // Rapid duplicate taps
+    button.onPress();
+    button.onPress();
+
+    // The button shows loading state and disabled state
+    const loadingButton = detailsButton('Accepting...');
+    expect(loadingButton.disabled).toBe(true);
+    expect(loadingButton.accessibilityState).toEqual({ disabled: true, busy: true });
+    loadingButton.onPress();
+
+    // Synchronous ref gate strictly blocked repeated dispatches
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const confirmed = { ...assigned, acceptedAt: '2026-09-24T10:00:00.000Z' };
+    transport.resolve(jsonResponse(confirmed));
+    await vi.waitFor(() => expect(Alert.alert).toHaveBeenCalledWith(
+      'Request accepted', 'Request accepted successfully.', expect.any(Array)
+    ));
+  });
+
+  it('handles 409 conflict when another responder already accepted the request', async () => {
+    updateCachedResponderRequest(pending);
+    lifecycle.params = { requestId: pending.id, sourceTab: 'PENDING' };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({ error: { code: 'REQUEST_NOT_AVAILABLE', message: 'This emergency request is no longer available.' } }, 409)
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    detailsButton('Accept Request').onPress();
+
+    await vi.waitFor(() => expect(Alert.alert).toHaveBeenCalledWith(
+      'Unable to accept request',
+      'This request is no longer available.'
+    ));
+
+    // Button busy state is reset after error
+    const retryButton = detailsButton('Accept Request');
+    expect(retryButton.disabled).toBe(false);
+  });
+
+  it('navigates cleanly on web platform upon accepting without dead-end alert', async () => {
+    const originalPlatform = (await import('react-native')).Platform.OS;
+    try {
+      (await import('react-native')).Platform.OS = 'web';
+      const webAlert = vi.fn();
+      vi.stubGlobal('alert', webAlert);
+
+      updateCachedResponderRequest(pending);
+      lifecycle.params = { requestId: pending.id, sourceTab: 'PENDING' };
+      const confirmed = { ...assigned, acceptedAt: '2026-09-24T10:00:00.000Z' };
+      const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(jsonResponse(confirmed));
+      vi.stubGlobal('fetch', fetchMock);
+
+      detailsButton('Accept Request').onPress();
+
+      await vi.waitFor(() => expect(webAlert).toHaveBeenCalledWith('Request accepted successfully.'));
+      expect(navigation.replace).toHaveBeenCalledWith('/responder');
+    } finally {
+      (await import('react-native')).Platform.OS = originalPlatform;
+    }
   });
 });

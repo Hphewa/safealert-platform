@@ -62,4 +62,20 @@ describe('responder request presentation', () => {
       submittedAt: undefined
     });
   });
+
+  it.each([
+    null,
+    [],
+    [Number.NaN, 6.9271],
+    [79.8612, Number.POSITIVE_INFINITY],
+    ['79.8612', '6.9271']
+  ])('falls back to Location not provided when coordinates are invalid: %j', (coordinates) => {
+    const invalidCoordRequest = request('NEW');
+    invalidCoordRequest.location = {
+      type: 'Point',
+      coordinates: coordinates as unknown as [number, number]
+    };
+
+    expect(presentResponderRequest(invalidCoordRequest).location).toBe('Location not provided');
+  });
 });

@@ -38,7 +38,16 @@ function formatAssistanceType(assistanceType: SafeResponseRequest['assistanceTyp
 function formatLocation(responseRequest: SafeResponseRequest) {
   const coordinates = responseRequest.location?.coordinates;
 
-  if (!coordinates || coordinates.length !== 2) {
+  // Protect against missing, non-array, or non-finite coordinate values
+  // so malformed emergency location data cannot crash queue cards or details.
+  if (
+    !coordinates ||
+    coordinates.length !== 2 ||
+    typeof coordinates[0] !== 'number' ||
+    typeof coordinates[1] !== 'number' ||
+    !Number.isFinite(coordinates[0]) ||
+    !Number.isFinite(coordinates[1])
+  ) {
     return 'Location not provided';
   }
 

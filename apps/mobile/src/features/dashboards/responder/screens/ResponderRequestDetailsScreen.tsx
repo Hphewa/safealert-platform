@@ -55,6 +55,9 @@ export function ResponderRequestDetailsScreen() {
     ? updatedRequest
     : requestId ? getCachedResponderRequest(requestId) : null;
   const [decisionAction, setDecisionAction] = useState<ResponderDecisionAction>('idle');
+  // Synchronous ref gate prevents rapid multiple button presses from firing duplicate
+  // concurrent network requests for accept or decline before React commits the busy state.
+  const decisionInFlightRef = useRef(false);
   const progressInFlightRef = useRef(false);
   const [progressFeedback, setProgressFeedback] = useState<{
     requestId: string;
@@ -311,6 +314,22 @@ export function ResponderRequestDetailsScreen() {
         message: `Progress updated: ${progressStatusLabel(updated.status)}.`
       });
     } catch (error) {
+      // If the backend indicates required completion details are missing or invalid,
+      // highlight the inline form fields so the responder sees exactly which inputs need attention.
+      if (
+        error instanceof ApiClientError &&
+        (error.code === 'COMPLETION_DETAILS_REQUIRED' || error.code === 'INVALID_COMPLETION_DETAILS')
+      ) {
+        setCompletionFieldErrors((prev) => ({
+          assistanceProvided:
+            prev.assistanceProvided ??
+            (!assistanceProvidedInput.trim() ? 'Assistance provided is required.' : undefined),
+          completionSummary:
+            prev.completionSummary ??
+            (!completionSummaryInput.trim() ? 'Completion summary is required.' : undefined),
+          responderRemarks: prev.responderRemarks
+        }));
+      }
       setProgressFeedback({ requestId, kind: 'error', message: responderProgressFeedback(error) });
     } finally {
       progressInFlightRef.current = false;
@@ -357,8 +376,27 @@ export function ResponderRequestDetailsScreen() {
     return 'Unable to update this request. Please check your connection and try again.';
   };
 
+  const showAcceptSuccess = () => {
+    const message = 'Request accepted successfully.';
+
+    if (Platform?.OS === 'web') {
+      // Web alerts do not reliably invoke React Native action callbacks, so
+      // navigate explicitly after showing the success feedback to avoid dead-end screens.
+      globalThis.alert(message);
+      returnToRequests();
+      return;
+    }
+
+    Alert.alert('Request accepted', message, [
+      { text: 'Back to Requests', onPress: returnToRequests }
+    ]);
+  };
+
   const acceptRequest = async () => {
+    // Synchronous ref gate prevents rapid multiple button presses from firing duplicate
+    // concurrent network requests before React has committed the busy/disabled state.
     if (
+      decisionInFlightRef.current ||
       decisionAction !== 'idle' ||
       !responseRequest ||
       !requestId ||
@@ -368,14 +406,13 @@ export function ResponderRequestDetailsScreen() {
       return;
     }
 
+    decisionInFlightRef.current = true;
     setDecisionAction('accepting');
 
     try {
       await acceptResponderRequest(requestId, accessToken);
       await refreshResponderQueues();
-      Alert.alert('Request accepted', 'Request accepted successfully.', [
-        { text: 'Back to Requests', onPress: returnToRequests }
-      ]);
+      showAcceptSuccess();
     } catch (error) {
       Alert.alert('Unable to accept request', friendlyDecisionError(error));
       if (error instanceof ApiClientError && (error.status === 409 || error.status === 404)) {
@@ -386,13 +423,15 @@ export function ResponderRequestDetailsScreen() {
         }
       }
     } finally {
-      // Always clear the busy state so a failed request cannot trap the UI.
+      // Always release the submission gate and clear the busy state so failed requests cannot trap the UI.
+      decisionInFlightRef.current = false;
       setDecisionAction('idle');
     }
   };
 
   const confirmDeclineRequest = () => {
     if (
+      decisionInFlightRef.current ||
       decisionAction !== 'idle' ||
       !responseRequest ||
       !requestId ||
@@ -402,7 +441,7 @@ export function ResponderRequestDetailsScreen() {
       return;
     }
 
-    if (Platform.OS === 'web') {
+    if (Platform?.OS === 'web') {
       // Browser confirmation is required on web because native Alert action
       // callbacks are not consistently available in React Native Web.
       if (globalThis.confirm('Decline this emergency request?')) {
@@ -420,7 +459,7 @@ export function ResponderRequestDetailsScreen() {
   const showDeclineSuccess = () => {
     const message = 'Request declined. It remains available to other responders.';
 
-    if (Platform.OS === 'web') {
+    if (Platform?.OS === 'web') {
       // Web alerts do not reliably invoke React Native action callbacks, so
       // navigate explicitly after showing the success feedback.
       globalThis.alert(message);
@@ -434,7 +473,9 @@ export function ResponderRequestDetailsScreen() {
   };
 
   const declineRequest = async () => {
+    // Synchronous ref gate prevents repeated taps from dispatching concurrent decline mutations.
     if (
+      decisionInFlightRef.current ||
       decisionAction !== 'idle' ||
       !responseRequest ||
       !requestId ||
@@ -444,6 +485,7 @@ export function ResponderRequestDetailsScreen() {
       return;
     }
 
+    decisionInFlightRef.current = true;
     setDecisionAction('declining');
 
     try {
@@ -460,6 +502,7 @@ export function ResponderRequestDetailsScreen() {
         }
       }
     } finally {
+      decisionInFlightRef.current = false;
       setDecisionAction('idle');
     }
   };
@@ -887,7 +930,7 @@ function ResponderDecisionActions({
       <View style={styles.decisionRow}>
         <Pressable
           accessibilityRole="button"
-          accessibilityState={{ disabled: isBusy }}
+          accessibilityState={{ disabled: isBusy, busy: action === 'declining' }}
           disabled={isBusy}
           onPress={onDecline}
           style={({ pressed }) => [
@@ -896,11 +939,14 @@ function ResponderDecisionActions({
             pressed && !isBusy && styles.pressed
           ]}
         >
+          {action === 'declining' ? (
+            <ActivityIndicator color={dashboardTheme.colors.critical} size="small" />
+          ) : null}
           <Text style={styles.declineButtonText}>{decisionButtonLabel(action, 'decline')}</Text>
         </Pressable>
         <Pressable
           accessibilityRole="button"
-          accessibilityState={{ disabled: isBusy }}
+          accessibilityState={{ disabled: isBusy, busy: action === 'accepting' }}
           disabled={isBusy}
           onPress={onAccept}
           style={({ pressed }) => [
@@ -909,6 +955,9 @@ function ResponderDecisionActions({
             pressed && !isBusy && styles.pressed
           ]}
         >
+          {action === 'accepting' ? (
+            <ActivityIndicator color="#ffffff" size="small" />
+          ) : null}
           <Text style={styles.acceptButtonText}>{decisionButtonLabel(action, 'accept')}</Text>
         </Pressable>
       </View>
@@ -1078,8 +1127,10 @@ const styles = StyleSheet.create({
   declineButton: {
       flex: 1,
       minHeight: 48,
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
+      gap: 6,
       paddingHorizontal: 12,
       borderWidth: 1,
       borderColor: dashboardTheme.colors.critical,
@@ -1095,8 +1146,10 @@ const styles = StyleSheet.create({
   acceptButton: {
       flex: 1,
       minHeight: 48,
+      flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'center',
+      gap: 6,
       paddingHorizontal: 12,
       borderRadius: dashboardTheme.radius.md,
       backgroundColor: dashboardTheme.colors.primaryStrong

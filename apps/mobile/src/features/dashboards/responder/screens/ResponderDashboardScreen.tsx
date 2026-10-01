@@ -93,11 +93,22 @@ export function ResponderDashboardScreen() {
   useFocusEffect(
     useCallback(() => {
       // Show confirmed progress immediately on return, then revalidate with the API.
+      // Immediately purge requests that have been accepted or declined by this responder from Pending.
       setQueueState((current) => ({
-        ...current,
+        pending: current.pending
+          .map((request) => getCachedResponderRequest(request.id) ?? request)
+          .filter(
+            (request) =>
+              request.status === 'NEW' &&
+              !(request.declinedByResponderIds ?? []).includes(user?.id ?? '')
+          ),
         assigned: current.assigned
           .map((request) => getCachedResponderRequest(request.id) ?? request)
-          .filter((request) => request.assignedResponderId === user?.id && isActiveAssignedResponseStatus(request.status))
+          .filter(
+            (request) =>
+              request.assignedResponderId === user?.id &&
+              isActiveAssignedResponseStatus(request.status)
+          )
       }));
       void loadQueues();
       return () => {
