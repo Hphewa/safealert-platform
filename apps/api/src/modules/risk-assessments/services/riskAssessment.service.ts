@@ -32,14 +32,15 @@ export class RiskAssessmentService {
   async calculate(input: CalculateRiskAssessmentRequest): Promise<CalculateRiskAssessmentResponse> {
     const { incident } = await this.getIncidentWithReports(input.incidentId, true);
     const result = calculateRisk(input, incident.hazardType);
-    return { calculatedScore: result.score, systemSuggestedRisk: result.suggestedRisk };
+    return { calculatedScore: result.score, systemSuggestedRisk: result.suggestedRisk,
+      factorContributions: result.factorContributions, calculationVersion: result.calculationVersion };
   }
 
   async create(officerId: string, input: CreateRiskAssessmentRequest): Promise<RiskAssessmentResponse> {
     const context = await this.getIncidentWithReports(input.incidentId, true);
     const conflict = () => new ApiError(409, 'ACTIVE_ASSESSMENT_EXISTS', 'An active risk assessment already exists for this incident.');
     if (await this.repository.findActiveByIncidentId(context.incident.id)) throw conflict();
-    const { score, suggestedRisk } = calculateRisk(input, context.incident.hazardType);
+    const { score, suggestedRisk, factorContributions, calculationVersion } = calculateRisk(input, context.incident.hazardType);
     if (input.finalRiskLevel !== suggestedRisk && !input.decisionReason?.trim()) throw new ApiError(400, 'DECISION_REASON_REQUIRED', 'A decision reason is required when overriding suggested risk.');
     try {
       const assessment = await this.repository.create({
@@ -48,7 +49,8 @@ export class RiskAssessmentService {
         roadAccessibility: input.roadAccessibility, infrastructureImpact: input.infrastructureImpact,
         waterLevelTrend: input.waterLevelTrend, weatherCondition: input.weatherCondition,
         finalRiskLevel: input.finalRiskLevel, ...(input.decisionReason ? { decisionReason: input.decisionReason.trim() } : {}),
-        calculatedScore: score, systemSuggestedRisk: suggestedRisk, assessedById: officerId, status: 'ACTIVE', assessedAt: new Date().toISOString()
+        calculatedScore: score, systemSuggestedRisk: suggestedRisk, factorContributions, calculationVersion,
+        assessedById: officerId, status: 'ACTIVE', assessedAt: new Date().toISOString()
       });
       return { assessment, incident: context.incident, reports: context.reports };
     } catch (error) { if (error instanceof ActiveRiskAssessmentExistsError) throw conflict(); throw error; }
@@ -73,7 +75,7 @@ export class RiskAssessmentService {
 
     const context = await this.getIncidentWithReports(current.incidentId, true);
     const factors = { ...input, incidentId: current.incidentId };
-    const { score, suggestedRisk } = calculateRisk(factors, context.incident.hazardType);
+    const { score, suggestedRisk, factorContributions, calculationVersion } = calculateRisk(factors, context.incident.hazardType);
     if (input.finalRiskLevel !== suggestedRisk && !input.decisionReason?.trim()) {
       throw new ApiError(400, 'DECISION_REASON_REQUIRED', 'A decision reason is required when overriding suggested risk.');
     }
@@ -86,7 +88,9 @@ export class RiskAssessmentService {
         waterLevelTrend: input.waterLevelTrend, weatherCondition: input.weatherCondition,
         finalRiskLevel: input.finalRiskLevel,
         ...(input.decisionReason ? { decisionReason: input.decisionReason.trim() } : {}),
-        calculatedScore: score, systemSuggestedRisk: suggestedRisk, assessedById: officerId,
+        calculatedScore: score, systemSuggestedRisk: suggestedRisk,
+        factorContributions, calculationVersion,
+        assessedById: officerId,
         assessedAt: new Date().toISOString(), reassessmentReason: input.reassessmentReason.trim()
       });
       return { assessment, incident: context.incident, reports: context.reports };

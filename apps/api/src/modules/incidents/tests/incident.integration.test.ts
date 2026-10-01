@@ -48,6 +48,25 @@ beforeEach(() => {
 });
 
 describe('incident API', () => {
+  it('serves incident activity from the officer-only timeline route', async () => {
+    const { app, create } = context();
+    const saved = await create();
+    const path = `${base}/${saved.body.incident.id}/timeline`;
+    expect((await request(app).get(path)).status).toBe(401);
+    expect((await request(app).get(path).auth(token('RESIDENT'), { type: 'bearer' })).status).toBe(403);
+    const response = await request(app).get(path).auth(token(), { type: 'bearer' });
+    expect(response.status).toBe(200);
+    expect(response.body.incidentId).toBe(saved.body.incident.id);
+    expect(response.body.events.map(({ type }: { type: string }) => type).sort()).toEqual([
+      'INCIDENT_CREATED', 'REPORT_CREATED', 'REPORT_VERIFIED'
+    ].sort());
+    expect(response.body.events.map(({ timestamp }: { timestamp: string }) => Date.parse(timestamp)))
+      .toEqual([...response.body.events.map(({ timestamp }: { timestamp: string }) => Date.parse(timestamp))]
+        .sort((left, right) => right - left));
+    expect((await request(app).get(`${base}/abcdef123456789012345699/timeline`).auth(token(), { type: 'bearer' }))
+      .body.error.code).toBe('INCIDENT_NOT_FOUND');
+  });
+
   it('serves officer-only lifecycle queue and monitoring endpoints with validated detail IDs', async () => {
     const { app, create } = context();
     expect((await request(app).get(`${base}/assessment-queue`)).status).toBe(401);

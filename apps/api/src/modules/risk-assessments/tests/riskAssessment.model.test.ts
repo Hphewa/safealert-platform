@@ -30,6 +30,18 @@ describe('risk persistence constraints', () => {
     expect(toSafeRiskAssessment(assessment)).toMatchObject({ status: 'ACTIVE', isDeleted: false, assessedAt: expect.any(String), incidentId: assessment.incidentId.toString() });
     expect(toSafeRiskAssessment(assessment)).not.toHaveProperty('_id');
   });
+  it('stores new contribution snapshots but keeps legacy snapshots absent', async () => {
+    const assessment = document();
+    assessment.set({ calculationVersion: 'risk-v1', factorContributions: [
+      { key: 'hazardSeverity', label: 'Hazard severity', selectedValue: 'LOW', points: 0 }
+    ] });
+    await expect(assessment.validate()).resolves.toBeUndefined();
+    expect(toSafeRiskAssessment(assessment)).toMatchObject({ calculationVersion: 'risk-v1',
+      factorContributions: [{ key: 'hazardSeverity', points: 0 }] });
+    const legacy = RiskAssessmentModel.hydrate(document().toObject());
+    expect(toSafeRiskAssessment(legacy)).not.toHaveProperty('calculationVersion');
+    expect(toSafeRiskAssessment(legacy)).not.toHaveProperty('factorContributions');
+  });
   it('serializes deletion audit fields without changing operational status', async () => {
     const assessment = document();
     const deletedAt = new Date('2026-09-26T13:00:00.000Z');

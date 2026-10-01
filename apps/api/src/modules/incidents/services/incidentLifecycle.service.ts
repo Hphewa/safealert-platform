@@ -1,12 +1,13 @@
 import type {
-  IncidentMonitoringDetailResponse, IncidentMonitoringListResponse, InitialAssessmentQueueResponse,
-  MonitoringReportSummary, MonitoringWarningSummary, SafeIncident
+  IncidentActivityTimelineResponse, IncidentMonitoringDetailResponse, IncidentMonitoringListResponse,
+  InitialAssessmentQueueResponse, MonitoringReportSummary, MonitoringWarningSummary, SafeIncident
 } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 import type { ReportRepository } from '../../reports/repositories/report.repository.js';
 import type { RiskAssessmentRepository } from '../../risk-assessments/repositories/riskAssessment.repository.js';
 import type { WarningRepository } from '../../warnings/repositories/warning.repository.js';
 import type { IncidentRepository } from '../repositories/incident.repository.js';
+import { buildIncidentActivityTimeline } from './incidentActivityTimeline.js';
 
 export class IncidentLifecycleService {
   constructor(
@@ -71,6 +72,17 @@ export class IncidentLifecycleService {
     }));
     const composed = this.compose(incident, lifecycle, summariesByReport, warningSummaries);
     return { monitoring: composed.monitoring, recentVerifiedReports: composed.recentVerifiedReports };
+  }
+
+  async getTimeline(incidentId: string): Promise<IncidentActivityTimelineResponse> {
+    const incident = await this.incidents.findById(incidentId);
+    if (!incident) throw new ApiError(404, 'INCIDENT_NOT_FOUND', 'Incident not found.');
+    const [reports, assessments] = await Promise.all([
+      this.reports.findReportsByIds(incident.reportIds),
+      this.assessments.findHistoryByIncidentId(incidentId)
+    ]);
+    const warnings = await this.warnings.findByAssessmentIds(assessments.map(({ id }) => id));
+    return buildIncidentActivityTimeline(incident, reports, assessments, warnings);
   }
 
   private compose(

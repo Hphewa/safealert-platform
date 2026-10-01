@@ -1,5 +1,5 @@
 import type {
-  CalculateRiskAssessmentResponse, RiskAssessmentFactors, RiskLevel
+  CalculateRiskAssessmentResponse, RiskAssessmentFactors, RiskLevel, SafeRiskAssessment
 } from '@safealert/contracts';
 import {
   initialRiskAssessmentForm, parseRiskAssessmentForm, riskAssessmentFormFromAssessment,
@@ -15,6 +15,7 @@ export type RiskAssessmentDraft = {
   mode: RiskAssessmentDraftMode;
   incidentId: string;
   assessmentId: string | null;
+  previousAssessment?: SafeRiskAssessment;
   factors: RiskAssessmentForm;
   calculationPreview: RiskAssessmentCalculationPreview | null;
   finalRiskLevel: RiskLevel;
@@ -24,9 +25,10 @@ export type RiskAssessmentDraft = {
 
 export type RiskAssessmentDraftAction =
   | { type: 'INITIALIZE_INITIAL'; incidentId: string }
+  | { type: 'RESTORE_DRAFT'; draft: Omit<RiskAssessmentDraft, 'calculationPreview' | 'previousAssessment'>; previousAssessment?: SafeRiskAssessment }
   | {
       type: 'INITIALIZE_REASSESSMENT'; assessmentId: string; incidentId: string;
-      factors: RiskAssessmentFactors; finalRiskLevel: RiskLevel
+      factors: RiskAssessmentFactors; finalRiskLevel: RiskLevel; previousAssessment?: SafeRiskAssessment
     }
   | { type: 'UPDATE_FACTORS'; factors: RiskAssessmentForm }
   | { type: 'SET_CALCULATION_PREVIEW'; factors: RiskAssessmentFactors; result: CalculateRiskAssessmentResponse }
@@ -49,9 +51,11 @@ export function createReassessmentDraft(input: {
   incidentId: string;
   factors: RiskAssessmentFactors;
   finalRiskLevel: RiskLevel;
+  previousAssessment?: SafeRiskAssessment;
 }): RiskAssessmentDraft {
   return {
     mode: 'REASSESSMENT', incidentId: input.incidentId, assessmentId: input.assessmentId,
+    ...(input.previousAssessment ? { previousAssessment: input.previousAssessment } : {}),
     factors: riskAssessmentFormFromAssessment(input.factors), calculationPreview: null,
     finalRiskLevel: input.finalRiskLevel, decisionReason: '', reassessmentReason: ''
   };
@@ -64,6 +68,9 @@ export function riskAssessmentDraftReducer(
   switch (action.type) {
     case 'INITIALIZE_INITIAL':
       return createInitialAssessmentDraft(action.incidentId);
+    case 'RESTORE_DRAFT':
+      return { ...action.draft, factors: { ...action.draft.factors }, calculationPreview: null,
+        ...(action.previousAssessment ? { previousAssessment: action.previousAssessment } : {}) };
     case 'INITIALIZE_REASSESSMENT':
       return createReassessmentDraft(action);
     case 'RESET':
@@ -97,4 +104,20 @@ export function isCalculationPreviewValid(draft: RiskAssessmentDraft | null): bo
   } catch {
     return false;
   }
+}
+
+export function isRiskAssessmentDraftDirty(draft: RiskAssessmentDraft | null): boolean {
+  if (!draft) return false;
+  if (draft.decisionReason.trim() || draft.reassessmentReason.trim()) return true;
+  if (draft.mode === 'INITIAL') {
+    return draft.finalRiskLevel !== 'LOW' || Object.keys(initialRiskAssessmentForm).some((key) =>
+      draft.factors[key as keyof RiskAssessmentForm] !== initialRiskAssessmentForm[key as keyof RiskAssessmentForm]
+    );
+  }
+  const previous = draft.previousAssessment;
+  if (!previous) return false;
+  const savedFactors = riskAssessmentFormFromAssessment(previous);
+  return draft.finalRiskLevel !== previous.finalRiskLevel || Object.keys(savedFactors).some((key) =>
+    draft.factors[key as keyof RiskAssessmentForm] !== savedFactors[key as keyof RiskAssessmentForm]
+  );
 }

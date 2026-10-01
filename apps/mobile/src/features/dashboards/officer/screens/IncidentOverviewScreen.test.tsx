@@ -82,7 +82,7 @@ it('loads the requested incident and renders summary, verified count, evidence, 
   expect(markup).toContain('NEEDS ASSESSMENT');
   expect(markup).toContain('1 verified report');
   expect(markup).toContain('Latest evidence');
-  expect(markup).toMatch(/ago|yesterday|just now/);
+  expect(markup).toContain(new Date('2026-09-25').toLocaleString());
   expect(markup).toContain('Resolved locality');
   expect(markup).toContain('Verified Reports (1)');
   expect(markup).toContain('High (1)');
@@ -106,7 +106,7 @@ it('revalidates Start, initializes a new INITIAL draft, and routes with only inc
   await state.actions.get('START ASSESSMENT')!();
   expect(state.reload).toHaveBeenCalledWith({ preserveData: true });
   expect(state.initialize).toHaveBeenCalledWith('incident-1');
-  expect(state.push).toHaveBeenCalledWith({ pathname: '/officer/assessments/create', params: { incidentId: 'incident-1' } });
+  expect(state.push).toHaveBeenCalledWith({ pathname: '/officer/assessments/wizard/[step]', params: { step: 'situation', incidentId: 'incident-1' } });
 });
 it('preserves the matching draft across focus, rerender, and Start again after returning from the form', async () => {
   state.draft = { ...createInitialAssessmentDraft('incident-1'), decisionReason: 'Keep this decision', factors: { ...createInitialAssessmentDraft('incident-1').factors, peopleAffected: '42' } };
@@ -114,6 +114,16 @@ it('preserves the matching draft across focus, rerender, and Start again after r
   await state.actions.get('START ASSESSMENT')!();
   expect(state.initialize).not.toHaveBeenCalled(); expect(state.reset).not.toHaveBeenCalled();
   expect(state.draft.factors.peopleAffected).toBe('42');
+});
+it('initializes a clean draft when starting a different incident', async () => {
+  state.incidentId = 'incident-2';
+  state.draft = createInitialAssessmentDraft('incident-1');
+  state.data = { ...context, incident: { ...context.incident, id: 'incident-2' } };
+  state.reload.mockResolvedValue(state.data);
+  render();
+  await state.actions.get('START ASSESSMENT')!();
+  expect(state.initialize).toHaveBeenCalledWith('incident-2');
+  expect(state.push).toHaveBeenCalledWith({ pathname: '/officer/assessments/wizard/[step]', params: { step: 'situation', incidentId: 'incident-2' } });
 });
 it('returns to the existing queue and explicitly abandons the candidate', () => {
   render(); state.actions.get('Back to Risk Assessments')!();

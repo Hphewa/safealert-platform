@@ -57,7 +57,6 @@ export function ReportAssessmentContext({ report }: { report: SafeReport }) {
     <AssessmentDetail label="Description" value={report.description} />
     <AssessmentDetail label="Location (latitude, longitude)" value={`${report.location.coordinates[1]}, ${report.location.coordinates[0]}`} />
     <AssessmentDetail label="Report Status" value={report.status} />
-    <AssessmentDetail label="Report Reference" value={report.id} />
     {canShowImage && !imageFailed ? <Image accessibilityLabel="Resident evidence" source={{ uri: report.mediaReference }}
       onError={() => setImageFailed(true)} style={assessmentStyles.image} resizeMode="cover" /> : null}
     {report.mediaReference && (!canShowImage || imageFailed) ? <Text style={assessmentStyles.helper}>Resident evidence is not available for preview.</Text> : null}
@@ -86,16 +85,17 @@ export function AssessmentFactorSummary({ factors }: { factors: RiskAssessmentFa
     <AssessmentDetail label="Weather Condition" value={assessmentLabel(factors.weatherCondition)} />
   </View>;
 }
-export function AssessmentOptions<T extends string>({ label, options, value, onChange, disabled = false }: {
+export function AssessmentOptions<T extends string>({ label, options, value, onChange, disabled = false, optionLabels }: {
   label: string; options: readonly T[]; value: T; onChange: (value: T) => void; disabled?: boolean;
+  optionLabels?: Partial<Record<T, string>>;
 }) {
   return <View style={assessmentStyles.detail}>
     <Text style={assessmentStyles.label}>{label}</Text>
     <View style={assessmentStyles.options}>{options.map((option) => <Pressable key={option}
-      accessibilityRole="radio" accessibilityLabel={`${label}: ${assessmentLabel(option)}`}
+      accessibilityRole="radio" accessibilityLabel={`${label}: ${optionLabels?.[option] ?? assessmentLabel(option)}`}
       accessibilityState={{ checked: value === option, disabled }} disabled={disabled} onPress={() => onChange(option)}
       style={[assessmentStyles.option, value === option && assessmentStyles.selectedOption]}>
-      <Text style={[assessmentStyles.optionText, value === option && { color: dashboardTheme.colors.primaryStrong }]}>{assessmentLabel(option)}</Text>
+      <Text style={[assessmentStyles.optionText, value === option && { color: dashboardTheme.colors.primaryStrong }]}>{optionLabels?.[option] ?? assessmentLabel(option)}</Text>
     </Pressable>)}</View>
   </View>;
 }

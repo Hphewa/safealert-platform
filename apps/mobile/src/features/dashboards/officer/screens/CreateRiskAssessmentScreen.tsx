@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Text, TextInput, View } from 'react-native';
-import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   HAZARD_ASSESSMENT_SEVERITIES, INFRASTRUCTURE_IMPACT_LEVELS, ROAD_ACCESSIBILITY_OPTIONS,
   WATER_LEVEL_TRENDS, WEATHER_CONDITIONS, RISK_DECISION_REASON_MAX_LENGTH,
@@ -24,13 +24,14 @@ import {
 } from '../riskAssessmentForm';
 import { RiskDecisionScreen } from './RiskDecisionScreen';
 import { useRiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraft';
+import { formatOperationalTime } from '../../shared/formatOperationalTime';
 
 export function CreateRiskAssessmentScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
   const assessmentDraft = useRiskAssessmentDraft();
   const {
-    draft, initializeInitialAssessment, initializeReassessment, updateSingleFactor,
+    draft, initializeReassessment, updateSingleFactor,
     setCalculationPreview, clearCalculationPreview, calculationPreviewIsValid,
     setFinalRisk, setDecisionReason, setReassessmentReason, resetAssessmentDraft
   } = assessmentDraft;
@@ -70,12 +71,6 @@ export function CreateRiskAssessmentScreen() {
     : draft?.mode === 'INITIAL' && draft.incidentId === incidentIdParam;
   const incidentId = reassessmentMode ? currentAssessment?.incidentId : draft?.incidentId ?? incidentIdParam;
 
-  useEffect(() => {
-    if (assessmentId || !incidentIdParam) return;
-    if (draftRef.current?.mode === 'INITIAL' && draftRef.current.incidentId === incidentIdParam) return;
-    initializeInitialAssessment(incidentIdParam);
-  }, [assessmentId, incidentIdParam, initializeInitialAssessment]);
-
   useFocusEffect(useCallback(() => {
     generation.current += 1;
     inFlight.current = false;
@@ -94,7 +89,8 @@ export function CreateRiskAssessmentScreen() {
     if (draftRef.current?.mode === 'REASSESSMENT' && draftRef.current.assessmentId === assessmentId) return;
     initializeReassessment({
       assessmentId, incidentId: data.assessment.incidentId,
-      factors: data.assessment, finalRiskLevel: data.assessment.finalRiskLevel
+      factors: data.assessment, finalRiskLevel: data.assessment.finalRiskLevel,
+      previousAssessment: data.assessment
     });
     setExistingId(null);
     setTouchedFields({});
@@ -243,6 +239,11 @@ export function CreateRiskAssessmentScreen() {
   const incidentIneligible = !data || data.incident.status !== 'ACTIVE' ||
     !data.reports.some((report) => report.status === 'VERIFIED');
 
+  if (reassessmentMode) return <Redirect href={{ pathname: '/officer/assessments/reassess/[step]', params: { step: 'reason', assessmentId } }} />;
+  if (!reassessmentMode) return incidentIdParam
+    ? <Redirect href={{ pathname: '/officer/assessments/wizard/[step]', params: { step: 'situation', incidentId: incidentIdParam } }} />
+    : <Redirect href="/officer/assessments" />;
+
   return <AssessmentPage key={preview ? 'decision' : 'factors'} title={preview ? 'Risk Decision' : reassessmentMode ? 'Reassess Risk' : 'Assess Risk'}
     backToIncidentId={!reassessmentMode ? incidentIdParam : undefined}>
     {!data || !dataMatchesRoute || !draftMatchesRoute ? <AssessmentLoadState loading={resource.loading || Boolean(data) || !draftMatchesRoute} error={resource.error} retry={() => void resource.reload()} /> : <>
@@ -273,7 +274,7 @@ export function CreateRiskAssessmentScreen() {
           <Text style={assessmentStyles.heading}>Current Assessment</Text>
           <Text style={assessmentStyles.body}>Risk: {currentAssessment.finalRiskLevel}</Text>
           <Text style={assessmentStyles.body}>Score: {currentAssessment.calculatedScore}</Text>
-          <Text style={assessmentStyles.helper}>Assessed: {new Date(currentAssessment.assessedAt).toLocaleString()}</Text>
+          <Text style={assessmentStyles.helper}>Assessed: {formatOperationalTime(currentAssessment.assessedAt)}</Text>
           <Text style={assessmentStyles.label}>Reason for Reassessment *</Text>
           <TextInput accessibilityLabel="Reason for Reassessment" multiline textAlignVertical="top" editable={!busy}
             value={reassessmentReason} onChangeText={(value) => { setReassessmentReason(value); setError(null); }}

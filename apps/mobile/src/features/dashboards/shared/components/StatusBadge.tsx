@@ -12,7 +12,7 @@ export function StatusBadge({ label, tone }: StatusBadgeProps) {
   const toneStyle = toneMap[tone];
 
   return (
-    <View style={[styles.badge, toneStyle.container]}>
+    <View accessibilityRole="text" accessibilityLabel={label} accessible style={[styles.badge, toneStyle.container]}>
       <Text style={[styles.label, toneStyle.label]}>{label}</Text>
     </View>
   );

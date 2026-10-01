@@ -17,9 +17,10 @@ const factors: CalculateRiskAssessmentRequest = {
 afterEach(() => vi.unstubAllGlobals());
 describe('risk assessment authenticated API adapter', () => {
   it('submits factors for calculation and only the decision fields for persistence', async () => {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ calculatedScore: 23, systemSuggestedRisk: 'HIGH' })));
+    const response = { calculatedScore: 23, systemSuggestedRisk: 'HIGH', factorContributions: [], calculationVersion: 'risk-v1' };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify(response)));
     vi.stubGlobal('fetch', fetchMock);
-    expect(await calculateRiskAssessment(factors, 'officer-token')).toEqual({ calculatedScore: 23, systemSuggestedRisk: 'HIGH' });
+    expect(await calculateRiskAssessment(factors, 'officer-token')).toEqual(response);
     expect(fetchMock).toHaveBeenLastCalledWith(`${apiBaseUrl}/risk-assessments/calculate`, expect.objectContaining({
       method: 'POST', headers: expect.objectContaining({ Authorization: 'Bearer officer-token' }), body: JSON.stringify(factors)
     }));

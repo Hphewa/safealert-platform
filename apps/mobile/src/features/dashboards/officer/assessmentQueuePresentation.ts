@@ -1,4 +1,5 @@
 import type { IncidentWithReportsResponse } from '@safealert/contracts';
+import { formatOperationalTime } from '../shared/formatOperationalTime';
 
 export type AssessmentQueueFilter = {
   hazardType: string | null;
@@ -11,15 +12,7 @@ export function formatAssessmentHazard(value: string) {
 }
 
 export function formatAssessmentRelativeTime(value: string, now = Date.now()) {
-  const timestamp = Date.parse(value);
-  if (!Number.isFinite(timestamp)) return 'Time unavailable';
-  const elapsedMinutes = Math.max(0, Math.floor((now - timestamp) / 60_000));
-  if (elapsedMinutes < 1) return 'Updated just now';
-  if (elapsedMinutes < 60) return `Updated ${elapsedMinutes} min ago`;
-  const elapsedHours = Math.floor(elapsedMinutes / 60);
-  if (elapsedHours < 24) return `Updated ${elapsedHours} hr ago`;
-  if (elapsedHours < 48) return 'Updated yesterday';
-  return `Updated ${Math.floor(elapsedHours / 24)} days ago`;
+  return formatOperationalTime(value, now);
 }
 
 export function assessmentQueueFilters(

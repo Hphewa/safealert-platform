@@ -55,6 +55,11 @@ export function createIncidentController(service: IncidentService, lifecycle: In
     response.json(await lifecycle.getMonitoringDetail(incidentId));
   });
 
+  const getTimeline: RequestHandler = asyncHandler(async (request, response) => {
+    const incidentId = incidentObjectIdSchema.parse(request.params.incidentId);
+    response.json(await lifecycle.getTimeline(incidentId));
+  });
+
   return { create, getById, findCandidates, addReport, getDetails, listActive,
-    listInitialAssessmentQueue, listMonitoring, getMonitoringDetail };
+    listInitialAssessmentQueue, listMonitoring, getMonitoringDetail, getTimeline };
 }

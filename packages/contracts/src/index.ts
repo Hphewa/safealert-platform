@@ -47,8 +47,23 @@ export type RiskAssessmentFactors = {
   waterLevelTrend: WaterLevelTrend;
   weatherCondition: WeatherCondition;
 };
+export type RiskFactorContribution = {
+  [K in keyof RiskAssessmentFactors]: {
+    key: K;
+    label: string;
+    selectedValue: RiskAssessmentFactors[K];
+    points: number;
+  }
+}[keyof RiskAssessmentFactors];
+export const RISK_CALCULATION_VERSION = 'risk-v1' as const;
+export type RiskCalculationVersion = typeof RISK_CALCULATION_VERSION;
 export type CalculateRiskAssessmentRequest = RiskAssessmentFactors & { incidentId: string };
-export type CalculateRiskAssessmentResponse = { calculatedScore: number; systemSuggestedRisk: RiskLevel };
+export type CalculateRiskAssessmentResponse = {
+  calculatedScore: number;
+  systemSuggestedRisk: RiskLevel;
+  factorContributions: RiskFactorContribution[];
+  calculationVersion: RiskCalculationVersion;
+};
 export type CreateRiskAssessmentRequest = CalculateRiskAssessmentRequest & {
   finalRiskLevel: RiskLevel;
   decisionReason?: string;
@@ -66,7 +81,9 @@ export type DeleteRiskAssessmentRequest = {
   deleteReason: RiskAssessmentDeleteReason;
   deleteNote?: string;
 };
-export type SafeRiskAssessment = CreateRiskAssessmentRequest & CalculateRiskAssessmentResponse & {
+export type SafeRiskAssessment = CreateRiskAssessmentRequest & Omit<CalculateRiskAssessmentResponse, 'factorContributions' | 'calculationVersion'> & {
+  factorContributions?: RiskFactorContribution[];
+  calculationVersion?: RiskCalculationVersion;
   id: string;
   assessedById: string;
   status: RiskAssessmentStatus;
@@ -116,6 +133,23 @@ export type IncidentMonitoringDetailResponse = {
   monitoring: IncidentMonitoringSummary;
   recentVerifiedReports: MonitoringReportSummary[];
 };
+
+export const INCIDENT_ACTIVITY_EVENT_TYPES = [
+  'INCIDENT_CREATED', 'REPORT_CREATED', 'REPORT_VERIFIED', 'ASSESSMENT_CREATED',
+  'ASSESSMENT_REASSESSED', 'ASSESSMENT_CLOSED', 'WARNING_CREATED', 'WARNING_PUBLISHED'
+] as const;
+export type IncidentActivityEventType = (typeof INCIDENT_ACTIVITY_EVENT_TYPES)[number];
+export type RiskActivityEvent = {
+  [T in IncidentActivityEventType]: {
+    id: string;
+    type: T;
+    timestamp: string;
+    title: string;
+    description?: string;
+    relatedRecordId?: string;
+  }
+}[IncidentActivityEventType];
+export type IncidentActivityTimelineResponse = { incidentId: string; events: RiskActivityEvent[] };
 
 export const WARNING_RISK_LEVELS = ['HIGH', 'CRITICAL'] as const;
 export type WarningRiskLevel = (typeof WARNING_RISK_LEVELS)[number];

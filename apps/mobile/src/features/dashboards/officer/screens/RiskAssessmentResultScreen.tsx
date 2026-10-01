@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+ï»¿import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
@@ -15,7 +15,9 @@ import {
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { dashboardTheme } from '../../shared/theme';
+import { formatOperationalTime } from '../../shared/formatOperationalTime';
 import { useRiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraft';
+import { RiskFactorContributionDetails } from '../components/RiskFactorContributionDetails';
 import {
   AssessmentButton, AssessmentDetail, AssessmentFactorSummary, AssessmentLoadState, AssessmentOptions, AssessmentPage,
   IncidentAssessmentContext, assessmentStyles
@@ -174,13 +176,14 @@ export function RiskAssessmentResultScreen() {
   return <AssessmentPage title="Risk Assessment Result">
     {!data ? <AssessmentLoadState loading={loading} error={error} retry={() => void reload()} /> : <>
       <View style={assessmentStyles.card}>
-        <Text style={assessmentStyles.heading}>Saved assessment · {displayedAssessment!.status}</Text>
+        <Text style={assessmentStyles.heading}>Saved assessment: {displayedAssessment!.status}</Text>
         <Text style={assessmentStyles.label}>Final Risk Level</Text>
         <PriorityBadge priority={displayedAssessment!.finalRiskLevel} />
         <AssessmentDetail label="Decision Reason" value={displayedAssessment!.decisionReason ?? 'Suggested risk accepted without an additional reason.'} />
-        <AssessmentDetail label="Assessment Date / Time" value={new Date(displayedAssessment!.assessedAt).toLocaleString()} />
-        <AssessmentDetail label="Assessed By" value={user?.id === displayedAssessment!.assessedById ? user.name : displayedAssessment!.assessedById} />
-        <AssessmentDetail label="Assessment Reference" value={displayedAssessment!.id} />
+        <AssessmentDetail label="Assessment Date / Time" value={formatOperationalTime(displayedAssessment!.assessedAt)} />
+        <AssessmentDetail label="Assessed By" value={user?.id === displayedAssessment!.assessedById ? user.name : 'Officer'} />
+        <RiskFactorContributionDetails title="Calculation Details" contributions={displayedAssessment!.factorContributions}
+          score={displayedAssessment!.calculatedScore} version={displayedAssessment!.calculationVersion} />
         {displayedAssessment!.closureReason ? <AssessmentDetail label="Closure Reason" value={displayedAssessment!.closureReason} /> : null}
         {displayedAssessment!.closureNote ? <AssessmentDetail label="Closure Note" value={displayedAssessment!.closureNote} /> : null}
       </View>
@@ -193,7 +196,7 @@ export function RiskAssessmentResultScreen() {
         })} /> : null}
       {displayedAssessment!.status === 'ACTIVE' ? <AssessmentButton label="REASSESS RISK" disabled={currentBusy} onPress={() => {
         resetAssessmentDraft();
-        router.push({ pathname: '/officer/assessments/create', params: { assessmentId: displayedAssessment!.id } });
+        router.push({ pathname: '/officer/assessments/reassess/[step]', params: { step: 'reason', assessmentId: displayedAssessment!.id } });
       }} /> : null}
       {displayedAssessment!.status === 'ACTIVE' && !closeFormVisible ? <AssessmentButton label="CLOSE ASSESSMENT" disabled={currentBusy}
         onPress={() => {
@@ -273,7 +276,7 @@ export function AssessmentHistorySection({
     <Text style={assessmentStyles.heading}>Assessment History</Text>
     {state.kind === 'loading' ? <>
       <ActivityIndicator color={dashboardTheme.colors.primary} size="small" />
-      <Text style={assessmentStyles.helper}>Loading assessment history…</Text>
+      <Text style={assessmentStyles.helper}>Loading assessment history...</Text>
     </> : state.kind === 'error' ? <>
       <Text accessibilityRole="alert" style={assessmentStyles.error}>Unable to load assessment history.</Text>
       <AssessmentButton label="Retry" onPress={onRetry} />
@@ -284,14 +287,14 @@ export function AssessmentHistorySection({
       <PriorityBadge priority={assessment.finalRiskLevel} />
       <AssessmentDetail label="Calculated Score" value={assessment.calculatedScore} />
       <AssessmentDetail label="Status" value={assessment.status} />
-      <AssessmentDetail label="Assessment Date / Time" value={new Date(assessment.assessedAt).toLocaleString()} />
-      <AssessmentDetail label="Assessed By" value={officer?.id === assessment.assessedById ? officer.name : assessment.assessedById} />
-      {assessment.previousAssessmentId ? <AssessmentDetail label="Previous Assessment" value={assessment.previousAssessmentId} /> : null}
+      <AssessmentDetail label="Assessment Date / Time" value={formatOperationalTime(assessment.assessedAt)} />
+      <AssessmentDetail label="Assessed By" value={officer?.id === assessment.assessedById ? officer.name : 'Officer'} />
+      {assessment.previousAssessmentId ? <AssessmentDetail label="Previous Assessment" value="Previous assessment recorded" /> : null}
       {assessment.reassessmentReason ? <AssessmentDetail label="Reason for Reassessment" value={assessment.reassessmentReason} /> : null}
       {assessment.closureReason ? <AssessmentDetail label="Closure Reason" value={assessment.closureReason} /> : null}
       {assessment.closureNote ? <AssessmentDetail label="Closure Note" value={assessment.closureNote} /> : null}
-      {assessment.closedAt ? <AssessmentDetail label="Closed At" value={new Date(assessment.closedAt).toLocaleString()} /> : null}
-      {assessment.closedById ? <AssessmentDetail label="Closed By" value={officer?.id === assessment.closedById ? officer.name : assessment.closedById} /> : null}
+      {assessment.closedAt ? <AssessmentDetail label="Closed At" value={formatOperationalTime(assessment.closedAt)} /> : null}
+      {assessment.closedById ? <AssessmentDetail label="Closed By" value={officer?.id === assessment.closedById ? officer.name : 'Officer'} /> : null}
       {assessment.status !== 'ACTIVE' && onViewAssessment ? <AssessmentButton label="VIEW HISTORICAL ASSESSMENT"
         onPress={() => onViewAssessment(assessment.id)} /> : null}
     </View>)}

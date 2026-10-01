@@ -80,7 +80,10 @@ describe('risk assessment API', () => {
     const { post, riskAssessmentRepository } = context();
     const response = await post(factors, `${base}/calculate`);
     expect(response.status).toBe(200);
-    expect(response.body).toEqual({ calculatedScore: 23, systemSuggestedRisk: 'HIGH' });
+    expect(response.body).toMatchObject({ calculatedScore: 23, systemSuggestedRisk: 'HIGH',
+      calculationVersion: 'risk-v1', factorContributions: expect.any(Array) });
+    expect(response.body.factorContributions.reduce((sum: number, entry: { points: number }) => sum + entry.points, 0))
+      .toBe(response.body.calculatedScore);
     expect(await riskAssessmentRepository.findActiveByIncidentId(incidentId)).toBeNull();
   });
   it.each(['PENDING', 'REJECTED', 'CANCELLED', 'RESOLVED'] as const)('rejects create and calculate for %s', async (status) => {
@@ -108,6 +111,7 @@ describe('risk assessment API', () => {
       ...payload, assessedById: officerId, calculatedScore: 23, systemSuggestedRisk: 'HIGH',
       status: 'ACTIVE', assessedAt: expect.any(String), createdAt: expect.any(String), updatedAt: expect.any(String)
     });
+    expect(response.body.assessment).toMatchObject({ calculationVersion: 'risk-v1', factorContributions: expect.any(Array) });
     expect(response.body.incident).toMatchObject({ id: incidentId, reportIds: [reportId], hazardType: 'FLOOD' });
     expect(await riskAssessmentRepository.findById(response.body.assessment.id)).toEqual(response.body.assessment);
     const fetched = await get(`${base}/${response.body.assessment.id}`);
@@ -142,7 +146,8 @@ describe('risk assessment API', () => {
         ...reassessment, incidentId, status: 'ACTIVE', assessedById: officerId,
         previousAssessmentId: original.body.assessment.id,
         calculatedScore: preview.body.calculatedScore,
-        systemSuggestedRisk: preview.body.systemSuggestedRisk
+        systemSuggestedRisk: preview.body.systemSuggestedRisk,
+        calculationVersion: 'risk-v1', factorContributions: preview.body.factorContributions
       }
     });
     expect(await riskAssessmentRepository.findById(original.body.assessment.id)).toMatchObject({

@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { RiskAssessmentFactors } from '@safealert/contracts';
+import type { RiskAssessmentFactors, SafeRiskAssessment } from '@safealert/contracts';
 import {
   createInitialAssessmentDraft,
   createReassessmentDraft,
   isCalculationPreviewValid,
+  isRiskAssessmentDraftDirty,
   riskAssessmentDraftReducer
 } from './riskAssessmentDraftState';
 import type { RiskAssessmentDraft } from './riskAssessmentDraftState';
@@ -26,6 +27,30 @@ describe('risk assessment draft state', () => {
     });
   });
 
+  it('marks only edited values as dirty and restores editable data without a calculation preview', () => {
+    const blank = createInitialAssessmentDraft('incident-1');
+    expect(isRiskAssessmentDraftDirty(blank)).toBe(false);
+    const edited = { ...blank, factors: { ...blank.factors, peopleAffected: '3' } };
+    expect(isRiskAssessmentDraftDirty(edited)).toBe(true);
+    const restored = riskAssessmentDraftReducer(null, { type: 'RESTORE_DRAFT', draft: {
+      mode: edited.mode, incidentId: edited.incidentId, assessmentId: edited.assessmentId,
+      factors: edited.factors, finalRiskLevel: edited.finalRiskLevel,
+      decisionReason: edited.decisionReason, reassessmentReason: edited.reassessmentReason
+    } });
+    expect(restored).toMatchObject({ factors: edited.factors, calculationPreview: null });
+    expect(isRiskAssessmentDraftDirty(restored)).toBe(true);
+  });
+
+  it('treats saved reassessment values as a clean baseline while keeping the source snapshot immutable', () => {
+    const previous = { ...factors, id: 'assessment-1', finalRiskLevel: 'HIGH' as const } as unknown as SafeRiskAssessment;
+    const draft = createReassessmentDraft({ assessmentId: previous.id, incidentId: 'incident-1',
+      factors: previous, finalRiskLevel: previous.finalRiskLevel, previousAssessment: previous });
+    expect(isRiskAssessmentDraftDirty(draft)).toBe(false);
+    const edited = { ...draft, factors: { ...draft.factors, peopleAffected: '19' } };
+    expect(isRiskAssessmentDraftDirty(edited)).toBe(true);
+    expect(previous.peopleAffected).toBe(factors.peopleAffected);
+  });
+
   it('prefills reassessment values without treating the saved assessment as a new preview', () => {
     const draft = createReassessmentDraft({ assessmentId: 'assessment-1', incidentId: 'incident-1', factors, finalRiskLevel: 'HIGH' });
 
@@ -45,7 +70,7 @@ describe('risk assessment draft state', () => {
     } };
     const withPreview = riskAssessmentDraftReducer(draft, {
       type: 'SET_CALCULATION_PREVIEW', factors,
-      result: { calculatedScore: 18, systemSuggestedRisk: 'HIGH' }
+      result: { calculatedScore: 18, systemSuggestedRisk: 'HIGH', factorContributions: [], calculationVersion: 'risk-v1' }
     });
     if (!withPreview) throw new Error('Expected an initialized assessment draft.');
 
@@ -66,7 +91,7 @@ describe('risk assessment draft state', () => {
     } };
     draft = riskAssessmentDraftReducer(draft, {
       type: 'SET_CALCULATION_PREVIEW', factors,
-      result: { calculatedScore: 18, systemSuggestedRisk: 'HIGH' }
+      result: { calculatedScore: 18, systemSuggestedRisk: 'HIGH', factorContributions: [], calculationVersion: 'risk-v1' }
     });
     expect(riskAssessmentDraftReducer(draft, { type: 'CLEAR_CALCULATION_PREVIEW' })?.calculationPreview).toBeNull();
     expect(riskAssessmentDraftReducer(draft, { type: 'RESET' })).toBeNull();

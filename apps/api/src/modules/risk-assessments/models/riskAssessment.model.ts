@@ -21,6 +21,8 @@ const riskAssessmentSchema = new mongoose.Schema({
   waterLevelTrend: { type: String, enum: WATER_LEVEL_TRENDS, required: true },
   weatherCondition: { type: String, enum: WEATHER_CONDITIONS, required: true },
   calculatedScore: { type: Number, required: true, min: 0 },
+  factorContributions: { type: [mongoose.Schema.Types.Mixed], required: false },
+  calculationVersion: { type: String, enum: ['risk-v1'], required: false },
   systemSuggestedRisk: { type: String, enum: RISK_LEVELS, required: true },
   finalRiskLevel: { type: String, enum: RISK_LEVELS, required: true },
   decisionReason: {
@@ -97,6 +99,9 @@ export function toSafeRiskAssessment(assessment: RiskAssessmentDocument): SafeRi
     roadAccessibility: assessment.roadAccessibility, infrastructureImpact: assessment.infrastructureImpact,
     waterLevelTrend: assessment.waterLevelTrend, weatherCondition: assessment.weatherCondition,
     calculatedScore: assessment.calculatedScore, systemSuggestedRisk: assessment.systemSuggestedRisk,
+    ...(Array.isArray(assessment.factorContributions) && assessment.factorContributions.length > 0
+      ? { factorContributions: assessment.factorContributions } : {}),
+    ...(assessment.calculationVersion ? { calculationVersion: assessment.calculationVersion } : {}),
     finalRiskLevel: assessment.finalRiskLevel,
     ...(assessment.decisionReason ? { decisionReason: assessment.decisionReason } : {}),
     ...(assessment.previousAssessmentId ? { previousAssessmentId: assessment.previousAssessmentId.toString() } : {}),

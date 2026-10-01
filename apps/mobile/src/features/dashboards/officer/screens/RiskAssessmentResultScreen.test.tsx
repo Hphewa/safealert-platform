@@ -1,4 +1,4 @@
-import React, { type ReactNode } from 'react';
+﻿import React, { type ReactNode } from 'react';
 import { createRequire } from 'node:module';
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { RiskAssessmentHistoryResponse, RiskAssessmentResponse } from '@safealert/contracts';
@@ -53,6 +53,8 @@ vi.mock('react', async (importOriginal) => {
 
 vi.mock('react-native', () => ({
   ActivityIndicator: () => <span>Loading indicator</span>,
+  Pressable: ({ children }: { children?: ReactNode }) => <button>{children}</button>,
+  StyleSheet: { create: (value: unknown) => value },
   View: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
   Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
   TextInput: ({ accessibilityLabel, value, onChangeText }: { accessibilityLabel: string; value: string; onChangeText: (value: string) => void }) => {
@@ -163,6 +165,15 @@ it('shows a local loading state while history loads', () => {
   expect(markup).toContain('Loading indicator');
 });
 
+it('keeps database references out of saved assessment details and explains legacy snapshots are unavailable', () => {
+  state.data = savedResult();
+  const markup = renderResult();
+  expect(markup).toContain('Calculation Details');
+  expect(markup).toContain('Calculation details unavailable');
+  expect(markup).not.toContain('Assessment Reference');
+  expect(markup).not.toContain('assessment-active');
+});
+
 it('shows every returned status with current, risk, score, date, and available assessor information', () => {
   const markup = renderToStaticMarkup(<AssessmentHistorySection state={{
     kind: 'loaded', assessments: [
@@ -180,7 +191,9 @@ it('shows every returned status with current, risk, score, date, and available a
   expect(markup).toContain('Calculated Score: 18');
   expect(markup).toContain('Calculated Score: 12');
   expect(markup).toContain('Officer One');
-  expect(markup).toContain('officer-2');
+  expect(markup).toContain('Officer');
+  expect(markup).not.toContain('officer-2');
+  expect(markup).not.toContain('assessment-closed');
   expect(markup).toContain('Assessment Date / Time');
 });
 
@@ -230,7 +243,7 @@ it('offers reassessment for the active assessment and routes with its ID', () =>
   state.actions.get('REASSESS RISK')!();
   expect(state.resetDraft).toHaveBeenCalledOnce();
   expect(state.push).toHaveBeenCalledWith({
-    pathname: '/officer/assessments/create', params: { assessmentId: 'assessment-active' }
+    pathname: '/officer/assessments/reassess/[step]', params: { assessmentId: 'assessment-active', step: 'reason' }
   });
 });
 
@@ -256,7 +269,8 @@ it('shows reassessment lineage and closure details in existing assessment histor
     })
   ] }} officer={{ id: 'officer-1', name: 'Officer One' }} onRetry={() => {}} />);
 
-  expect(markup).toContain('Previous Assessment: assessment-old');
+  expect(markup).toContain('Previous assessment recorded');
+  expect(markup).not.toContain('assessment-old');
   expect(markup).toContain('Reason for Reassessment: Water levels are rising quickly.');
   expect(markup).toContain('Closure Reason: REASSESSED');
   expect(markup).toContain('Closed By: Officer One');
@@ -358,15 +372,16 @@ it('does not show the previous close result after the mounted route loads anothe
   state.close.mockResolvedValue({ assessment: assessment('CLOSED', { id: 'assessment-active' }) });
   state.actions.get('Confirm Close')!();
   await Promise.resolve();
-  expect(renderResult()).toContain('Saved assessment · CLOSED');
+  expect(renderResult()).toContain('Saved assessment: CLOSED');
 
   state.assessmentId = 'assessment-other';
   const another = savedResult();
   another.assessment = assessment('ACTIVE', { id: 'assessment-other' });
   state.data = another;
   const markup = renderResult();
-  expect(markup).toContain('Assessment Reference: assessment-other');
-  expect(markup).toContain('Saved assessment · ACTIVE');
+  expect(markup).not.toContain('Assessment Reference');
+  expect(markup).not.toContain('assessment-other');
+  expect(markup).toContain('Saved assessment: ACTIVE');
   expect(markup).toContain('CLOSE ASSESSMENT');
   expect(markup).not.toContain('Assessment closed.');
 });
@@ -427,7 +442,7 @@ it.each(['resolve', 'reject'] as const)('ignores an old close request that %s af
   else rejectOld(new ApiClientError(409, 'ASSESSMENT_NOT_ACTIVE', 'Old request conflict'));
   await Promise.resolve();
   const markup = renderResult();
-  expect(markup).toContain('Saved assessment · ACTIVE');
+  expect(markup).toContain('Saved assessment: ACTIVE');
   expect(markup).toContain('selected: OTHER');
   expect(markup).toContain('Current site needs monitoring.');
   expect(markup).not.toContain('Assessment closed.');

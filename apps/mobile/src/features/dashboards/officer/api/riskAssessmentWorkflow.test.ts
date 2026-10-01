@@ -50,7 +50,7 @@ it('runs verified report → assessment → reassessment → manual close throug
     roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE', waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN'
   });
   const calculated = await calculateRiskAssessment({ incidentId, ...factors }, token);
-  expect(calculated).toEqual({ calculatedScore: 23, systemSuggestedRisk: 'HIGH' });
+  expect(calculated).toEqual({ calculatedScore: 23, systemSuggestedRisk: 'HIGH', factorContributions: expect.any(Array), calculationVersion: 'risk-v1' });
   const saved = await createRiskAssessment({ incidentId, ...factors,
     finalRiskLevel: 'CRITICAL', decisionReason: 'Hospital access is threatened.'
   }, token);

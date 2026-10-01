@@ -15,6 +15,7 @@ export function createIncidentRouter(service: IncidentService, lifecycle: Incide
   router.get('/assessment-queue', controller.listInitialAssessmentQueue);
   router.get('/monitoring', controller.listMonitoring);
   router.get('/monitoring/:incidentId', controller.getMonitoringDetail);
+  router.get('/:incidentId/timeline', controller.getTimeline);
   router.get('/candidates', controller.findCandidates);
   router.post('/:incidentId/reports', controller.addReport);
   router.get('/:incidentId/reports', controller.getDetails);

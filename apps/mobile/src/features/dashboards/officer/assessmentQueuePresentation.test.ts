@@ -38,11 +38,11 @@ it('builds counted filters from queue hazards and falls back to All if a hazard 
   expect(filterAssessmentQueue(queue, 'VOLCANO')).toEqual([]);
 });
 
-it('formats relative latest-report time at minute, hour, day, and invalid boundaries', () => {
+it('uses the shared operational time format for latest evidence', () => {
   const now = Date.parse('2026-09-30T12:00:00.000Z');
-  expect(formatAssessmentRelativeTime('2026-09-30T11:55:00.000Z', now)).toBe('Updated 5 min ago');
-  expect(formatAssessmentRelativeTime('2026-09-30T10:00:00.000Z', now)).toBe('Updated 2 hr ago');
-  expect(formatAssessmentRelativeTime('2026-09-29T12:00:00.000Z', now)).toBe('Updated yesterday');
-  expect(formatAssessmentRelativeTime('2026-09-26T12:00:00.000Z', now)).toBe('Updated 4 days ago');
+  expect(formatAssessmentRelativeTime('2026-09-30T11:55:00.000Z', now)).toBe('5 minutes ago');
+  expect(formatAssessmentRelativeTime('2026-09-30T10:00:00.000Z', now)).toBe('2 hours ago');
+  expect(formatAssessmentRelativeTime('2026-09-29T12:00:00.000Z', now)).toBe(new Date('2026-09-29T12:00:00.000Z').toLocaleString());
+  expect(formatAssessmentRelativeTime('2026-09-26T12:00:00.000Z', now)).toBe(new Date('2026-09-26T12:00:00.000Z').toLocaleString());
   expect(formatAssessmentRelativeTime('', now)).toBe('Time unavailable');
 });

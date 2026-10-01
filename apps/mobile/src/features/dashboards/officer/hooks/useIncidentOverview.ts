@@ -39,7 +39,7 @@ export function useIncidentOverview(incidentId: string | undefined) {
       if (generation.current !== current || !latest?.canStartInitialAssessment || latest.incident.id !== incidentId) return;
       const currentDraft = draftRef.current;
       if (currentDraft?.mode !== 'INITIAL' || currentDraft.incidentId !== incidentId) initializeInitialAssessment(incidentId);
-      router.push({ pathname: '/officer/assessments/create', params: { incidentId } });
+      router.push({ pathname: '/officer/assessments/wizard/[step]', params: { step: 'situation', incidentId } });
       navigated = true;
     } finally {
       if (generation.current === current) {

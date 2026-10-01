@@ -1,4 +1,5 @@
-import type { HazardType, RiskAssessmentFactors, RiskLevel } from '@safealert/contracts';
+import { RISK_CALCULATION_VERSION, type HazardType, type RiskAssessmentFactors,
+  type RiskFactorContribution, type RiskLevel } from '@safealert/contracts';
 
 // University-project heuristic, NOT an official government disaster-risk formula.
 // Unknown observations carry uncertainty points rather than implying safe conditions.
@@ -20,9 +21,15 @@ export function calculateRisk(factors: RiskAssessmentFactors, hazardType: Hazard
       : factors.peopleAffected <= 100 ? 3 : factors.peopleAffected <= 500 ? 4 : 5;
   const vulnerablePoints = factors.vulnerablePeople === 0 ? 0
     : factors.vulnerablePeople <= 5 ? 1 : factors.vulnerablePeople <= 20 ? 2 : 4;
-  const score = severityPoints[factors.hazardSeverity] + peoplePoints + vulnerablePoints
-    + roadPoints[factors.roadAccessibility] + infrastructurePoints[factors.infrastructureImpact]
-    + (hazardType === 'FLOOD' ? waterPoints[factors.waterLevelTrend] : 0)
-    + weatherPoints[factors.weatherCondition];
-  return { score, suggestedRisk: riskLevelForScore(score) };
+  const factorContributions: RiskFactorContribution[] = [
+    { key: 'hazardSeverity', label: 'Hazard severity', selectedValue: factors.hazardSeverity, points: severityPoints[factors.hazardSeverity] },
+    { key: 'peopleAffected', label: 'People affected', selectedValue: factors.peopleAffected, points: peoplePoints },
+    { key: 'vulnerablePeople', label: 'Vulnerable people', selectedValue: factors.vulnerablePeople, points: vulnerablePoints },
+    { key: 'roadAccessibility', label: 'Road accessibility', selectedValue: factors.roadAccessibility, points: roadPoints[factors.roadAccessibility] },
+    { key: 'infrastructureImpact', label: 'Infrastructure impact', selectedValue: factors.infrastructureImpact, points: infrastructurePoints[factors.infrastructureImpact] },
+    ...(hazardType === 'FLOOD' ? [{ key: 'waterLevelTrend' as const, label: 'Water level trend', selectedValue: factors.waterLevelTrend, points: waterPoints[factors.waterLevelTrend] }] : []),
+    { key: 'weatherCondition', label: 'Weather condition', selectedValue: factors.weatherCondition, points: weatherPoints[factors.weatherCondition] }
+  ];
+  const score = factorContributions.reduce((total, entry) => total + entry.points, 0);
+  return { score, suggestedRisk: riskLevelForScore(score), factorContributions, calculationVersion: RISK_CALCULATION_VERSION };
 }

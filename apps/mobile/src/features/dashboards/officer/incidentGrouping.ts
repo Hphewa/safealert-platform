@@ -1,6 +1,7 @@
 import type { GeoJsonPoint } from '@safealert/contracts';
 
 import { ApiClientError } from '../../../services/api/client';
+import { formatOperationalTime } from '../shared/formatOperationalTime';
 
 export function formatIncidentLocation(location: GeoJsonPoint) {
   const [longitude, latitude] = location.coordinates;
@@ -14,8 +15,7 @@ export function formatIncidentDistance(distanceMeters: number) {
 }
 
 export function formatIncidentTime(value: string) {
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : 'Time unavailable';
+  return formatOperationalTime(value);
 }
 
 export function incidentGroupingErrorMessage(error: unknown, fallback = 'Unable to update incident grouping right now.') {

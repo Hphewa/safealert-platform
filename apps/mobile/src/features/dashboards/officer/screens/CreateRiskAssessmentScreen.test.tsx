@@ -1,8 +1,6 @@
 import type { ReactNode } from 'react';
 import { createRequire } from 'node:module';
 import { beforeEach, expect, it, vi } from 'vitest';
-import type { RiskAssessmentResponse, RiskAssessmentForIncidentResponse } from '@safealert/contracts';
-import { ApiClientError } from '@/services/api/client';
 
 const { renderToStaticMarkup } = createRequire(import.meta.url)('react-dom/server') as {
   renderToStaticMarkup: (node: ReactNode) => string;
@@ -31,7 +29,8 @@ const state = vi.hoisted(() => ({
   calculateRisk: vi.fn(),
   createRisk: vi.fn(),
   reassess: vi.fn(),
-  replace: vi.fn()
+  replace: vi.fn(),
+  redirect: null as unknown
 }));
 
 vi.mock('react', async (importOriginal) => {
@@ -73,6 +72,7 @@ vi.mock('react-native', () => ({
   }
 }));
 vi.mock('expo-router', () => ({
+  Redirect: ({ href }: { href: unknown }) => { state.redirect = href; return null; },
   useRouter: () => ({ replace: state.replace }),
   useLocalSearchParams: () => state.params,
   useFocusEffect: (effect: () => void | (() => void)) => { state.focusEffect = effect; }
@@ -169,27 +169,6 @@ vi.mock('./RiskDecisionScreen', () => ({ RiskDecisionScreen: ({ onSave, onEdit, 
 
 import { CreateRiskAssessmentScreen } from './CreateRiskAssessmentScreen';
 
-const response: RiskAssessmentResponse = {
-  assessment: {
-    id: 'assessment-1', incidentId: 'incident-1', hazardSeverity: 'HIGH', peopleAffected: 18,
-    vulnerablePeople: 6, roadAccessibility: 'PARTIALLY_BLOCKED', infrastructureImpact: 'MODERATE',
-    waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN', calculatedScore: 18,
-    systemSuggestedRisk: 'HIGH', finalRiskLevel: 'HIGH', assessedById: 'officer-1', status: 'ACTIVE',
-    isDeleted: false,
-    assessedAt: '2026-09-26T12:00:00.000Z', createdAt: '2026-09-26T12:00:00.000Z', updatedAt: '2026-09-26T12:00:00.000Z'
-  },
-  incident: {
-    id: 'incident-1', hazardType: 'FLOOD', location: { type: 'Point', coordinates: [79.86, 6.92] },
-    reportIds: ['report-1'], status: 'ACTIVE', createdById: 'officer-1',
-    createdAt: '2026-09-26T10:00:00.000Z', updatedAt: '2026-09-26T11:00:00.000Z'
-  },
-  reports: [{
-    id: 'report-1', residentId: 'resident-1', hazardType: 'FLOOD', severity: 'HIGH',
-    description: 'Water is rising.', location: { type: 'Point', coordinates: [79.86, 6.92] },
-    status: 'VERIFIED', createdAt: '2026-09-26T10:00:00.000Z', updatedAt: '2026-09-26T11:00:00.000Z'
-  }]
-};
-
 beforeEach(() => {
   state.params = {};
   state.assessmentDraft = null;
@@ -203,6 +182,7 @@ beforeEach(() => {
   state.effectDeps = [];
   state.effectIndex = 0;
   state.effects = [];
+  state.redirect = null;
   state.actions.clear();
   state.inputs.clear();
   state.optionActions.clear();
@@ -227,275 +207,16 @@ function renderScreen() {
   return markup;
 }
 
-it('loads an assessment and shows the reassessment context when the source ID is routed', async () => {
+it('redirects the legacy reassessment route to the first typed wizard step', () => {
   state.params = { assessmentId: 'assessment-1' };
-  state.resource = { data: response, loading: false, error: null, reload: vi.fn() };
-  state.getAssessment.mockResolvedValue(response);
-
   renderScreen();
+  expect(state.redirect).toEqual({ pathname: '/officer/assessments/reassess/[step]', params: { step: 'reason', assessmentId: 'assessment-1' } });
+});
+it('redirects the legacy initial create route to Situation without creating a draft', () => {
+  state.params = { incidentId: 'incident-1' };
   const markup = renderScreen();
-  renderScreen();
-  await expect(state.loader?.()).resolves.toEqual(response);
-
-  expect(state.getAssessment).toHaveBeenCalledWith('assessment-1', 'officer-token');
-  expect(markup).toContain('Reassess Risk');
-  expect(markup).toContain('Current Assessment');
-  expect(markup).toContain('Reason for Reassessment');
-  expect(state.backToIncidentId).toBeUndefined();
-  expect(markup).toContain('Score: 18');
-});
-
-it('waits for matching route data before prefilling a different reassessment source', () => {
-  state.params = { assessmentId: 'assessment-1' };
-  state.resource = { data: response, loading: false, error: null, reload: vi.fn() };
-  renderScreen();
-
-  state.params = { assessmentId: 'assessment-2' };
-  const staleMarkup = renderScreen();
-  expect(staleMarkup).toContain('Loading');
-  expect(staleMarkup).not.toContain('value="18"');
-
-  const secondResponse: RiskAssessmentResponse = {
-    ...response, assessment: { ...response.assessment, id: 'assessment-2', peopleAffected: 33 }
-  };
-  state.resource = { data: secondResponse, loading: false, error: null, reload: vi.fn() };
-  renderScreen();
-  expect(renderScreen()).toContain('value="33"');
-});
-
-it('offers recovery and displays lookup failures when the loaded source is already closed', async () => {
-  state.params = { assessmentId: 'assessment-1' };
-  state.resource = { data: {
-    ...response, assessment: { ...response.assessment, status: 'CLOSED' }
-  }, loading: false, error: null, reload: vi.fn() };
-
-  renderScreen();
-  expect(renderScreen()).toContain('View latest assessment');
-  expect(state.actions.has('View latest assessment')).toBe(true);
-  state.getAssessmentForIncident.mockRejectedValue(new Error('Latest assessment lookup failed.'));
-  state.actions.get('View latest assessment')!();
-  await Promise.resolve();
-  await Promise.resolve();
-  expect(renderScreen()).toContain('Latest assessment lookup failed.');
-});
-
-it('keeps the existing incident create route and loader when no assessment ID is supplied', async () => {
-  state.params = { incidentId: 'incident-1' };
-  const incidentResponse: RiskAssessmentForIncidentResponse = {
-    assessment: null, incident: response.incident, reports: response.reports
-  };
-  state.getAssessmentForIncident.mockResolvedValue(incidentResponse);
-
-  const markup = renderScreen();
-  await expect(state.loader?.()).resolves.toEqual(incidentResponse);
-
-  expect(state.getAssessmentForIncident).toHaveBeenCalledWith('incident-1', 'officer-token');
-  expect(markup).toContain('Assess Risk');
-  expect(state.backToIncidentId).toBe('incident-1');
-});
-
-it('preserves an initial calculation and decision when the form remounts after returning to the overview', async () => {
-  state.params = { incidentId: 'incident-1' };
-  state.resource = { data: { assessment: null, incident: response.incident, reports: response.reports }, loading: false, error: null, reload: vi.fn() };
-  state.calculateRisk.mockResolvedValue({ calculatedScore: 18, systemSuggestedRisk: 'HIGH' });
-  renderScreen(); renderScreen();
-  state.inputs.get('People Affected')!('18'); state.inputs.get('Vulnerable People')!('6'); renderScreen();
-  state.actions.get('CALCULATE RISK')!(); await Promise.resolve(); await Promise.resolve(); renderScreen();
-  state.inputs.get('Decision Reason')!('Keep the decision while reviewing evidence.');
-  const draftBeforeBack = state.assessmentDraft;
-  // Navigation remounts local screen state while its route-subtree draft provider survives.
-  state.hooks = []; state.refs = []; state.effectDeps = [];
-  renderScreen(); state.focusEffect!(); renderScreen();
-  expect(state.assessmentDraft).toBe(draftBeforeBack);
-  expect(state.assessmentDraft?.calculationPreview).not.toBeNull();
-  expect(state.assessmentDraft?.decisionReason).toBe('Keep the decision while reviewing evidence.');
-  expect(state.backToIncidentId).toBe('incident-1');
-});
-
-it('shows reassessment with prefilled factors and clears the old preview when a factor changes', async () => {
-  state.params = { assessmentId: 'assessment-1' };
-  state.resource = { data: response, loading: false, error: null, reload: vi.fn() };
-  state.calculateRisk.mockResolvedValue({ calculatedScore: 27, systemSuggestedRisk: 'CRITICAL' });
-
-  renderScreen();
-  const prefilled = renderScreen();
-  expect(prefilled).toContain('aria-label="People Affected"');
-  expect(prefilled).toContain('value="18"');
-  expect(prefilled).toContain('aria-label="Vulnerable People"');
-  expect(prefilled).toContain('value="6"');
-  state.inputs.get('Reason for Reassessment')!('Water levels are rising quickly.');
-  renderScreen();
-  state.actions.get('CALCULATE RISK')!();
-  await Promise.resolve();
-  await Promise.resolve();
-  expect(renderScreen()).toContain('Risk decision');
-
-  state.actions.get('Edit factors')!();
-  renderScreen();
-  state.inputs.get('People Affected')!('20');
-
-  expect(renderScreen()).not.toContain('Risk decision');
-  expect(state.calculateRisk).toHaveBeenCalledOnce();
-});
-
-it('preserves reassessment edits when the route regains focus', () => {
-  state.params = { assessmentId: 'assessment-1' };
-  state.resource = { data: response, loading: false, error: null, reload: vi.fn() };
-
-  renderScreen();
-  renderScreen();
-  state.inputs.get('People Affected')!('24');
-  renderScreen();
-  const cleanup = state.focusEffect?.();
-  if (typeof cleanup === 'function') cleanup();
-  state.focusEffect?.();
-
-  expect(renderScreen()).toContain('value="24"');
-  expect(renderScreen()).toContain('value="6"');
-});
-
-it('preserves reassessment input and shows a stale conflict after a failed save', async () => {
-  state.params = { assessmentId: 'assessment-1' };
-  state.resource = { data: response, loading: false, error: null, reload: vi.fn() };
-  state.calculateRisk.mockResolvedValue({ calculatedScore: 27, systemSuggestedRisk: 'CRITICAL' });
-  state.reassess.mockRejectedValue(new ApiClientError(
-    409, 'ASSESSMENT_NOT_ACTIVE', 'This assessment is no longer active. Refresh to view the latest assessment.'
-  ));
-  state.getAssessmentForIncident.mockResolvedValue({ ...response, assessment: {
-    ...response.assessment, id: 'assessment-latest'
-  } });
-
-  renderScreen();
-  renderScreen();
-  state.inputs.get('Reason for Reassessment')!('Water levels are rising quickly.');
-  renderScreen();
-  state.actions.get('CALCULATE RISK')!();
-  await Promise.resolve();
-  await Promise.resolve();
-  renderScreen();
-  state.inputs.get('Decision Reason')!('Conditions support a critical rating.');
-  renderScreen();
-  state.actions.get('SAVE REASSESSMENT')!();
-  await Promise.resolve();
-  await Promise.resolve();
-  const decisionMarkup = renderScreen();
-  expect(decisionMarkup).toContain('This assessment is no longer active. Refresh to view the latest assessment.');
-  expect(decisionMarkup).toContain('View latest assessment');
-  state.actions.get('Edit factors')!();
-  const formMarkup = renderScreen();
-  expect(formMarkup).toContain('aria-label="Reason for Reassessment"');
-  expect(formMarkup).toContain('value="Water levels are rising quickly."');
-  state.actions.get('View latest assessment')!();
-  await Promise.resolve();
-  await Promise.resolve();
-  expect(state.getAssessmentForIncident).toHaveBeenCalledWith('incident-1', 'officer-token');
-  expect(renderScreen()).toContain('View Risk Assessment');
-  expect(state.replace).not.toHaveBeenCalled();
-});
-
-it('saves a reassessment and replaces the route with the new assessment ID', async () => {
-  state.params = { assessmentId: 'assessment-1' };
-  state.resource = { data: response, loading: false, error: null, reload: vi.fn() };
-  state.calculateRisk.mockResolvedValue({ calculatedScore: 27, systemSuggestedRisk: 'CRITICAL' });
-  state.reassess.mockResolvedValue({
-    ...response,
-    assessment: {
-      ...response.assessment, id: 'assessment-new', status: 'ACTIVE', previousAssessmentId: 'assessment-1',
-      reassessmentReason: 'Water levels are rising quickly.', calculatedScore: 27, systemSuggestedRisk: 'CRITICAL', finalRiskLevel: 'CRITICAL'
-    }
-  });
-
-  renderScreen();
-  renderScreen();
-  state.inputs.get('Reason for Reassessment')!('Water levels are rising quickly.');
-  renderScreen();
-  state.actions.get('CALCULATE RISK')!();
-  await Promise.resolve();
-  await Promise.resolve();
-  renderScreen();
-  state.actions.get('SAVE REASSESSMENT')!();
-  await Promise.resolve();
-  await Promise.resolve();
-
-  expect(state.reassess).toHaveBeenCalledWith('assessment-1', expect.objectContaining({
-    peopleAffected: 18, vulnerablePeople: 6, finalRiskLevel: 'CRITICAL',
-    reassessmentReason: 'Water levels are rising quickly.'
-  }), 'officer-token');
+  expect(markup).toBe('');
+  expect(state.redirect).toEqual({ pathname: '/officer/assessments/wizard/[step]', params: { step: 'situation', incidentId: 'incident-1' } });
+  expect(state.getAssessmentForIncident).not.toHaveBeenCalled();
   expect(state.assessmentDraft).toBeNull();
-  expect(state.replace).toHaveBeenCalledWith({
-    pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: 'assessment-new' }
-  });
-});
-
-it('routes an initial assessment save directly to Monitoring with a success notice', async () => {
-  state.params = { incidentId: 'incident-1' };
-  const incidentResponse: RiskAssessmentForIncidentResponse = { assessment: null, incident: response.incident, reports: response.reports };
-  state.resource = { data: incidentResponse, loading: false, error: null, reload: vi.fn() };
-  state.calculateRisk.mockResolvedValue({ calculatedScore: 18, systemSuggestedRisk: 'HIGH' });
-  state.createRisk.mockResolvedValue(response);
-  renderScreen(); renderScreen();
-  state.inputs.get('People Affected')!('18');
-  state.inputs.get('Vulnerable People')!('6');
-  renderScreen();
-  state.actions.get('CALCULATE RISK')!();
-  await Promise.resolve(); await Promise.resolve(); renderScreen();
-  state.actions.get('SAVE ASSESSMENT')!();
-  await Promise.resolve(); await Promise.resolve();
-  expect(state.createRisk).toHaveBeenCalled();
-  expect(state.assessmentDraft).toBeNull();
-  expect(state.replace).toHaveBeenCalledWith({ pathname: '/officer/monitoring/[incidentId]', params: {
-    incidentId: 'incident-1', notice: 'assessment-saved'
-  } });
-});
-
-it('initializes the shared draft and invalidates its calculation when a factor changes', async () => {
-  state.params = { incidentId: 'incident-1' };
-  state.resource = { data: { assessment: null, incident: response.incident, reports: response.reports }, loading: false, error: null, reload: vi.fn() };
-  state.calculateRisk.mockResolvedValue({ calculatedScore: 18, systemSuggestedRisk: 'HIGH' });
-
-  renderScreen();
-  renderScreen();
-  expect(state.assessmentDraft).toMatchObject({ mode: 'INITIAL', incidentId: 'incident-1', assessmentId: null });
-  state.inputs.get('People Affected')!('18');
-  state.inputs.get('Vulnerable People')!('6');
-  renderScreen();
-  state.actions.get('CALCULATE RISK')!();
-  await Promise.resolve();
-  await Promise.resolve();
-  renderScreen();
-  expect(state.assessmentDraft?.calculationPreview).not.toBeNull();
-
-  state.actions.get('Edit factors')!();
-  renderScreen();
-  state.inputs.get('People Affected')!('19');
-  expect(state.assessmentDraft?.calculationPreview).toBeNull();
-});
-
-it('keeps an override decision and reason in the shared draft until the unchanged save request is sent', async () => {
-  state.params = { incidentId: 'incident-1' };
-  state.resource = { data: { assessment: null, incident: response.incident, reports: response.reports }, loading: false, error: null, reload: vi.fn() };
-  state.calculateRisk.mockResolvedValue({ calculatedScore: 18, systemSuggestedRisk: 'HIGH' });
-  state.createRisk.mockResolvedValue(response);
-
-  renderScreen(); renderScreen();
-  state.inputs.get('People Affected')!('18');
-  state.inputs.get('Vulnerable People')!('6');
-  renderScreen();
-  state.actions.get('CALCULATE RISK')!();
-  await Promise.resolve(); await Promise.resolve(); renderScreen();
-  state.actions.get('Choose override risk')!();
-  renderScreen();
-  state.actions.get('SAVE ASSESSMENT')!();
-  expect(state.createRisk).not.toHaveBeenCalled();
-  expect(renderScreen()).toContain('Enter a decision reason of at least 10 characters.');
-
-  state.inputs.get('Decision Reason')!('Conditions support a critical rating.');
-  renderScreen();
-  state.actions.get('SAVE ASSESSMENT')!();
-  await Promise.resolve(); await Promise.resolve();
-
-  expect(state.createRisk).toHaveBeenCalledWith(expect.objectContaining({
-    incidentId: 'incident-1', peopleAffected: 18, vulnerablePeople: 6,
-    finalRiskLevel: 'CRITICAL', decisionReason: 'Conditions support a critical rating.'
-  }), 'officer-token');
 });
