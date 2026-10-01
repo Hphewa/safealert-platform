@@ -14,7 +14,7 @@ const lifecycle = vi.hoisted(() => ({
   effectDeps: [] as string[],
   params: { warningId: 'warning-1' } as Record<string, string | string[] | undefined>,
 }));
-const navigation = vi.hoisted(() => ({ back: vi.fn(), canGoBack: vi.fn(() => true), replace: vi.fn() }));
+const navigation = vi.hoisted(() => ({ back: vi.fn(), canGoBack: vi.fn(() => true), replace: vi.fn(), push: vi.fn() }));
 const gestures = vi.hoisted(() => ({
   handlers: {} as {
     onMoveShouldSetPanResponder?: (event: unknown, gesture: { dy: number; dx: number }) => boolean;
@@ -139,7 +139,9 @@ describe('ResidentWarningDetailsScreen – Safety Guidance (LDFEW-116)', () => {
     expect(text).toContain('Not yet acknowledged');
     expect(text).toContain('I am Safe');
     expect(text).toContain('I am Evacuating');
-    expect(text).toContain('I Need Assistance');
+    expect(text).not.toContain('I Need Assistance');
+    expect(text).toContain('Need assistance? Use Help / Emergency Assistance to request rescue or medical support.');
+    expect(text).toContain('Open Emergency Assistance');
     // The sheet is closed, so none of its sections are rendered yet.
     expect(text).not.toContain('Recommended Safe Routes');
     expect(text).not.toContain('Roads to Avoid');
@@ -293,7 +295,8 @@ describe('ResidentWarningDetailsScreen – Safety Guidance (LDFEW-116)', () => {
     expect(text).toContain('How are you responding?');
     expect(text).toContain('I am Safe');
     expect(text).toContain('I am Evacuating');
-    expect(text).toContain('I Need Assistance');
+    expect(text).not.toContain('I Need Assistance');
+    expect(text).toContain('Open Emergency Assistance');
     expect(text).toContain('Submit response');
   });
 
@@ -321,6 +324,15 @@ describe('ResidentWarningDetailsScreen – Safety Guidance (LDFEW-116)', () => {
     const text = screenText(render());
     expect(text).toContain('Acknowledged');
     expect(text).not.toContain('How are you responding?');
+  });
+
+  it('opens the existing Emergency Assistance flow instead of submitting an assistance acknowledgement', async () => {
+    await renderLoaded();
+
+    press(render(), 'Open Emergency Assistance');
+
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith('/resident/help');
+    expect(acknowledgeResidentWarning).not.toHaveBeenCalled();
   });
 
   it('hides the acknowledgement card after the warning has been acknowledged', async () => {

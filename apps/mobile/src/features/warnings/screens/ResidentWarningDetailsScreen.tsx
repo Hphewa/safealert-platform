@@ -346,7 +346,6 @@ export function ResidentWarningDetailsScreen() {
   const options: Array<[WarningAcknowledgementResponse, string]> = [
     ['SAFE', 'I am Safe'],
     ['EVACUATING', 'I am Evacuating'],
-    ['NEED_ASSISTANCE', 'I Need Assistance'],
   ];
 
   const isCritical = warning.riskLevel === 'CRITICAL';
@@ -426,6 +425,19 @@ export function ResidentWarningDetailsScreen() {
               <Text style={styles.responseText}>{label}</Text>
             </Pressable>
           ))}
+          <View style={styles.assistancePrompt}>
+            <Text style={styles.assistancePromptText}>
+              Need assistance? Use Help / Emergency Assistance to request rescue or medical support.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open Emergency Assistance"
+              onPress={() => router.push('/resident/help')}
+              style={({ pressed }) => [styles.assistanceButton, pressed && styles.dimmed]}
+            >
+              <Text style={styles.assistanceButtonText}>Open Emergency Assistance</Text>
+            </Pressable>
+          </View>
           <Pressable
             disabled={saving || !response}
             onPress={() => void acknowledge()}
@@ -804,6 +816,33 @@ const styles = StyleSheet.create({
   responseText: {
     color: dashboardTheme.colors.text,
     fontWeight: '700',
+  },
+  assistancePrompt: {
+    gap: 8,
+    marginTop: 2,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: dashboardTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+  },
+  assistancePromptText: {
+    color: dashboardTheme.colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  assistanceButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: dashboardTheme.colors.primarySoft,
+  },
+  assistanceButtonText: {
+    color: dashboardTheme.colors.primaryStrong,
+    fontWeight: '800',
+    fontSize: 14,
   },
   submitButton: {
     minHeight: 50,
