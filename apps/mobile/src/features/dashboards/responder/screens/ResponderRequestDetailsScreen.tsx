@@ -16,8 +16,9 @@ import { displayValue, responderRequestReturnTab } from '../requestDetails';
 import { replaceResponderRequestCache } from '../requestDetailsCache';
 import { getResponderRequestById, listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { acceptResponderRequest, declineResponderRequest } from '../api/responderDecisionApi';
-import { updateResponderRequestProgress } from '../api/responderProgressApi';
-import { saveResponderFieldUpdate } from '../api/responderFieldUpdateApi';
+import { useResponderOffline } from '../offline/useResponderOffline';
+import { ResponderOfflineStatus } from '../offline/ResponderOfflineStatus';
+import { OfflineUpdateError, projectQueuedUpdates } from '../offline/responderUpdateQueue';
 import {
   canRecordFieldUpdate,
   formatUpdateTimestamp,
@@ -50,6 +51,7 @@ export function ResponderRequestDetailsScreen() {
   const { accessToken, user } = useAuth();
   const params = useLocalSearchParams<{ requestId?: string | string[]; sourceTab?: string | string[] }>();
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
+  const offline = useResponderOffline(user, `${accessToken ?? ''}:${requestId ?? ''}`);
   const [updatedRequest, setUpdatedRequest] = useState<SafeResponseRequest | null>(null);
   const cached = requestId ? getCachedResponderRequest(requestId) : null;
   const safeCached =
@@ -63,7 +65,12 @@ export function ResponderRequestDetailsScreen() {
     (updatedRequest.status === 'NEW' || (user?.id && updatedRequest.assignedResponderId === user.id))
       ? updatedRequest
       : null;
-  const responseRequest = safeUpdated ?? safeCached;
+  const confirmedRequest = safeUpdated ?? safeCached;
+  // Local progress is an overlay, never written into the server-confirmed request cache.
+  const projection = confirmedRequest ? projectQueuedUpdates(confirmedRequest, offline.items) : null;
+  const responseRequest = projection?.request ?? null;
+  const hasPendingUpdates = offline.items.some((item) => item.requestId === requestId);
+  const offlineSaveBlocked = offline.status !== 'ready' || Boolean(projection?.conflict);
   const [decisionAction, setDecisionAction] = useState<ResponderDecisionAction>('idle');
   // Synchronous ref gate prevents rapid multiple button presses from firing duplicate
   // concurrent network requests for accept or decline before React commits the busy state.
@@ -77,7 +84,6 @@ export function ResponderRequestDetailsScreen() {
   const currentFeedback = progressFeedback?.requestId === requestId ? progressFeedback : null;
   const isUpdatingProgress = progressFeedback?.kind === 'updating';
   const progressAction = getResponderProgressAction(responseRequest, user);
-  const progressDisabled = isUpdatingProgress || !accessToken?.trim();
 
   // LDFEW-266 / LDFEW-351: Operational field notes state and duplicate-submit prevention.
   // Retain uncommitted user input across re-renders in a local draft so typed notes are
@@ -103,6 +109,7 @@ export function ResponderRequestDetailsScreen() {
   } | null>(null);
   const currentFieldFeedback = fieldUpdateFeedback?.requestId === requestId ? fieldUpdateFeedback : null;
   const isSavingFieldUpdate = fieldUpdateFeedback?.kind === 'saving';
+  const progressDisabled = isUpdatingProgress || isSavingFieldUpdate || !accessToken?.trim() || offlineSaveBlocked;
 
   // LDFEW-266 / LDFEW-352: Completion details form inputs and draft state.
   // Drafts preserve uncommitted text in local state during re-renders, network errors,
@@ -157,11 +164,19 @@ export function ResponderRequestDetailsScreen() {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const externalActionInFlight = useRef(false);
   const [externalAction, setExternalAction] = useState<'call' | 'location' | null>(null);
-  const externalActionContext = useRef({ requestId, accessToken, request: responseRequest });
-  externalActionContext.current = { requestId, accessToken, request: responseRequest };
+  const externalActionContext = useRef({ requestId, accessToken, request: responseRequest, connectivity: offline.connectivity });
+  externalActionContext.current = { requestId, accessToken, request: responseRequest, connectivity: offline.connectivity };
 
   const refreshRequest = useCallback(async () => {
     if (!requestId || !accessToken?.trim()) {
+      return;
+    }
+    // Read connectivity at the time of refresh. A connectivity event alone must
+    // not refetch details and erase an unsaved completion/field-note draft.
+    if (externalActionContext.current.connectivity === 'offline') {
+      setRefreshError(externalActionContext.current.request
+        ? 'You are offline. Showing previously loaded request details.'
+        : 'You are offline. Connect to load this request. Saved updates remain on this device.');
       return;
     }
 
@@ -172,6 +187,7 @@ export function ResponderRequestDetailsScreen() {
       const fresh = typeof getResponderRequestById === 'function'
         ? await getResponderRequestById(requestId, accessToken)
         : null;
+      if (!offline.isCurrent()) return;
 
       if (fresh) {
         updateCachedResponderRequest(fresh);
@@ -186,6 +202,7 @@ export function ResponderRequestDetailsScreen() {
         }
       }
     } catch (error) {
+      if (!offline.isCurrent()) return;
       if (error instanceof ApiClientError && (error.status === 403 || error.status === 404)) {
         setUpdatedRequest(null);
         setRefreshError(
@@ -197,7 +214,7 @@ export function ResponderRequestDetailsScreen() {
         setRefreshError('Unable to refresh request details. Please check your connection and try again.');
       }
     } finally {
-      setIsRefreshing(false);
+      if (offline.isCurrent()) setIsRefreshing(false);
     }
   }, [requestId, accessToken]);
 
@@ -207,12 +224,14 @@ export function ResponderRequestDetailsScreen() {
     }, [refreshRequest])
   );
 
-  // LDFEW-266 / LDFEW-351: Save operational field updates to the backend API.
+  // Keep the existing online API path; persist eligible offline work before showing local success.
   const saveFieldUpdate = async () => {
     // Prevent repeated taps from sending duplicate field-update requests while
     // the current save operation is still in progress.
     if (
       fieldUpdateInFlightRef.current ||
+      progressInFlightRef.current || offlineSaveBlocked ||
+      !confirmedRequest || !canRecordFieldUpdate(responseRequest, user) ||
       !requestId ||
       requestId !== responseRequest?.id ||
       !accessToken?.trim()
@@ -233,10 +252,18 @@ export function ResponderRequestDetailsScreen() {
     setFieldUpdateFeedback({ requestId, kind: 'saving', message: 'Saving field update...' });
 
     try {
-      // Connect to the protected LDFEW-350 backend API.
-      // Note: Only fieldNotes is sent in the body payload; the backend authoritative session
-      // derives responder identity from accessToken, ensuring no responderId spoofing occurs.
-      const updated = await saveResponderFieldUpdate(requestId, fieldNotesInput.trim(), accessToken);
+      // Only field notes enter the operation payload. Tokens are used for online calls,
+      // while the local queue is isolated by the authenticated responder's identity.
+      const result = await offline.saveUpdate({
+        request: confirmedRequest, user, accessToken,
+        update: { type: 'field-update', payload: { fieldNotes: fieldNotesInput.trim() } }
+      });
+      if (!offline.isCurrent()) return;
+      if (result.saved === 'local') {
+        setFieldUpdateFeedback({ requestId, kind: 'success', message: 'Saved offline – pending sync. This update is saved on this device only.' });
+        return;
+      }
+      const updated = result.request;
 
       // Synchronize both detail cache and local screen state with the server-confirmed record
       updateCachedResponderRequest(updated);
@@ -252,7 +279,8 @@ export function ResponderRequestDetailsScreen() {
     } catch (error) {
       // On failure, retain typed text in fieldNotesDraft so the responder can fix or retry
       // without losing valuable operational context entered in field conditions.
-      const message = error instanceof ApiClientError
+      if (!offline.isCurrent()) return;
+      const message = error instanceof ApiClientError || error instanceof OfflineUpdateError
         ? error.message
         : 'Unable to save field update. Please check your connection and try again.';
       setFieldUpdateFeedback({ requestId, kind: 'error', message });
@@ -265,6 +293,7 @@ export function ResponderRequestDetailsScreen() {
   const updateProgress = async () => {
     if (
       progressInFlightRef.current ||
+      fieldUpdateInFlightRef.current || offlineSaveBlocked || !confirmedRequest ||
       !requestId ||
       requestId !== responseRequest?.id ||
       !progressAction ||
@@ -285,7 +314,7 @@ export function ResponderRequestDetailsScreen() {
       responderRemarksInput.trim()
     );
 
-    if (progressAction.nextStatus === 'COMPLETED' && hasCompletionActivity) {
+    if (progressAction.nextStatus === 'COMPLETED' && (hasCompletionActivity || offline.connectivity !== 'online' || hasPendingUpdates)) {
       const fieldErrors = validateCompletionFormFields({
         assistanceProvided: assistanceProvidedInput,
         completionSummary: completionSummaryInput,
@@ -317,12 +346,17 @@ export function ResponderRequestDetailsScreen() {
     setProgressFeedback({ requestId, kind: 'updating', message: 'Updating progress...' });
 
     try {
-      const updated = await updateResponderRequestProgress(
-        requestId,
-        progressAction.nextStatus,
-        accessToken,
-        completionDetails
-      );
+      const result = await offline.saveUpdate({
+        request: confirmedRequest, user, accessToken,
+        update: { type: 'progress', payload: { status: progressAction.nextStatus, ...(completionDetails ? { completionDetails } : {}) } }
+      });
+      if (!offline.isCurrent()) return;
+      if (result.saved === 'local') {
+        setCompletionFieldErrors({});
+        setProgressFeedback({ requestId, kind: 'success', message: 'Saved offline – pending sync. Progress is saved on this device only.' });
+        return;
+      }
+      const updated = result.request;
       // Keep the backend-confirmed status for details and the dashboard's next focus.
       updateCachedResponderRequest(updated);
       setUpdatedRequest(updated);
@@ -333,6 +367,7 @@ export function ResponderRequestDetailsScreen() {
         message: `Progress updated: ${progressStatusLabel(updated.status)}.`
       });
     } catch (error) {
+      if (!offline.isCurrent()) return;
       // If the backend indicates required completion details are missing or invalid,
       // highlight the inline form fields so the responder sees exactly which inputs need attention.
       if (
@@ -349,7 +384,7 @@ export function ResponderRequestDetailsScreen() {
           responderRemarks: prev.responderRemarks
         }));
       }
-      setProgressFeedback({ requestId, kind: 'error', message: responderProgressFeedback(error) });
+      setProgressFeedback({ requestId, kind: 'error', message: error instanceof OfflineUpdateError ? error.message : responderProgressFeedback(error) });
     } finally {
       progressInFlightRef.current = false;
     }
@@ -532,6 +567,7 @@ export function ResponderRequestDetailsScreen() {
         <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
           <DetailsHeader isRefreshing={true} onBack={backToRequests} />
           <View style={styles.noticeCard}>
+            <ResponderOfflineStatus {...offline} />
             <ActivityIndicator color={dashboardTheme.colors.primaryStrong} size="large" />
             <Text style={styles.noticeTitle}>Loading request details...</Text>
             <Text style={styles.noticeBody}>Fetching the latest updates from the server.</Text>
@@ -551,6 +587,7 @@ export function ResponderRequestDetailsScreen() {
       <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
         <DetailsHeader onBack={backToRequests} onRefresh={() => void refreshRequest()} />
         <View style={styles.noticeCard}>
+          <ResponderOfflineStatus {...offline} />
           <View style={styles.noticeIconWrap}>
             <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={22} />
           </View>
@@ -623,6 +660,8 @@ export function ResponderRequestDetailsScreen() {
       <DetailsHeader errorMessage={refreshError} isRefreshing={isRefreshing} onBack={backToRequests} onRefresh={() => void refreshRequest()} />
 
       <View style={styles.heroCard}>
+        <ResponderOfflineStatus {...offline} />
+        {projection?.conflict ? <Text accessibilityRole="alert" style={styles.progressError}>This request has changed on the server. Pending updates need review before more updates can be saved.</Text> : null}
         <View style={styles.heroBadgeRow}>
           <StatusBadge label={responseRequest.status} tone={statusTone(responseRequest.status)} />
         </View>
@@ -633,15 +672,15 @@ export function ResponderRequestDetailsScreen() {
       {canManageResponderProgress(responseRequest, user) ? (
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>RESPONSE PROGRESS</Text>
-          <Text style={styles.detailValue}>Current status: {progressStatusLabel(responseRequest.status)}</Text>
+          <Text style={styles.detailValue}>{`${hasPendingUpdates ? 'Local progress (pending sync)' : 'Current status'}: ${progressStatusLabel(responseRequest.status)}`}</Text>
           {responseRequest.status === 'COMPLETED' ? (
             <View style={styles.completedSummaryCard}>
               <Text accessibilityLiveRegion="polite" style={styles.progressSuccess}>
-                {'\u2713'} Emergency response completed
+                {hasPendingUpdates ? 'Completion saved on this device – pending sync' : '\u2713 Emergency response completed'}
               </Text>
               <View style={styles.completionDetailsBlock}>
                 <Text style={styles.completionSectionHeading}>COMPLETION DETAILS</Text>
-                <DetailRow label="Completed at" value={formatUpdateTimestamp(responseRequest.completedAt)} />
+                <DetailRow label="Completed at" value={hasPendingUpdates ? 'Awaiting synchronization' : formatUpdateTimestamp(responseRequest.completedAt)} />
                 <DetailRow label="Assistance provided" value={displayValue(responseRequest.assistanceProvided)} />
                 <DetailRow label="Completion summary" value={displayValue(responseRequest.completionSummary)} />
                 {responseRequest.responderRemarks ? (
@@ -655,7 +694,7 @@ export function ResponderRequestDetailsScreen() {
               accessibilityRole="button"
               accessibilityState={{ disabled: progressDisabled, busy: isUpdatingProgress }}
               disabled={progressDisabled}
-              onPress={() => void updateProgress()}
+              onPress={updateProgress}
               style={({ pressed }) => [
                 styles.backButton,
                 progressDisabled && styles.disabledButton,
@@ -668,6 +707,7 @@ export function ResponderRequestDetailsScreen() {
               </Text>
             </Pressable>
           ) : null}
+          {hasPendingUpdates && confirmedRequest ? <Text style={styles.decisionHelper}>{`Last confirmed server status: ${progressStatusLabel(confirmedRequest.status)}`}</Text> : null}
           {!accessToken?.trim() && responseRequest.status !== 'COMPLETED' ? (
             <Text style={styles.progressError}>Please log in again to update this request.</Text>
           ) : null}
@@ -786,9 +826,9 @@ export function ResponderRequestDetailsScreen() {
           {responseRequest.fieldNotes ? (
             <View style={styles.savedNoteBox}>
               <View style={styles.savedNoteHeader}>
-                <Text style={styles.savedNoteLabel}>PREVIOUSLY SAVED UPDATE</Text>
+                <Text style={styles.savedNoteLabel}>{hasPendingUpdates ? 'LOCAL UPDATE – PENDING SYNC' : 'PREVIOUSLY SAVED UPDATE'}</Text>
                 <Text style={styles.savedNoteTimestamp}>
-                  {formatUpdateTimestamp(responseRequest.fieldUpdatedAt)}
+                  {hasPendingUpdates ? 'Saved on this device' : formatUpdateTimestamp(responseRequest.fieldUpdatedAt)}
                 </Text>
               </View>
               <Text style={styles.savedNoteText}>{responseRequest.fieldNotes}</Text>
@@ -821,12 +861,12 @@ export function ResponderRequestDetailsScreen() {
           <Pressable
             accessibilityLabel="Save Field Update"
             accessibilityRole="button"
-            accessibilityState={{ disabled: isSavingFieldUpdate || !accessToken?.trim(), busy: isSavingFieldUpdate }}
-            disabled={isSavingFieldUpdate || !accessToken?.trim()}
-            onPress={() => void saveFieldUpdate()}
+            accessibilityState={{ disabled: isSavingFieldUpdate || isUpdatingProgress || offlineSaveBlocked || !accessToken?.trim(), busy: isSavingFieldUpdate }}
+            disabled={isSavingFieldUpdate || isUpdatingProgress || offlineSaveBlocked || !accessToken?.trim()}
+            onPress={saveFieldUpdate}
             style={({ pressed }) => [
               styles.secondaryActionButton,
-              (isSavingFieldUpdate || !accessToken?.trim()) && styles.disabledButton,
+              (isSavingFieldUpdate || isUpdatingProgress || offlineSaveBlocked || !accessToken?.trim()) && styles.disabledButton,
               pressed && !isSavingFieldUpdate && styles.pressed
             ]}
           >

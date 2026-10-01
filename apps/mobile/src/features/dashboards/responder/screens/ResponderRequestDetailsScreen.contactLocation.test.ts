@@ -34,6 +34,20 @@ const navigation = vi.hoisted(() => ({
   dismissTo: vi.fn()
 }));
 
+
+// Existing regression scenarios run online with an empty queue; offline cases have a dedicated suite.
+vi.mock('../offline/useResponderOffline', async () => {
+  const { createResponderUpdateQueue } = await import('../offline/responderUpdateQueue');
+  const { saveResponderUpdate } = await import('../offline/saveResponderUpdate');
+  const queue = createResponderUpdateQueue({ getItem: async () => null, setItem: async () => undefined });
+  const ready = { items: [], status: 'ready' as const, error: null };
+  return { useResponderOffline: () => ({
+    ...ready, connectivity: 'online', reload: async () => undefined, isCurrent: () => true,
+    saveUpdate: (input: Parameters<typeof saveResponderUpdate>[0]) =>
+      saveResponderUpdate(input, { ...queue, getSnapshot: () => ready }, () => 'online')
+  }) };
+});
+
 vi.mock('react', async (importOriginal) => ({
   ...await importOriginal<typeof React>(),
   useCallback: (callback: unknown) => callback,

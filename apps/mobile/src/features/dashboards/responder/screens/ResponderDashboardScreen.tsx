@@ -12,7 +12,9 @@ import { ReportListItem } from '../../shared/components/ReportListItem';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { responderBottomNavItems } from '../mockData';
-import { clearResponderRequestCache, getCachedResponderRequest, replaceResponderRequestCache } from '../requestDetailsCache';
+import { clearResponderRequestCache, getCachedAssignedResponderRequests, getCachedResponderRequest, replaceResponderRequestCache } from '../requestDetailsCache';
+import { useResponderOffline } from '../offline/useResponderOffline';
+import { ResponderOfflineStatus } from '../offline/ResponderOfflineStatus';
 import { parseResponderRequestTab, responderRequestDetailsHref } from '../requestDetails';
 import {
   emptyQueueDescription,
@@ -32,6 +34,7 @@ type LoadState = 'loading' | 'ready' | 'error';
 
 export function ResponderDashboardScreen() {
   const { accessToken, user } = useAuth();
+  const offline = useResponderOffline(user, accessToken ?? '');
   const router = useRouter();
   const { tab } = useLocalSearchParams<{ tab?: string | string[] }>();
   const queueLoadId = useRef(0);
@@ -61,6 +64,13 @@ export function ResponderDashboardScreen() {
     setIsRefreshing(true);
     setErrorMessage(null);
 
+    if (offline.connectivity === 'offline') {
+      setQueueState({ pending: [], assigned: user ? getCachedAssignedResponderRequests(user.id).filter((request) => isActiveAssignedResponseStatus(request.status)) : [] });
+      setLoadState('ready');
+      setIsRefreshing(false);
+      return;
+    }
+
     try {
       // Load both queues from the protected responder API so the dashboard
       // reflects current server data instead of local preview data.
@@ -83,13 +93,23 @@ export function ResponderDashboardScreen() {
     } catch (error) {
       if (loadId !== queueLoadId.current) return;
 
+      // Initial connectivity may still be unknown after offline navigation. Do not
+      // erase loaded assignments before the network listener has resolved its state.
+      if (offline.connectivity !== 'online' && user) {
+        setQueueState({ pending: [], assigned: getCachedAssignedResponderRequests(user.id).filter((request) => isActiveAssignedResponseStatus(request.status)) });
+        setLoadState('ready');
+        setIsRefreshing(false);
+        setErrorMessage('Unable to refresh. Showing previously loaded assignments.');
+        return;
+      }
+
       setQueueState({ pending: [], assigned: [] });
       clearResponderRequestCache();
       setLoadState('error');
       setIsRefreshing(false);
       setErrorMessage(errorMessageFor(error));
     }
-  }, [accessToken, user?.id]);
+  }, [accessToken, user?.id, offline.connectivity]);
 
   useFocusEffect(
     useCallback(() => {
@@ -138,8 +158,8 @@ export function ResponderDashboardScreen() {
 
       <View style={styles.statusRow}>
         <View style={styles.onlineBadge}>
-          <View style={styles.onlineDot} />
-          <Text style={styles.onlineText}>Online</Text>
+          <View style={[styles.onlineDot, offline.connectivity !== 'online' && { backgroundColor: dashboardTheme.colors.moderate }]} />
+          <Text style={[styles.onlineText, offline.connectivity !== 'online' && { color: dashboardTheme.colors.text }]}>{offline.connectivity === 'online' ? 'Online' : offline.connectivity === 'offline' ? 'Offline' : 'Checking connection'}</Text>
         </View>
         <Text style={styles.refreshLabel}>
           {isLoading || isRefreshing
@@ -149,6 +169,9 @@ export function ResponderDashboardScreen() {
               : 'Ready'}
         </Text>
       </View>
+      <ResponderOfflineStatus {...offline} />
+      {loadState === 'ready' && errorMessage ? <Text accessibilityRole="alert" style={styles.refreshLabel}>{errorMessage}</Text> : null}
+      {offline.connectivity === 'offline' ? <Text style={styles.refreshLabel}>Showing previously loaded assignments. Connect to load pending requests.</Text> : null}
 
       <View style={styles.tabRow}>
         <ResponderTab
