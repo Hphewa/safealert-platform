@@ -9,7 +9,7 @@ import { ActionCard } from '../../shared/components/ActionCard';
 import { DashboardHeader } from '../../shared/components/DashboardHeader';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
-import { dashboardTheme, cardShadow } from '../../shared/theme';
+import { dashboardTheme } from '../../shared/theme';
 import { getFirstName } from '../../shared/utils';
 import { residentBottomNavItems, residentPrimaryActions } from '../mockData';
 import { listResidentWarnings } from '../../../warnings/api/residentWarningApi';
@@ -18,6 +18,14 @@ function publishedLabel(publishedAt?: string) {
   if (!publishedAt) return 'Published recently';
   const date = new Date(publishedAt);
   if (Number.isNaN(date.getTime())) return 'Published recently';
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday = date.toDateString() === yesterday.toDateString();
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (isToday) return `Today, ${time}`;
+  if (isYesterday) return `Yesterday, ${time}`;
   return date.toLocaleString(undefined, { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' });
 }
 
@@ -182,22 +190,20 @@ export function ResidentDashboardScreen() {
                         pressed && styles.notificationItemPressed
                       ]}
                     >
-                      <View style={[styles.notificationItemIcon, { backgroundColor: tone.soft }]}>
-                        <DashboardGlyph color={tone.accent} name="warning-outline" size={16} />
-                      </View>
                       <View style={styles.notificationItemContent}>
                         <View style={styles.notificationItemTitleRow}>
-                          <Text style={[styles.notificationRisk, { color: tone.accent, backgroundColor: tone.soft }]}>
-                            {warning.riskLevel}
-                          </Text>
-                          <Text style={styles.notificationItemTitle} numberOfLines={1}>{warning.affectedArea}</Text>
+                            <Text style={styles.notificationItemTitle}>Active safety warning</Text>
+                            <Text style={[styles.notificationRisk, { color: tone.accent, backgroundColor: tone.soft }]}>{warning.riskLevel}</Text>
+                          </View>
+                          <View style={styles.notificationLocationRow}>
+                            <DashboardGlyph color={dashboardTheme.colors.muted} name="locate-outline" size={14} />
+                            <Text style={styles.notificationLocation} numberOfLines={1}>{warning.affectedArea}</Text>
                         </View>
                         <Text style={styles.notificationItemMessage} numberOfLines={2}>{warning.message}</Text>
                         <View style={styles.notificationItemFooter}>
                           <Text style={styles.notificationItemTime}>{publishedLabel(warning.publishedAt)}</Text>
                           <View style={styles.viewNotificationRow}>
-                            <Text style={styles.viewNotification}>View warning</Text>
-                            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="chevron-forward" size={14} />
+                              <Text style={styles.viewNotification}>View warning →</Text>
                           </View>
                         </View>
                       </View>
@@ -247,7 +253,6 @@ const styles = StyleSheet.create({
     borderColor: dashboardTheme.colors.border,
     borderRadius: 22,
     backgroundColor: dashboardTheme.colors.surface,
-    ...cardShadow
   },
   notificationHeader: {
     flexDirection: 'row',
@@ -269,29 +274,22 @@ const styles = StyleSheet.create({
   closeText: { fontSize: 24, lineHeight: 26, color: dashboardTheme.colors.muted },
   notificationList: { paddingVertical: 2 },
   notificationItem: {
-    flexDirection: 'row',
-    gap: 10,
     marginHorizontal: 12,
     marginTop: 10,
     padding: 12,
-    borderLeftWidth: 4,
+    borderLeftWidth: 3,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
-    borderRadius: 14,
+    borderRadius: 12,
     backgroundColor: dashboardTheme.colors.surface
   },
   notificationItemPressed: { opacity: 0.72 },
-  notificationItemIcon: {
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 14
-  },
   notificationItemContent: { flex: 1, gap: 4 },
-  notificationItemTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
-  notificationRisk: { overflow: 'hidden', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
-  notificationItemTitle: { flex: 1, fontSize: 14, fontWeight: '800', color: dashboardTheme.colors.text },
+  notificationItemTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  notificationRisk: { overflow: 'hidden', paddingHorizontal: 7, paddingVertical: 3, borderRadius: 999, fontSize: 10, fontWeight: '900', letterSpacing: 0.4 },
+  notificationItemTitle: { flex: 1, fontSize: 15, fontWeight: '800', color: dashboardTheme.colors.text },
+  notificationLocationRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 1 },
+  notificationLocation: { flex: 1, fontSize: 13, color: dashboardTheme.colors.muted },
   notificationItemMessage: { fontSize: 13, lineHeight: 18, color: dashboardTheme.colors.text },
   notificationItemFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   notificationItemTime: { fontSize: 11, color: dashboardTheme.colors.muted },

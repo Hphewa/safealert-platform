@@ -83,7 +83,7 @@ export function OfficerDashboardScreen() {
   return (
     <DashboardScreen bottomNavItems={officerBottomNavItems} contentContainerStyle={styles.content}>
       <DashboardHeader title="Officer Dashboard" trailingIcon="person-circle-outline" onTrailingPress={() => router.push('/officer/profile')} />
-      <Pressable accessibilityRole="button" accessibilityLabel="Refresh officer dashboard" disabled={loading} onPress={() => void reload()} style={styles.refreshButton}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Refresh officer dashboard" disabled={loading} onPress={() => void reload()} style={[styles.refreshButton, !isCompactLayout && styles.refreshButtonWeb, loading && styles.disabled]}>
         {loading ? <ActivityIndicator color={dashboardTheme.colors.primary} size="small" /> : <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="refresh-outline" size={18} />}
         <Text style={styles.refreshLabel}>{loading ? 'Refreshing dashboard...' : 'Refresh dashboard'}</Text>
       </Pressable>
@@ -193,10 +193,10 @@ const styles = StyleSheet.create({
   content: {
     width: '100%',
     alignSelf: 'stretch',
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 28,
-    gap: 24
+    paddingHorizontal: 24,
+    paddingTop: 18,
+    paddingBottom: 36,
+    gap: 28
   },
   state: {
     gap: 12,
@@ -225,8 +225,16 @@ const styles = StyleSheet.create({
     minHeight: 44,
     justifyContent: 'center',
     paddingHorizontal: 16,
-    borderRadius: dashboardTheme.radius.sm,
-    backgroundColor: dashboardTheme.colors.primarySoft
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.primarySoft,
+    backgroundColor: dashboardTheme.colors.primarySoft,
+    ...cardShadow
+  },
+  refreshButtonWeb: {
+    alignSelf: 'flex-end',
+    marginTop: -12,
+    paddingHorizontal: 18
   },
   refreshLabel: {
     color: dashboardTheme.colors.primaryStrong,
@@ -247,13 +255,15 @@ const styles = StyleSheet.create({
   statGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12
+    gap: 14
   },
   monitoringCard: {
     gap: 16,
-    padding: 18,
-    borderRadius: dashboardTheme.radius.lg,
-    backgroundColor: dashboardTheme.colors.surfaceMuted,
+    padding: 22,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.primarySoft,
+    borderRadius: 24,
+    backgroundColor: '#f1f6ff',
     ...cardShadow
   },
   monitoringHeader: {
@@ -263,7 +273,7 @@ const styles = StyleSheet.create({
   },
   monitoringEyebrow: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '800',
     letterSpacing: 1,
     color: dashboardTheme.colors.text
@@ -273,8 +283,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    paddingHorizontal: 8,
-    borderRadius: dashboardTheme.radius.sm
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: dashboardTheme.colors.surface
   },
   monitoringActionText: {
     fontSize: 13,
@@ -288,10 +299,10 @@ const styles = StyleSheet.create({
   },
   monitoringInner: {
     gap: 16,
-    padding: 16,
+    padding: 18,
     borderWidth: 1,
-    borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.md,
+    borderColor: dashboardTheme.colors.primarySoft,
+    borderRadius: 18,
     backgroundColor: dashboardTheme.colors.surface
   },
   monitoringStats: {
@@ -303,11 +314,12 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 140,
     gap: 5,
-    padding: 14,
+    padding: 16,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.sm,
-    backgroundColor: dashboardTheme.colors.surfaceMuted
+    borderRadius: 16,
+    backgroundColor: dashboardTheme.colors.surfaceMuted,
+    ...cardShadow
   },
   monitoringValue: {
     fontSize: 24,
@@ -336,26 +348,29 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 13,
     lineHeight: 20,
-    color: dashboardTheme.colors.text
+    color: dashboardTheme.colors.muted
   },
   actionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 14
+    gap: 16
   },
   actionGridCompact: {
     flexDirection: 'column',
     flexWrap: 'nowrap',
-    gap: 12
+    gap: 14
   },
   list: {
-    gap: 12,
-    padding: 16,
+    gap: 14,
+    padding: 14,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.surface,
+    borderRadius: 22,
+    backgroundColor: dashboardTheme.colors.surfaceMuted,
     ...cardShadow
+  },
+  disabled: {
+    opacity: 0.55
   },
   pressed: {
     opacity: 0.8
