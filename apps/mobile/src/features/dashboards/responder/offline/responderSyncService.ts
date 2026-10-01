@@ -226,9 +226,9 @@ export function createResponderSyncService(
   // Perform sequential FIFO synchronization of queued updates for a specific responder
   async function executeSync(
     owner: string,
-    accessToken: string,
-    options?: SyncOptions
+    accessToken: string
   ): Promise<SyncResult> {
+
     const currentState = getSnapshot(owner);
 
     // Check if network is online before attempting queue drain
@@ -500,12 +500,18 @@ export function createResponderSyncService(
     const remainingCount = queue.getSnapshot(owner).items.length;
     const finalSyncState = getSnapshot(owner);
 
-    // Refresh request data callback after successful synchronization
-    if (syncedRequests.length > 0 && options?.onSyncSuccess) {
-      try {
-        await options.onSyncSuccess(syncedRequests);
-      } catch {
-        // Callback errors should not alter sync status
+    // Refresh request data callbacks after successful synchronization (LDFEW-336)
+    if (syncedRequests.length > 0) {
+      const callbacks = successCallbacks.get(owner);
+      if (callbacks && callbacks.size > 0) {
+        for (const cb of [...callbacks]) {
+          try {
+            await cb(syncedRequests);
+          } catch {
+            // Callback errors should not alter sync status
+          }
+        }
+        successCallbacks.delete(owner);
       }
     }
 
@@ -518,22 +524,40 @@ export function createResponderSyncService(
     };
   }
 
+  // Registry of post-sync callbacks for components attached to in-flight syncs
+  const successCallbacks = new Map<string, Set<(requests: SafeResponseRequest[]) => void | Promise<void>>>();
+
+  function registerSuccessCallback(owner: string, callback?: (requests: SafeResponseRequest[]) => void | Promise<void>) {
+    if (!callback) return;
+    let set = successCallbacks.get(owner);
+    if (!set) {
+      set = new Set();
+      successCallbacks.set(owner, set);
+    }
+    set.add(callback);
+  }
+
   // Guard against overlapping queue drains when NetInfo emits multiple
   // reconnect events during network recovery or components remount.
   function syncQueue(owner: string, accessToken: string, options?: SyncOptions): Promise<SyncResult> {
+    if (options?.onSyncSuccess) {
+      registerSuccessCallback(owner, options.onSyncSuccess);
+    }
+
     const existing = inFlightSyncs.get(owner);
     if (existing) {
       // Re-use active in-flight sync promise to prevent duplicate concurrent network operations
       return existing;
     }
 
-    const syncPromise = executeSync(owner, accessToken, options).finally(() => {
+    const syncPromise = executeSync(owner, accessToken).finally(() => {
       inFlightSyncs.delete(owner);
     });
 
     inFlightSyncs.set(owner, syncPromise);
     return syncPromise;
   }
+
 
   // Track previous connectivity state to detect true transitions to online
   let lastConnectivity: Connectivity = connectivityStore.getSnapshot();
@@ -617,7 +641,9 @@ export function createResponderSyncService(
       snapshots.clear();
       permanentFailures.clear();
       temporaryFailureCounts.clear();
+      successCallbacks.clear();
     }
+
   };
 }
 
