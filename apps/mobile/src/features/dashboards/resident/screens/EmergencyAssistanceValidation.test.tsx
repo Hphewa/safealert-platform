@@ -6,9 +6,10 @@ import { validateEmergencyAssistanceDraft, type EmergencyAssistanceDraft } from 
 import { mapRequestToEditForm, validateResidentEmergencyRequestEditForm } from './ResidentEmergencyRequestEditScreen';
 import type { SafeResponseRequest } from '@safealert/contracts';
 
-const state = vi.hoisted(() => ({ draft: {} as EmergencyAssistanceDraft, push: vi.fn() }));
+const state = vi.hoisted(() => ({ draft: {} as EmergencyAssistanceDraft, push: vi.fn(), phoneTouched: false }));
 vi.mock('react', async (importOriginal) => ({
-  ...await importOriginal<typeof React>(), useEffect: () => undefined
+  ...await importOriginal<typeof React>(), useEffect: () => undefined,
+  useState: () => [state.phoneTouched, (value: boolean) => { state.phoneTouched = value; }]
 }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push, back: vi.fn() }), useFocusEffect: () => undefined, useLocalSearchParams: () => ({}) }));
 vi.mock('react-native', () => ({
@@ -32,7 +33,7 @@ vi.mock('../emergencyAssistanceDraft', async (importOriginal) => {
 type NodeProps = {
   children?: React.ReactNode; accessibilityLabel?: string; accessibilityState?: { disabled?: boolean };
   disabled?: boolean; onPress?: () => void; onChangeText?: (value: string) => void; value?: string;
-  maxLength?: number; keyboardType?: string;
+  maxLength?: number; keyboardType?: string; inputMode?: string; onBlur?: () => void;
 };
 function nodes(node: React.ReactNode): React.ReactElement<NodeProps>[] {
   if (Array.isArray(node)) return node.flatMap(nodes);
@@ -64,6 +65,7 @@ function editForm() {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  state.phoneTouched = false;
   vi.stubGlobal('React', React);
   state.draft = {
     assistanceType: 'MEDICAL_ASSISTANCE', location: { status: 'DETECTED', latitude: 6.92, longitude: 79.86, accuracyMeters: 10, capturedAt: '2026-10-01T10:00:00.000Z', errorMessage: null },
@@ -140,16 +142,43 @@ describe('Resident emergency assistance count controls', () => {
 });
 
 describe('Emergency contact exact-digit validation', () => {
-  it.each(['', '077123456', '07712345678', '077ABC4567', '077-123-4567', '077 123456', ' 0771234567', '0771234567 ', '+771234567'])('rejects pasted %j in creation and editing', (phoneNumber) => {
-    const input = control('Contact phone number');
-    expect(input.keyboardType).toBe('number-pad');
-    expect(input.maxLength).toBe(10);
-    input.onChangeText?.(phoneNumber);
+  it.each(['', '077123456', '07712345678', '077ABC4567', '077-123-4567', '077 123456', ' 0771234567', '0771234567 ', '+771234567'])('rejects raw invalid %j in creation and editing validators', (phoneNumber) => {
+    state.draft.contactDetails.phoneNumber = phoneNumber;
     expect(validateEmergencyAssistanceDraft(state.draft).errors.contactDetails).toBe(EMERGENCY_CONTACT_PHONE_MESSAGE);
     expect(control('Review emergency assistance request').disabled).toBe(true);
     const form = editForm();
     form.contact.phoneNumber = phoneNumber;
     expect(validateResidentEmergencyRequestEditForm(form).errors.contactDetails).toBe(EMERGENCY_CONTACT_PHONE_MESSAGE);
+  });
+
+  it.each([
+    ['0771234567', '0771234567'], ['0712345678', '0712345678'], ['077123456', '077123456'],
+    ['07712345678', '0771234567'], ['yes no', ''], ['abcd1234', '1234'], ['077ABC4567', '0774567'],
+    ['077ABC12-34567', '0771234567'], ['077-1234567', '0771234567'], ['077 1234567', '0771234567'],
+    ['+ (077) 123.4567', '0771234567'], ['', '']
+  ])('sanitizes create input %j into %j before Review', (phoneNumber, expected) => {
+    const input = control('Contact phone number');
+    expect(input.keyboardType).toBe('number-pad');
+    expect(input.inputMode).toBe('numeric');
+    // Mixed-content pastes must reach the sanitizer before a raw-character limit can truncate them.
+    expect(input.maxLength).toBeUndefined();
+    input.onChangeText?.(phoneNumber);
+    expect(control('Contact phone number').value).toBe(expected);
+    expect(control('Review emergency assistance request').disabled).toBe(expected.length !== 10);
+    if (expected.length !== 10) expect(text(EmergencyAssistanceScreen())).toContain(EMERGENCY_CONTACT_PHONE_MESSAGE);
+    control('Review emergency assistance request').onPress?.();
+    expect(state.push).toHaveBeenCalledTimes(expected.length === 10 ? 1 : 0);
+  });
+
+  it('delays the empty phone error until interaction or a Review attempt', () => {
+    state.draft.contactDetails.phoneNumber = '';
+    expect(text(EmergencyAssistanceScreen())).not.toContain(EMERGENCY_CONTACT_PHONE_MESSAGE);
+    control('Contact phone number').onBlur?.();
+    expect(text(EmergencyAssistanceScreen())).toContain(EMERGENCY_CONTACT_PHONE_MESSAGE);
+    state.phoneTouched = false;
+    control('Review emergency assistance request').onPress?.();
+    expect(text(EmergencyAssistanceScreen())).toContain(EMERGENCY_CONTACT_PHONE_MESSAGE);
+    expect(state.push).not.toHaveBeenCalled();
   });
 
   it('accepts exactly ten numeric digits in both validators', () => {

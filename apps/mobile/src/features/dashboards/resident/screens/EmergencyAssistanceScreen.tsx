@@ -1,4 +1,5 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { EMERGENCY_CONTACT_PHONE_MESSAGE, sanitizeEmergencyContactPhoneInput } from '@safealert/contracts';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -45,6 +46,7 @@ export function EmergencyAssistanceScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { draft, setDraft, validation } = useEmergencyAssistanceDraft();
+  const [phoneTouched, setPhoneTouched] = useState(false);
   const canReviewRequest = validation.isValid;
   const isDetectingLocation =
     draft.location.status === 'REQUESTING_PERMISSION' || draft.location.status === 'LOCATING';
@@ -63,12 +65,14 @@ export function EmergencyAssistanceScreen() {
         ...current.contactDetails,
         name: user.name,
         email: user.email,
+        phoneNumber: sanitizeEmergencyContactPhoneInput(current.contactDetails.phoneNumber),
         usesAuthenticatedProfile: true
       };
 
       if (
         current.contactDetails.name === nextContactDetails.name &&
         current.contactDetails.email === nextContactDetails.email &&
+        current.contactDetails.phoneNumber === nextContactDetails.phoneNumber &&
         current.contactDetails.usesAuthenticatedProfile === nextContactDetails.usesAuthenticatedProfile
       ) {
         return current;
@@ -173,11 +177,12 @@ export function EmergencyAssistanceScreen() {
   };
 
   const setContactPhoneNumber = (phoneNumber: string) => {
+    setPhoneTouched(true);
     setDraft((current) => ({
       ...current,
       contactDetails: {
         ...current.contactDetails,
-        phoneNumber
+        phoneNumber: sanitizeEmergencyContactPhoneInput(phoneNumber)
       },
       reviewRequestedAt: null
     }));
@@ -256,6 +261,7 @@ export function EmergencyAssistanceScreen() {
   };
 
   const queueReview = () => {
+    setPhoneTouched(true);
     if (!canReviewRequest) {
       return;
     }
@@ -531,7 +537,9 @@ export function EmergencyAssistanceScreen() {
         <TextInput
           accessibilityLabel="Contact phone number"
           keyboardType="number-pad"
-          maxLength={10}
+          inputMode="numeric"
+          autoCorrect={false}
+          onBlur={() => setPhoneTouched(true)}
           accessibilityHint="Enter exactly 10 digits, without spaces or symbols."
           onChangeText={setContactPhoneNumber}
           placeholder="Enter a response contact phone number."
@@ -539,7 +547,7 @@ export function EmergencyAssistanceScreen() {
           style={styles.contactInput}
           value={draft.contactDetails.phoneNumber}
         />
-        <ValidationMessage message={validation.errors.contactDetails} />
+        <ValidationMessage message={phoneTouched || validation.errors.contactDetails !== EMERGENCY_CONTACT_PHONE_MESSAGE ? validation.errors.contactDetails : undefined} />
       </View>
 
       <View style={styles.section}>

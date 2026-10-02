@@ -4,6 +4,7 @@ import {
   EMERGENCY_CONTACT_PHONE_MESSAGE,
   getEmergencyVulnerableCountError,
   isValidEmergencyContactPhoneNumber,
+  sanitizeEmergencyContactPhoneInput,
   RESPONSE_EDITABLE_STATUS,
   ROAD_ACCESSIBILITIES,
   type EmergencyAssistanceType,
@@ -280,7 +281,7 @@ export function mapRequestToEditForm(request: SafeResponseRequest): ResidentEmer
     contact: {
       name: typeof request.contact?.name === 'string' ? request.contact.name : '',
       email: typeof request.contact?.email === 'string' ? request.contact.email : '',
-      phoneNumber: typeof request.contact?.phoneNumber === 'string' ? request.contact.phoneNumber : ''
+      phoneNumber: sanitizeEmergencyContactPhoneInput(typeof request.contact?.phoneNumber === 'string' ? request.contact.phoneNumber : '')
     }
   };
 }
@@ -324,6 +325,7 @@ export function ResidentEmergencyRequestEditScreen({
   // Track whether the Resident has attempted to continue.
   // Avoids showing a wall of red validation errors before any user interaction.
   const [hasAttemptedContinue, setHasAttemptedContinue] = useState(false);
+  const [phoneTouched, setPhoneTouched] = useState(false);
   // Track whether the resident is currently editing or reviewing their changes.
   // Keeping step state local ensures that moving between edit and review retains all unsaved edits in memory.
   const initialStepParam = Array.isArray(params.step) ? params.step[0] : params.step;
@@ -408,7 +410,8 @@ export function ResidentEmergencyRequestEditScreen({
     // If invalid, keep the Resident on the screen with edits preserved and clear guidance.
     const validationResult = validateResidentEmergencyRequestEditForm(currentForm);
     if (!validationResult.isValid) {
-      setSubmitError('Please check the information entered and try again.');
+      setSubmitError(validationResult.errors.contactDetails === EMERGENCY_CONTACT_PHONE_MESSAGE
+        ? EMERGENCY_CONTACT_PHONE_MESSAGE : 'Please check the information entered and try again.');
       return;
     }
 
@@ -555,11 +558,12 @@ export function ResidentEmergencyRequestEditScreen({
 
   const setContactPhoneNumber = (phoneNumber: string) => {
     if (!currentForm) return;
+    setPhoneTouched(true);
     setFormData({
       ...currentForm,
       contact: {
         ...currentForm.contact,
-        phoneNumber
+        phoneNumber: sanitizeEmergencyContactPhoneInput(phoneNumber)
       }
     });
   };
@@ -817,7 +821,9 @@ export function ResidentEmergencyRequestEditScreen({
             <TextInput
               accessibilityLabel="Contact phone number"
               keyboardType="number-pad"
-              maxLength={10}
+              inputMode="numeric"
+              autoCorrect={false}
+              onBlur={() => setPhoneTouched(true)}
               accessibilityHint="Enter exactly 10 digits, without spaces or symbols."
               onChangeText={setContactPhoneNumber}
               placeholder="Enter a response contact phone number."
@@ -825,7 +831,7 @@ export function ResidentEmergencyRequestEditScreen({
               style={styles.contactInput}
               value={currentForm.contact.phoneNumber}
             />
-            <ValidationMessage message={validation.errors.contactDetails} />
+            <ValidationMessage message={phoneTouched || hasAttemptedContinue || validation.errors.contactDetails !== EMERGENCY_CONTACT_PHONE_MESSAGE ? validation.errors.contactDetails : undefined} />
           </View>
 
           <View style={styles.section}>
@@ -907,11 +913,13 @@ export function ResidentEmergencyRequestReviewView({
   isConflictError = false,
   onViewDetails
 }: ResidentEmergencyRequestReviewViewProps) {
+  // A deep link can skip the edit input; Review must still reject an invalid saved contact number.
+  const phoneValid = isValidEmergencyContactPhoneNumber(form.contact.phoneNumber);
   // Confirm Changes hand-off:
   // Dispatches form updates to MongoDB via the authenticated endpoint in LDFEW-345.
   // Guard against rapid duplicate taps while submission is in-flight or if status conflict occurred.
   const handleConfirm = () => {
-    if (isSubmitting || isConflictError) return;
+    if (isSubmitting || isConflictError || !phoneValid) return;
     onConfirmChanges?.(form);
   };
 
@@ -998,6 +1006,7 @@ export function ResidentEmergencyRequestReviewView({
             label="Response phone"
             value={form.contact.phoneNumber.trim() || 'Not provided'}
           />
+          {!phoneValid ? <ValidationMessage message={EMERGENCY_CONTACT_PHONE_MESSAGE} /> : null}
         </View>
       </SummaryPanel>
 
@@ -1051,12 +1060,13 @@ export function ResidentEmergencyRequestReviewView({
         <Pressable
           accessibilityLabel="Confirm Changes"
           accessibilityRole="button"
-          disabled={isSubmitting || isConflictError}
+          disabled={isSubmitting || isConflictError || !phoneValid}
+          accessibilityState={{ disabled: isSubmitting || isConflictError || !phoneValid }}
           onPress={handleConfirm}
           style={({ pressed }) => [
             styles.confirmChangesButton,
-            (isSubmitting || isConflictError) && styles.confirmChangesButtonDisabled,
-            pressed && !isSubmitting && !isConflictError && styles.pressed
+            (isSubmitting || isConflictError || !phoneValid) && styles.confirmChangesButtonDisabled,
+            pressed && !isSubmitting && !isConflictError && phoneValid && styles.pressed
           ]}
         >
           {isSubmitting ? (

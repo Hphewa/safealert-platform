@@ -53,6 +53,25 @@ describe('Emergency request count and exact phone validation', () => {
     expect(response.body.responseRequest.contact.phoneNumber).toBe('0771234567');
   });
 
+  it.each(['create', 'edit'])('also accepts the numeric phone 0712345678 on %s', async (operation) => {
+    const { app, token } = context();
+    const response = await (operation === 'create' ? request(app).post(basePath) : request(app).patch(`${basePath}/mine/${requestId}`))
+      .auth(token(), { type: 'bearer' }).send({ ...input(), contact: { ...input().contact, phoneNumber: '0712345678' } });
+    expect(response.status).toBe(operation === 'create' ? 201 : 200);
+    expect(response.body.responseRequest.contact.phoneNumber).toBe('0712345678');
+  });
+
+  it.each(['077ABC12-34567', 'yes no', 'abcd1234', '0771234567\n'])('rejects unmodified %j rather than applying the UI sanitizer at the API', async (phoneNumber) => {
+    const { app, token, repository } = context();
+    for (const operation of ['create', 'edit']) {
+      const response = await (operation === 'create' ? request(app).post(basePath) : request(app).patch(`${basePath}/mine/${requestId}`))
+        .auth(token(), { type: 'bearer' }).send({ ...input(), contact: { ...input().contact, phoneNumber } });
+      expect(response.status).toBe(400);
+      expect(response.body.error).toEqual({ code: 'VALIDATION_ERROR', message: EMERGENCY_CONTACT_PHONE_MESSAGE });
+    }
+    expect(await repository.findResponseRequestById(requestId, residentId)).toEqual(stored());
+  });
+
   it.each(['', '077123456', '07712345678', '077ABC4567', '077-123-4567', '077 123456', ' 0771234567', '0771234567 ', '+771234567', '０７７１２３４５６７'])('rejects invalid phone %j on both endpoints without changing storage', async (phoneNumber) => {
     const { app, token, repository } = context();
     const create = vi.spyOn(repository, 'createResponseRequest');

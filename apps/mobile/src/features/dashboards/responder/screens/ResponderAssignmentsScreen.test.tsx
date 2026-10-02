@@ -3,7 +3,7 @@ import { RESPONSE_STATUSES, type SafeResponseRequest, type SafeUser } from '@saf
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ResponderAssignmentsScreen } from './ResponderAssignmentsScreen';
 import { ResponderProfileScreen } from './ResponderProfileScreen';
-import { listAssignedResponderRequests, listCompletedResponderRequests } from '../api/responderRequestsApi';
+import { listAssignedResponderRequests, listCompletedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { initiateViewLocationRoute } from '../contactLocationUi';
 import { clearResponderRequestCache, updateCachedResponderRequest } from '../requestDetailsCache';
 import { LocationPreview } from '../../shared/maps/LocationPreview';
@@ -16,7 +16,8 @@ import ResponderProfileRoute from '../../../../../app/responder/profile';
 
 const lifecycle = vi.hoisted(() => ({
   slots: [] as unknown[], cursor: 0, focus: (() => undefined) as () => (() => void) | undefined,
-  effects: [] as (() => void | (() => void))[]
+  effects: [] as (() => void | (() => void))[],
+  focusCallbacks: [] as (() => (() => void) | undefined)[]
 }));
 const navigation = vi.hoisted(() => ({ push: vi.fn() }));
 const auth = vi.hoisted(() => ({
@@ -26,8 +27,9 @@ const auth = vi.hoisted(() => ({
 }));
 const offline = vi.hoisted(() => ({
   connectivity: 'online' as 'online' | 'offline' | 'unknown', items: [] as QueuedResponderUpdate[],
-  status: 'ready' as const, error: null, syncStatus: 'idle' as 'idle' | 'success',
-  isCurrent: () => true, reload: vi.fn()
+  status: 'ready' as 'ready' | 'loading' | 'error', error: null as string | null, syncStatus: 'idle' as 'idle' | 'success' | 'error' | 'paused',
+  isCurrent: () => true, reload: vi.fn(), retrySync: vi.fn(), isSyncing: false,
+  lastSyncedAt: null as string | null, syncError: null as string | null
 }));
 
 vi.mock('react', async (importOriginal) => ({
@@ -49,7 +51,7 @@ vi.mock('react', async (importOriginal) => ({
     }];
   }
 }));
-vi.mock('expo-router', () => ({ useFocusEffect: (callback: typeof lifecycle.focus) => { lifecycle.focus = callback; }, useRouter: () => navigation }));
+vi.mock('expo-router', () => ({ useFocusEffect: (callback: typeof lifecycle.focus) => { lifecycle.focus = callback; lifecycle.focusCallbacks.push(callback); }, useRouter: () => navigation }));
 vi.mock('react-native', () => ({
   ActivityIndicator: 'progress', Pressable: 'button', Text: 'span', View: 'div',
   Linking: {}, Platform: { OS: 'ios' }, StyleSheet: { create: (styles: unknown) => styles }
@@ -61,7 +63,7 @@ vi.mock('../../shared/components/DashboardGlyph', () => ({ DashboardGlyph: () =>
 vi.mock('../../shared/maps/LocationPreview', () => ({ LocationPreview: vi.fn(() => 'Map preview') }));
 vi.mock('../offline/useResponderOffline', () => ({ useResponderOffline: () => offline }));
 vi.mock('../offline/responderOfflineRuntime', () => ({ responderConnectivity: { subscribe: () => () => undefined, getSnapshot: () => offline.connectivity } }));
-vi.mock('../api/responderRequestsApi', () => ({ listAssignedResponderRequests: vi.fn(), listCompletedResponderRequests: vi.fn() }));
+vi.mock('../api/responderRequestsApi', () => ({ listAssignedResponderRequests: vi.fn(), listCompletedResponderRequests: vi.fn(), listPendingResponderRequests: vi.fn() }));
 vi.mock('../contactLocationUi', async (importOriginal) => ({ ...await importOriginal<typeof import('../contactLocationUi')>(), initiateViewLocationRoute: vi.fn() }));
 
 const baseRequest: SafeResponseRequest = {
@@ -94,7 +96,16 @@ function render(view: ResponderAssignmentView = 'active') {
   lifecycle.effects = [];
   return ResponderAssignmentsScreen({ view });
 }
-function renderProfile() { lifecycle.cursor = 0; return ResponderProfileScreen(); }
+function renderProfile() { lifecycle.cursor = 0; lifecycle.focusCallbacks = []; return ResponderProfileScreen(); }
+function profileButton(label: string) {
+  const found = nodes(renderProfile()).find((node) => node.props.accessibilityLabel === label);
+  expect(found, label).toBeDefined();
+  return found!.props;
+}
+async function loadProfile() {
+  renderProfile(); lifecycle.focusCallbacks.forEach((callback) => callback());
+  await vi.waitFor(() => expect(text(renderProfile())).not.toContain('Loading...'));
+}
 function button(label: string, view: ResponderAssignmentView = 'active') {
   const found = nodes(render(view)).find((node) => node.props.accessibilityLabel === label);
   expect(found, label).toBeDefined();
@@ -113,13 +124,16 @@ function deferred<T>() {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubGlobal('React', React);
-  lifecycle.slots = []; lifecycle.cursor = 0; lifecycle.effects = [];
+  lifecycle.slots = []; lifecycle.cursor = 0; lifecycle.effects = []; lifecycle.focusCallbacks = [];
   auth.accessToken = 'responder-token';
   auth.user = { id: 'responder-a', name: 'Responder Alice', email: 'alice@example.com', role: 'EMERGENCY_RESPONDER' };
   offline.connectivity = 'online'; offline.items = []; offline.syncStatus = 'idle';
+  offline.status = 'ready'; offline.error = null; offline.isSyncing = false; offline.syncError = null; offline.lastSyncedAt = null;
+  offline.reload.mockResolvedValue(undefined); offline.retrySync.mockResolvedValue(undefined);
   clearResponderRequestCache();
   vi.mocked(listAssignedResponderRequests).mockResolvedValue([baseRequest]);
   vi.mocked(listCompletedResponderRequests).mockResolvedValue([]);
+  vi.mocked(listPendingResponderRequests).mockResolvedValue([]);
   vi.mocked(initiateViewLocationRoute).mockResolvedValue(true);
   auth.logout.mockResolvedValue(undefined);
 });
@@ -290,6 +304,141 @@ describe('Responder completed history', () => {
 });
 
 describe('Responder profile and routes', () => {
+  it('derives Active and Available counts from existing owned assignments and visible NEW requests', async () => {
+    vi.mocked(listAssignedResponderRequests).mockResolvedValue([
+      ...RESPONSE_STATUSES.map((status, index) => ({ ...baseRequest, id: `507f1f77bcf86cd79943902${index}`, status })),
+      { ...baseRequest, assignedResponderId: 'responder-b' }
+    ]);
+    vi.mocked(listPendingResponderRequests).mockResolvedValue([
+      { ...baseRequest, status: 'NEW' }, { ...baseRequest, status: 'NEW', id: 'another-request' },
+      { ...baseRequest, status: 'COMPLETED' }, { ...baseRequest, status: 'NEW', declinedByResponderIds: ['responder-a'] }
+    ]);
+    await loadProfile();
+    expect(text(renderProfile())).toContain('Active Assignments 4');
+    expect(text(renderProfile())).toContain('Available Requests 2');
+    expect(listAssignedResponderRequests).toHaveBeenCalledWith('responder-token');
+    expect(listPendingResponderRequests).toHaveBeenCalledWith('responder-token');
+  });
+
+  it('offers the existing Active and History destinations as profile shortcuts', () => {
+    profileButton('Active Responses').onPress?.();
+    expect(navigation.push).toHaveBeenCalledWith('/responder/active');
+    profileButton('Response History').onPress?.();
+    expect(navigation.push).toHaveBeenCalledWith('/responder/history');
+  });
+
+  it('shows loading, safe request errors, and count refresh without duplicate API reads', async () => {
+    const assigned = deferred<SafeResponseRequest[]>();
+    vi.mocked(listAssignedResponderRequests).mockReturnValueOnce(assigned.promise);
+    vi.mocked(listPendingResponderRequests).mockRejectedValueOnce(new Error('private database URI'));
+    renderProfile(); lifecycle.focusCallbacks.forEach((callback) => callback());
+    expect(text(renderProfile())).toContain('Loading...');
+    expect(profileButton('Refresh response counts').disabled).toBe(true);
+    assigned.resolve([]);
+    await vi.waitFor(() => expect(text(renderProfile())).toContain('Unable to load available requests. Please retry.'));
+    expect(text(renderProfile())).not.toContain('private database');
+    const retry = profileButton('Refresh response counts');
+    retry.onPress?.(); retry.onPress?.();
+    await vi.waitFor(() => expect(text(renderProfile())).toContain('Available Requests 0'));
+    expect(listAssignedResponderRequests).toHaveBeenCalledTimes(2);
+    expect(listPendingResponderRequests).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses owned cached Active data offline and does not invent an Available count', async () => {
+    offline.connectivity = 'offline';
+    updateCachedResponderRequest(baseRequest);
+    await loadProfile();
+    expect(text(renderProfile())).toContain('Active Assignments 1');
+    expect(text(renderProfile())).toContain('Available Requests Unavailable');
+    expect(text(renderProfile())).toContain('Updates can be saved offline');
+    expect(listAssignedResponderRequests).not.toHaveBeenCalled();
+    expect(listPendingResponderRequests).not.toHaveBeenCalled();
+    expect(profileButton('Refresh response counts').disabled).toBe(true);
+  });
+
+  it('displays real owner-scoped saved updates and sync time and retries through the existing hook', async () => {
+    const item: QueuedResponderUpdate = {
+      localId: 'local-update', responderId: 'responder-a', requestId: baseRequest.id, expectedStatus: 'ASSIGNED',
+      sequence: 1, createdAt: '2026-10-01T12:00:00.000Z', syncState: 'pending',
+      update: { type: 'progress', payload: { status: 'DISPATCHED' } }
+    };
+    offline.items = [item, { ...item, localId: 'second-update', sequence: 2 }, { ...item, responderId: 'responder-b' }];
+    offline.lastSyncedAt = '2026-10-01T11:00:00.000Z';
+    expect(text(renderProfile())).toContain('Pending offline updates 2');
+    expect(text(renderProfile())).toContain('2 updates waiting to synchronize');
+    expect(text(renderProfile())).toContain(new Date(offline.lastSyncedAt).toLocaleString());
+    const pending = deferred<void>();
+    offline.retrySync.mockReturnValueOnce(pending.promise);
+    const retry = profileButton('Retry Sync');
+    retry.onPress?.(); retry.onPress?.();
+    expect(offline.retrySync).toHaveBeenCalledTimes(1);
+    expect(profileButton('Retry Sync').disabled).toBe(true);
+    pending.resolve(undefined); await Promise.resolve();
+    expect(offline.items).toHaveLength(3);
+    offline.connectivity = 'offline';
+    expect(profileButton('Retry Sync').disabled).toBe(true);
+    profileButton('Retry Sync').onPress?.();
+    expect(offline.retrySync).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles queue loading/errors and unavailable sync metadata without reporting fake success', async () => {
+    Reflect.deleteProperty(offline, 'lastSyncedAt');
+    offline.status = 'loading';
+    expect(text(renderProfile())).toContain('Pending offline updates Checking...');
+    expect(text(renderProfile())).not.toContain('All responder updates synchronized');
+    expect(text(renderProfile())).not.toContain('Last synchronized');
+    offline.status = 'error'; offline.error = 'private storage error';
+    expect(text(renderProfile())).toContain('They remain on this device.');
+    expect(text(renderProfile())).not.toContain('private storage');
+    profileButton('Retry reading saved updates').onPress?.();
+    await vi.waitFor(() => expect(offline.reload).toHaveBeenCalledTimes(1));
+    offline.status = 'ready'; offline.error = null;
+    expect(text(renderProfile())).toContain('All responder updates synchronized');
+    expect(nodes(renderProfile()).some((node) => node.props.accessibilityLabel === 'Retry Sync')).toBe(false);
+  });
+
+  it('keeps saved updates on logout and sanitizes a manual synchronization failure', async () => {
+    offline.items = [{ localId: 'local-update', responderId: 'responder-a', requestId: baseRequest.id,
+      expectedStatus: 'ASSIGNED', sequence: 1, createdAt: '2026-10-01T12:00:00.000Z', syncState: 'pending',
+      update: { type: 'progress', payload: { status: 'DISPATCHED' } } }];
+    offline.retrySync.mockRejectedValueOnce(new Error('secret sync token'));
+    profileButton('Retry Sync').onPress?.();
+    await vi.waitFor(() => expect(text(renderProfile())).toContain('Unable to retry saved updates. Please try again.'));
+    expect(text(renderProfile())).not.toContain('secret sync');
+    profileButton('Log out').onPress?.();
+    await Promise.resolve();
+    expect(auth.logout).toHaveBeenCalledTimes(1);
+    expect(offline.items).toHaveLength(1);
+    expect(offline.reload).not.toHaveBeenCalled();
+  });
+
+  it('handles missing account fields and a missing session without exposing operational data', async () => {
+    auth.user = { ...auth.user!, name: '', email: '' };
+    expect(text(renderProfile())).toContain('Name Not available');
+    expect(text(renderProfile())).toContain('Email Not available');
+    auth.user = null; auth.accessToken = null;
+    await loadProfile();
+    expect(text(renderProfile())).toContain('Your responder profile is unavailable.');
+    expect(text(renderProfile())).not.toContain('RESPONSE STATUS');
+    expect(listAssignedResponderRequests).not.toHaveBeenCalled();
+    expect(listPendingResponderRequests).not.toHaveBeenCalled();
+  });
+
+  it('masks stale Pending counts and ignores a late request after switching responders', async () => {
+    const pending = deferred<SafeResponseRequest[]>();
+    vi.mocked(listPendingResponderRequests).mockReturnValueOnce(pending.promise);
+    renderProfile(); const callbacks = [...lifecycle.focusCallbacks];
+    const cleanups = callbacks.map((callback) => callback());
+    auth.user = { ...auth.user!, id: 'responder-b' }; auth.accessToken = 'second-token';
+    expect(text(renderProfile())).not.toContain('Available Requests 1');
+    cleanups.forEach((cleanup) => cleanup?.());
+    pending.resolve([{ ...baseRequest, status: 'NEW' }]); await Promise.resolve();
+    expect(text(renderProfile())).not.toContain('Available Requests 1');
+    await loadProfile();
+    expect(listPendingResponderRequests).toHaveBeenLastCalledWith('second-token');
+    expect(text(renderProfile())).toContain('Available Requests 0');
+  });
+
   it('displays only authenticated public profile fields and connection status', () => {
     const content = text(renderProfile());
     expect(content).toContain('Responder Alice'); expect(content).toContain('alice@example.com');

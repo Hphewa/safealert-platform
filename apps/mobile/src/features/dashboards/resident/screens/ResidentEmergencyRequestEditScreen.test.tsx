@@ -616,7 +616,12 @@ describe('ResidentEmergencyRequestEditScreen Validation (LDFEW-343)', () => {
     });
   });
 
-  it('29. Whitespace in a pasted phone number remains invalid rather than being silently trimmed', async () => {
+  it.each([
+    ['0771234567', '0771234567'], ['0712345678', '0712345678'], ['07712345678', '0771234567'],
+    ['yes no', ''], ['abcd1234', '1234'], ['077ABC4567', '0774567'], ['077ABC12-34567', '0771234567'],
+    ['  0771234567  ', '0771234567'], ['077-1234567', '0771234567'], ['+ (077) 123.4567', '0771234567'],
+    ['077123456', '077123456'], ['', '']
+  ])('29. Edit sanitizes phone %j into %j and applies the same Review rule', async (phoneNumber, expected) => {
     vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
     renderScreen();
     lifecycle.effect?.();
@@ -625,14 +630,44 @@ describe('ResidentEmergencyRequestEditScreen Validation (LDFEW-343)', () => {
     });
 
     const phoneInput = findByAccessibilityLabel(renderScreen(), 'Contact phone number');
-    phoneInput?.props.onChangeText?.('  0771234567  ');
+    phoneInput?.props.onChangeText?.(phoneNumber);
     phoneInput?.props.onBlur?.();
 
     const reRenderedPhone = findByAccessibilityLabel(renderScreen(), 'Contact phone number');
-    expect(reRenderedPhone?.props.value).toBe('  0771234567  ');
-    expect(extractScreenText(renderScreen())).toContain('Enter a valid 10-digit contact phone number.');
-    expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')?.props.disabled).toBe(true);
+    expect(reRenderedPhone?.props.value).toBe(expected);
+    expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')?.props.disabled).toBe(expected.length !== 10);
+    if (expected.length !== 10) expect(extractScreenText(renderScreen())).toContain('Enter a valid 10-digit contact phone number.');
   });
+
+  it('keeps an untouched empty edit phone quiet until blur or Review, then clears the error when corrected', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: {
+      ...mockNewRequest, contact: { ...mockNewRequest.contact, phoneNumber: '' }
+    } });
+    renderScreen(); lifecycle.effect?.();
+    await vi.waitFor(() => expect(findByAccessibilityLabel(renderScreen(), 'Contact phone number')).not.toBeNull());
+    expect(extractScreenText(renderScreen())).not.toContain('Enter a valid 10-digit contact phone number.');
+    expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')?.props.disabled).toBe(true);
+    findByAccessibilityLabel(renderScreen(), 'Contact phone number')?.props.onBlur?.();
+    expect(extractScreenText(renderScreen())).toContain('Enter a valid 10-digit contact phone number.');
+    findByAccessibilityLabel(renderScreen(), 'Contact phone number')?.props.onChangeText?.('0712345678');
+    expect(extractScreenText(renderScreen())).not.toContain('Enter a valid 10-digit contact phone number.');
+    expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')?.props.disabled).toBe(false);
+  });
+
+  it.each(['', '077123456', '07712345678', '077ABC4567', '077-1234567', '077 1234567'])(
+    'blocks an invalid %j phone at the final read-only edit Review action', (phoneNumber) => {
+      const form = mapRequestToEditForm(mockNewRequest);
+      form.contact.phoneNumber = phoneNumber;
+      const onConfirmChanges = vi.fn();
+      const element = ResidentEmergencyRequestReviewView({ form, onBackToEdit: vi.fn(), onConfirmChanges });
+      expect(extractScreenText(element)).toContain('Enter a valid 10-digit contact phone number.');
+      const confirm = findByAccessibilityLabel(element, 'Confirm Changes');
+      expect(confirm?.props.disabled).toBe(true);
+      confirm?.props.onPress?.();
+      expect(onConfirmChanges).not.toHaveBeenCalled();
+      expect(updateResidentResponseRequest).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('ResidentEmergencyRequestEditScreen Review Changes (LDFEW-344)', () => {

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiClientError } from '../../../../services/api/client';
 import { createResidentResponseRequest } from '../api/responseRequestApi';
-import type { AccessCondition, EmergencyAssistanceType } from '../emergencyAssistanceDraft';
+import { validateEmergencyAssistanceDraft, type AccessCondition, type EmergencyAssistanceType } from '../emergencyAssistanceDraft';
 import { ReviewEmergencyRequestScreen } from './ReviewEmergencyRequestScreen';
 import { EmergencyRequestSubmittedScreen } from './EmergencyRequestSubmittedScreen';
 
@@ -315,6 +315,18 @@ describe('LDFEW-383: Resident Emergency Request Creation Flow', () => {
   });
 
   describe('Emergency Assistance Request Review and Submission', () => {
+    it.each(['', '077123456', '07712345678', '077ABC4567', '077-1234567', '077 1234567'])(
+      'blocks final create submission for raw invalid phone %j even if the input was bypassed', async (phoneNumber) => {
+        draftState.draft = { ...defaultDraft, contactDetails: { ...defaultDraft.contactDetails, phoneNumber } };
+        draftState.validation = validateEmergencyAssistanceDraft(draftState.draft);
+        lifecycle.cursor = 0;
+        const submit = screenButtons(ReviewEmergencyRequestScreen()).find((button) => button.accessibilityLabel === 'Submit emergency request');
+        expect(submit?.disabled).toBe(true);
+        await submit?.onPress?.();
+        expect(createResidentResponseRequest).not.toHaveBeenCalled();
+        expect(navigation.replace).not.toHaveBeenCalled();
+      }
+    );
     it('renders all review details from the draft accurately', () => {
       lifecycle.cursor = 0;
       const screen = ReviewEmergencyRequestScreen();

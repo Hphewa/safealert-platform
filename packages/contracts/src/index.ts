@@ -584,6 +584,12 @@ export const EMERGENCY_VULNERABLE_COUNT_KEYS = [
 export const EMERGENCY_CONTACT_PHONE_PATTERN = /^[0-9]{10}$/;
 export const EMERGENCY_CONTACT_PHONE_MESSAGE = 'Enter a valid 10-digit contact phone number.';
 
+export function sanitizeEmergencyContactPhoneInput(value: string): string {
+  // Cap digits after sanitizing: a raw character limit would truncate mixed-content pastes too early.
+  // This is input UX only; API validation must still reject unmodified invalid payloads.
+  return value.replace(/[^0-9]/g, '').slice(0, 10);
+}
+
 export function isValidEmergencyContactPhoneNumber(value: unknown): value is string {
   // Validate the original value: trimming or stripping symbols would accept invalid input.
   return typeof value === 'string' && EMERGENCY_CONTACT_PHONE_PATTERN.test(value);

@@ -134,6 +134,7 @@ export function useResponderOffline(
     syncStatus: syncState.status,
     isSyncing: syncState.isSyncing,
     syncError: syncState.lastError,
+    lastSyncedAt: syncState.lastSyncedAt,
     retrySync
   };
 }
