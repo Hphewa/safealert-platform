@@ -28,7 +28,7 @@ function storedRequest(residentId: string, overrides: Partial<SafeResponseReques
     injuredPeople: 1,
     vulnerablePeople: { children: 1, elderlyPeople: 1, personsWithDisabilities: 0, pregnantPersons: 0 },
     roadAccessibility: 'LIMITED',
-    contact: { name: 'Resident A', phoneNumber: '+94-77-555-1234', email: 'resident-a@example.com' },
+    contact: { name: 'Resident A', phoneNumber: '0775551234', email: 'resident-a@example.com' },
     description: 'Medical transport is needed.',
     specialRequirements: 'Wheelchair accessible transport.',
     status: 'NEW',

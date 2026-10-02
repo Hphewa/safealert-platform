@@ -27,7 +27,7 @@ function createAssignedRequest(overrides: Partial<SafeResponseRequest> = {}): Sa
     medicalNeeds: true,
     vulnerablePeople: { children: 0, elderlyPeople: 1, personsWithDisabilities: 0, pregnantPersons: 0 },
     roadAccessibility: 'ACCESSIBLE',
-    contact: { name: 'Resident User', phoneNumber: '+94-77-555-1234', email: 'resident@example.com' },
+    contact: { name: 'Resident User', phoneNumber: '0775551234', email: 'resident@example.com' },
     description: 'Resident requires medical triage.',
     acceptedAt: '2026-09-24T10:00:00.000Z',
     dispatchedAt: '2026-09-24T10:05:00.000Z',

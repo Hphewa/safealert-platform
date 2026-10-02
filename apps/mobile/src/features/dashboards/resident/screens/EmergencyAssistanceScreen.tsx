@@ -93,10 +93,7 @@ export function EmergencyAssistanceScreen() {
     setDraft((current) => ({
       ...current,
       affectedPeopleCount,
-      medicalNeeds: {
-        ...current.medicalNeeds,
-        injuredCount: Math.min(current.medicalNeeds.injuredCount, affectedPeopleCount)
-      },
+      // Preserve reported counts when the total drops; validation explains what to correct.
       reviewRequestedAt: null
     }));
   };
@@ -183,16 +180,6 @@ export function EmergencyAssistanceScreen() {
         phoneNumber
       },
       reviewRequestedAt: null
-    }));
-  };
-
-  const trimContactPhoneNumber = () => {
-    setDraft((current) => ({
-      ...current,
-      contactDetails: {
-        ...current.contactDetails,
-        phoneNumber: current.contactDetails.phoneNumber.trim()
-      }
     }));
   };
 
@@ -543,8 +530,9 @@ export function EmergencyAssistanceScreen() {
         </View>
         <TextInput
           accessibilityLabel="Contact phone number"
-          keyboardType="phone-pad"
-          onBlur={trimContactPhoneNumber}
+          keyboardType="number-pad"
+          maxLength={10}
+          accessibilityHint="Enter exactly 10 digits, without spaces or symbols."
           onChangeText={setContactPhoneNumber}
           placeholder="Enter a response contact phone number."
           placeholderTextColor={dashboardTheme.colors.muted}

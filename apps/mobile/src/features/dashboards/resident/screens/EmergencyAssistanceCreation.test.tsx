@@ -52,7 +52,7 @@ const defaultDraft = {
   contactDetails: {
     name: 'Anula Bandara',
     email: 'anula@example.com',
-    phoneNumber: '+94 77 999 8888',
+    phoneNumber: '0779998888',
     usesAuthenticatedProfile: true
   },
   emergencyDescription: 'Ground floor submerged by flash flooding.',
@@ -78,7 +78,7 @@ const draftState = vi.hoisted(() => {
     contactDetails: {
       name: 'Anula Bandara',
       email: 'anula@example.com',
-      phoneNumber: '+94 77 999 8888',
+      phoneNumber: '0779998888',
       usesAuthenticatedProfile: true
     },
     emergencyDescription: 'Ground floor submerged by flash flooding.',
@@ -238,7 +238,7 @@ const mockCreatedResponse: CreateResponseRequestResponse = {
     injuredPeople: 1,
     vulnerablePeople: { children: 1, elderlyPeople: 1, personsWithDisabilities: 0, pregnantPersons: 0 },
     roadAccessibility: 'LIMITED',
-    contact: { name: 'Anula Bandara', phoneNumber: '+94 77 999 8888', email: 'anula@example.com' },
+    contact: { name: 'Anula Bandara', phoneNumber: '0779998888', email: 'anula@example.com' },
     description: 'Ground floor submerged by flash flooding.',
     specialRequirements: 'Need clean drinking water.',
     createdAt: '2026-10-01T10:05:00.000Z',
@@ -332,7 +332,7 @@ describe('LDFEW-383: Resident Emergency Request Creation Flow', () => {
       expect(markup).toContain('Elderly people');
       expect(markup).toContain('Limited');
       expect(markup).toContain('Anula Bandara');
-      expect(markup).toContain('+94 77 999 8888');
+      expect(markup).toContain('0779998888');
       expect(markup).toContain('Ground floor submerged by flash flooding.');
       expect(markup).toContain('Need clean drinking water.');
     });
@@ -370,7 +370,7 @@ describe('LDFEW-383: Resident Emergency Request Creation Flow', () => {
           description: 'Ground floor submerged by flash flooding.',
           contact: expect.objectContaining({
             name: 'Anula Bandara',
-            phoneNumber: '+94 77 999 8888'
+            phoneNumber: '0779998888'
           })
         }),
         'valid-resident-token'

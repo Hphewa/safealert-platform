@@ -26,7 +26,7 @@ function editableInput(): UpdateResponseRequestRequest {
     injuredPeople: 2,
     vulnerablePeople: { children: 1, elderlyPeople: 1, personsWithDisabilities: 0, pregnantPersons: 0 },
     roadAccessibility: 'LIMITED',
-    contact: { name: 'Resident A', phoneNumber: '+94-77-555-1234', email: 'resident@example.com' },
+    contact: { name: 'Resident A', phoneNumber: '0775551234', email: 'resident@example.com' },
     description: 'Two residents now need medical assistance.',
     specialRequirements: 'Wheelchair accessible transport.'
   };

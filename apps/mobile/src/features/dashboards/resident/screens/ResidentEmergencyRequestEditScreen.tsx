@@ -1,6 +1,9 @@
 import { useMemo, useRef, useState } from 'react';
 import {
   EMERGENCY_ASSISTANCE_TYPES,
+  EMERGENCY_CONTACT_PHONE_MESSAGE,
+  getEmergencyVulnerableCountError,
+  isValidEmergencyContactPhoneNumber,
   RESPONSE_EDITABLE_STATUS,
   ROAD_ACCESSIBILITIES,
   type EmergencyAssistanceType,
@@ -158,26 +161,8 @@ export function validateResidentEmergencyRequestEditForm(
     errors.injuredCount = 'Injured people cannot exceed the total affected people.';
   }
 
-  // 5. Vulnerable people counts validation: all categories must be non-negative whole numbers.
-  const vulnerableValues = [
-    form.vulnerablePeople?.children,
-    form.vulnerablePeople?.elderlyPeople,
-    form.vulnerablePeople?.personsWithDisabilities,
-    form.vulnerablePeople?.pregnantPersons
-  ];
-
-  const hasNegativeVulnerable = vulnerableValues.some(
-    (count) => typeof count === 'number' && count < 0
-  );
-  const hasNonIntegerVulnerable = vulnerableValues.some(
-    (count) => typeof count !== 'number' || Number.isNaN(count) || !Number.isInteger(count)
-  );
-
-  if (hasNegativeVulnerable) {
-    errors.vulnerablePeople = 'Vulnerable-person counts cannot be negative.';
-  } else if (hasNonIntegerVulnerable) {
-    errors.vulnerablePeople = 'Vulnerable-person counts must be whole numbers.';
-  }
+  const vulnerableCountError = getEmergencyVulnerableCountError(form.affectedPeopleCount, form.vulnerablePeople);
+  if (vulnerableCountError) errors.vulnerablePeople = vulnerableCountError;
 
   // 6. Required Road Accessibility selection validation
   if (!form.roadAccessibility || !ROAD_ACCESSIBILITIES.includes(form.roadAccessibility)) {
@@ -185,21 +170,13 @@ export function validateResidentEmergencyRequestEditForm(
   }
 
   // 7. Contact Details validation: name/email are account-derived, phone number is editable.
-  // Validate phone format using standard telecom characters (7-32 characters, min 7 digits).
   const trimmedName = form.contact?.name?.trim() ?? '';
   const trimmedEmail = form.contact?.email?.trim() ?? '';
-  const trimmedPhone = form.contact?.phoneNumber?.trim() ?? '';
 
   if (!trimmedName || !trimmedEmail) {
     errors.contactDetails = 'Your account contact information is required.';
-  } else if (!trimmedPhone) {
-    errors.contactDetails = 'Enter a contact phone number.';
-  } else {
-    const digitsOnly = trimmedPhone.replace(/\D/g, '');
-    const hasValidPhoneFormat = /^[\d\s+\-()]{7,32}$/.test(trimmedPhone);
-    if (!hasValidPhoneFormat || digitsOnly.length < 7) {
-      errors.contactDetails = 'Enter a valid phone number.';
-    }
+  } else if (!isValidEmergencyContactPhoneNumber(form.contact?.phoneNumber)) {
+    errors.contactDetails = EMERGENCY_CONTACT_PHONE_MESSAGE;
   }
 
   // 8. Description validation: required, non-whitespace, 3-character minimum, and 500-char max.
@@ -380,7 +357,8 @@ export function ResidentEmergencyRequestEditScreen({
     () => (currentForm ? validateResidentEmergencyRequestEditForm(currentForm) : { errors: {}, isValid: true }),
     [currentForm]
   );
-  const errors = hasAttemptedContinue ? validation.errors : {};
+  // Review is disabled for invalid input, so corrections must be visible before tapping it.
+  const errors = validation.errors;
   const generalError =
     hasAttemptedContinue && !validation.isValid
       ? 'Please correct the highlighted fields before continuing.'
@@ -540,8 +518,8 @@ export function ResidentEmergencyRequestEditScreen({
     if (!currentForm) return;
     setFormData({
       ...currentForm,
-      affectedPeopleCount,
-      injuredCount: Math.min(currentForm.injuredCount, affectedPeopleCount)
+      // Keep dependent counts visible so a reduced total never silently changes reported needs.
+      affectedPeopleCount
     });
   };
 
@@ -582,17 +560,6 @@ export function ResidentEmergencyRequestEditScreen({
       contact: {
         ...currentForm.contact,
         phoneNumber
-      }
-    });
-  };
-
-  const trimContactPhoneNumber = () => {
-    if (!currentForm) return;
-    setFormData({
-      ...currentForm,
-      contact: {
-        ...currentForm.contact,
-        phoneNumber: currentForm.contact.phoneNumber.trim()
       }
     });
   };
@@ -769,7 +736,7 @@ export function ResidentEmergencyRequestEditScreen({
                 value={currentForm.injuredCount}
               />
             ) : null}
-            <ValidationMessage message={errors.injuredCount} />
+            <ValidationMessage message={validation.errors.injuredCount} />
           </View>
 
           <View style={styles.section}>
@@ -808,7 +775,7 @@ export function ResidentEmergencyRequestEditScreen({
                 value={currentForm.vulnerablePeople.pregnantPersons}
               />
             </View>
-            <ValidationMessage message={errors.vulnerablePeople} />
+            <ValidationMessage message={validation.errors.vulnerablePeople} />
           </View>
 
           <View style={styles.section}>
@@ -849,15 +816,16 @@ export function ResidentEmergencyRequestEditScreen({
             </View>
             <TextInput
               accessibilityLabel="Contact phone number"
-              keyboardType="phone-pad"
-              onBlur={trimContactPhoneNumber}
+              keyboardType="number-pad"
+              maxLength={10}
+              accessibilityHint="Enter exactly 10 digits, without spaces or symbols."
               onChangeText={setContactPhoneNumber}
               placeholder="Enter a response contact phone number."
               placeholderTextColor={dashboardTheme.colors.muted}
               style={styles.contactInput}
               value={currentForm.contact.phoneNumber}
             />
-            <ValidationMessage message={errors.contactDetails} />
+            <ValidationMessage message={validation.errors.contactDetails} />
           </View>
 
           <View style={styles.section}>
@@ -903,8 +871,10 @@ export function ResidentEmergencyRequestEditScreen({
           <Pressable
             accessibilityLabel="Review Changes"
             accessibilityRole="button"
+            accessibilityState={{ disabled: !validation.isValid }}
+            disabled={!validation.isValid}
             onPress={handleContinue}
-            style={({ pressed }) => [styles.continueButton, pressed && styles.pressed]}
+            style={({ pressed }) => [styles.continueButton, !validation.isValid && styles.continueButtonDisabled, pressed && validation.isValid && styles.pressed]}
           >
             <Text style={styles.continueButtonText}>Review Changes</Text>
           </Pressable>
@@ -1271,6 +1241,9 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '800',
     color: '#ffffff'
+  },
+  continueButtonDisabled: {
+    opacity: 0.5
   },
   section: {
     gap: 12

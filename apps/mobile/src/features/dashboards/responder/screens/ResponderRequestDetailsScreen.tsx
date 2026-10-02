@@ -12,7 +12,7 @@ import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { responderBottomNavItems } from '../mockData';
 import { getCachedResponderRequest, updateCachedResponderRequest } from '../requestDetailsCache';
-import { displayValue, responderRequestReturnTab } from '../requestDetails';
+import { displayValue, parseResponderAssignmentView, responderRequestReturnTab } from '../requestDetails';
 import { replaceResponderRequestCache } from '../requestDetailsCache';
 import { getResponderRequestById, listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { acceptResponderRequest, declineResponderRequest } from '../api/responderDecisionApi';
@@ -49,7 +49,11 @@ import {
 export function ResponderRequestDetailsScreen() {
   const router = useRouter();
   const { accessToken, user } = useAuth();
-  const params = useLocalSearchParams<{ requestId?: string | string[]; sourceTab?: string | string[] }>();
+  const params = useLocalSearchParams<{ requestId?: string | string[]; sourceTab?: string | string[]; sourceScreen?: string | string[] }>();
+  const sourceScreen = parseResponderAssignmentView(params.sourceScreen);
+  const backLabel = sourceScreen === 'history' ? 'Back to History'
+    : sourceScreen === 'active' ? 'Back to Active Responses'
+      : sourceScreen === 'map' ? 'Back to Map' : 'Back to Requests';
   const requestId = Array.isArray(params.requestId) ? params.requestId[0] : params.requestId;
   const [updatedRequest, setUpdatedRequest] = useState<SafeResponseRequest | null>(null);
 
@@ -443,6 +447,10 @@ export function ResponderRequestDetailsScreen() {
 
   const returnToRequests = () => router.replace('/responder');
   const backToRequests = () => {
+    if (sourceScreen) {
+      router.dismissTo(`/responder/${sourceScreen}`);
+      return;
+    }
     const tab = responderRequestReturnTab(params.sourceTab, responseRequest?.status);
     if (tab === 'ASSIGNED') {
       // Return to the existing queue with Assigned selected so progress work stays in context.
@@ -616,7 +624,7 @@ export function ResponderRequestDetailsScreen() {
     if (isRefreshing) {
       return (
         <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
-          <DetailsHeader isRefreshing={true} onBack={backToRequests} />
+          <DetailsHeader backLabel={backLabel} isRefreshing={true} onBack={backToRequests} />
           <View style={styles.noticeCard}>
             <ResponderOfflineStatus {...offline} />
             <ActivityIndicator color={dashboardTheme.colors.primaryStrong} size="large" />
@@ -636,7 +644,7 @@ export function ResponderRequestDetailsScreen() {
 
     return (
       <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
-        <DetailsHeader onBack={backToRequests} onRefresh={() => void refreshRequest()} />
+        <DetailsHeader backLabel={backLabel} onBack={backToRequests} onRefresh={() => void refreshRequest()} />
         <View style={styles.noticeCard}>
           <ResponderOfflineStatus {...offline} />
           <View style={styles.noticeIconWrap}>
@@ -649,7 +657,7 @@ export function ResponderRequestDetailsScreen() {
             {refreshError ?? 'This emergency request could not be found.'}
           </Text>
           {isNetworkError ? <RetryDetailsButton onPress={() => void refreshRequest()} /> : null}
-          <BackToRequestsButton onPress={backToRequests} />
+          <BackToRequestsButton label={backLabel} onPress={backToRequests} />
         </View>
       </DashboardScreen>
     );
@@ -708,7 +716,7 @@ export function ResponderRequestDetailsScreen() {
 
   return (
     <DashboardScreen bottomNavItems={responderBottomNavItems} contentContainerStyle={styles.content}>
-      <DetailsHeader errorMessage={refreshError} isRefreshing={isRefreshing} onBack={backToRequests} onRefresh={() => void refreshRequest()} />
+      <DetailsHeader backLabel={backLabel} errorMessage={refreshError} isRefreshing={isRefreshing} onBack={backToRequests} onRefresh={() => void refreshRequest()} />
 
       <View style={styles.heroCard}>
         <ResponderOfflineStatus {...offline} />
@@ -1023,7 +1031,7 @@ export function ResponderRequestDetailsScreen() {
         />
       ) : null}
 
-      <BackToRequestsButton onPress={backToRequests} />
+      <BackToRequestsButton label={backLabel} onPress={backToRequests} />
     </DashboardScreen>
   );
 }
@@ -1091,11 +1099,13 @@ function ResponderDecisionActions({
 }
 
 function DetailsHeader({
+  backLabel = 'Back to Requests',
   onBack,
   onRefresh,
   isRefreshing,
   errorMessage
 }: {
+  backLabel?: string;
   onBack: () => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
@@ -1105,7 +1115,7 @@ function DetailsHeader({
     <View style={styles.headerContainer}>
       <View style={styles.headerRow}>
         <Pressable
-          accessibilityLabel="Back to requests"
+          accessibilityLabel={backLabel === 'Back to Requests' ? 'Back to requests' : backLabel}
           accessibilityRole="button"
           onPress={onBack}
           style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
@@ -1175,14 +1185,14 @@ function RetryDetailsButton({ onPress }: { onPress: () => void }) {
   );
 }
 
-function BackToRequestsButton({ onPress }: { onPress: () => void }) {
+function BackToRequestsButton({ onPress, label = 'Back to Requests' }: { onPress: () => void; label?: string }) {
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
     >
-      <Text style={styles.backButtonText}>Back to Requests</Text>
+      <Text style={styles.backButtonText}>{label}</Text>
     </Pressable>
   );
 }

@@ -577,6 +577,36 @@ export type VulnerablePeopleCounts = {
   pregnantPersons: number;
 };
 
+export const EMERGENCY_VULNERABLE_COUNT_KEYS = [
+  'children', 'elderlyPeople', 'personsWithDisabilities', 'pregnantPersons'
+] as const satisfies readonly (keyof VulnerablePeopleCounts)[];
+
+export const EMERGENCY_CONTACT_PHONE_PATTERN = /^[0-9]{10}$/;
+export const EMERGENCY_CONTACT_PHONE_MESSAGE = 'Enter a valid 10-digit contact phone number.';
+
+export function isValidEmergencyContactPhoneNumber(value: unknown): value is string {
+  // Validate the original value: trimming or stripping symbols would accept invalid input.
+  return typeof value === 'string' && EMERGENCY_CONTACT_PHONE_PATTERN.test(value);
+}
+
+export function getEmergencyVulnerableCountError(
+  affectedPeople: number,
+  counts: VulnerablePeopleCounts
+): string | undefined {
+  const values = EMERGENCY_VULNERABLE_COUNT_KEYS.map((key) => counts?.[key]);
+  if (values.some((value) => typeof value === 'number' && value < 0)) {
+    return 'Vulnerable-person counts cannot be negative.';
+  }
+  if (values.some((value) => !Number.isInteger(value))) {
+    return 'Vulnerable-person counts must be whole numbers.';
+  }
+  // Categories can overlap; validate each count independently, never their sum.
+  if (values.some((value) => value > affectedPeople)) {
+    return `Each vulnerable-person count must be at most ${affectedPeople}, the number of people needing assistance.`;
+  }
+  return undefined;
+}
+
 export type ResponseRequestContact = {
   name: string;
   phoneNumber: string;

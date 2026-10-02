@@ -1,5 +1,7 @@
 import {
   EMERGENCY_ASSISTANCE_TYPES,
+  EMERGENCY_CONTACT_PHONE_PATTERN,
+  EMERGENCY_CONTACT_PHONE_MESSAGE,
   RESPONSE_STATUSES,
   ROAD_ACCESSIBILITIES,
   type SafeResponseRequest
@@ -82,9 +84,9 @@ const contactSchema = new mongoose.Schema(
     phoneNumber: {
       type: String,
       required: true,
-      trim: true,
-      minlength: 7,
-      maxlength: 32
+      match: [EMERGENCY_CONTACT_PHONE_PATTERN, EMERGENCY_CONTACT_PHONE_MESSAGE],
+      minlength: 10,
+      maxlength: 10
     },
     email: {
       type: String,

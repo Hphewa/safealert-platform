@@ -34,6 +34,9 @@ export function CounterField({
       <View style={styles.header}>
         <Text style={styles.label}>{label}</Text>
         {helperText ? <Text style={styles.helperText}>{helperText}</Text> : null}
+        {typeof max === 'number' ? (
+          <Text style={styles.helperText}>Maximum is {max} because {max} people are reported as needing assistance.</Text>
+        ) : null}
       </View>
 
       <View style={styles.controls}>
@@ -42,7 +45,7 @@ export function CounterField({
           accessibilityRole="button"
           accessibilityState={{ disabled: !canDecrement }}
           disabled={!canDecrement}
-          onPress={() => onChange(Math.max(min, value - 1))}
+          onPress={() => { if (canDecrement) onChange(Math.max(min, value - 1)); }}
           style={({ pressed }) => [
             styles.button,
             !canDecrement && styles.buttonDisabled,
@@ -61,7 +64,7 @@ export function CounterField({
           accessibilityRole="button"
           accessibilityState={{ disabled: !canIncrement }}
           disabled={!canIncrement}
-          onPress={() => onChange(typeof max === 'number' ? Math.min(max, value + 1) : value + 1)}
+          onPress={() => { if (canIncrement) onChange(value + 1); }}
           style={({ pressed }) => [
             styles.button,
             !canIncrement && styles.buttonDisabled,

@@ -57,6 +57,7 @@ export interface ResponseRequestRepository {
   findResponseRequestsByResidentId(residentId: string): Promise<SafeResponseRequest[]>;
   findPendingResponseRequests(responderId: string): Promise<SafeResponseRequest[]>;
   findAssignedResponseRequests(responderId: string): Promise<SafeResponseRequest[]>;
+  findCompletedResponseRequests(responderId: string): Promise<SafeResponseRequest[]>;
   findResponseRequestForCancellation(responseRequestId: string): Promise<SafeResponseRequest | null>;
   cancelResponseRequest(responseRequestId: string, residentId: string): Promise<SafeResponseRequest | null>;
   findResponseRequestForProgress(responseRequestId: string): Promise<SafeResponseRequest | null>;

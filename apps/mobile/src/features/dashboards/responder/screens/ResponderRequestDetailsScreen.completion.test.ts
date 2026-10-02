@@ -628,6 +628,39 @@ describe('LDFEW-352: Mobile-Friendly Completion Details Form in Responder Reques
       expect(text).toContain('Internal handover complete.');
     });
 
+    it('opens completed History details read-only and returns to History', () => {
+      lifecycle.params = { requestId: mockRequestId, sourceTab: 'ASSIGNED', sourceScreen: 'history' };
+      updateCachedResponderRequest({
+        ...baseInProgressRequest, status: 'COMPLETED', assistanceProvided: 'First aid provided.',
+        completionSummary: 'Resident stable.', completedAt: '2026-09-24T11:00:00.000Z'
+      });
+      const rendered = renderDetails();
+      const buttons = screenButtons(rendered);
+      expect(screenInputs(rendered)).toEqual([]);
+      for (const label of ['Dispatch', 'Arrived', 'In Progress', 'Complete Request', 'Save Field Update', 'Accept', 'Decline']) {
+        expect(buttons.some((button) => button.accessibilityLabel === label)).toBe(false);
+      }
+      expect(screenText(rendered)).toContain('First aid provided.');
+      expect(screenText(rendered)).toContain('Resident stable.');
+      expect(screenText(rendered)).toContain('Back to History');
+      buttons.find((button) => button.accessibilityLabel === 'Back to History')?.onPress();
+      expect(navigation.dismissTo).toHaveBeenCalledWith('/responder/history');
+      expect(updateResponderRequestProgress).not.toHaveBeenCalled();
+    });
+
+    it.each(['active', 'map'])('returns existing request details to the %s destination', (sourceScreen) => {
+      lifecycle.params = { requestId: mockRequestId, sourceScreen };
+      const label = sourceScreen === 'active' ? 'Back to Active Responses' : 'Back to Map';
+      screenButtons(renderDetails()).find((button) => button.accessibilityLabel === label)?.onPress();
+      expect(navigation.dismissTo).toHaveBeenCalledWith(`/responder/${sourceScreen}`);
+    });
+
+    it('ignores an unrecognized source destination and retains the existing Assigned return', () => {
+      lifecycle.params = { requestId: mockRequestId, sourceTab: 'ASSIGNED', sourceScreen: '/resident' };
+      screenButtons(renderDetails()).find((button) => button.accessibilityLabel === 'Back to requests')?.onPress();
+      expect(navigation.dismissTo).toHaveBeenCalledWith({ pathname: '/responder', params: { tab: 'ASSIGNED' } });
+    });
+
     it('renders "Not available" when completedAt timestamp is missing on completed request', () => {
       const completedWithoutTime: SafeResponseRequest = {
         ...baseInProgressRequest,

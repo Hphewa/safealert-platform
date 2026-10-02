@@ -131,6 +131,14 @@ export function createResponseRequestController(responseRequestService: Response
     response.status(200).json(responseRequests);
   });
 
+  const listCompletedForResponder: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+    // Ignore owner/status overrides in client input; history is always the verified actor's completed work.
+    response.status(200).json(await responseRequestService.listCompletedResponseRequests(request.auth.id));
+  });
+
   const acceptForResponder: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
@@ -239,6 +247,7 @@ export function createResponseRequestController(responseRequestService: Response
     cancelForResident,
     listPendingForResponder,
     listAssignedForResponder,
+    listCompletedForResponder,
     getResponderRequestById,
     acceptForResponder,
     declineForResponder,

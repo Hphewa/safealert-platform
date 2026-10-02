@@ -209,6 +209,13 @@ export class ResponseRequestService {
     return this.repository.findAssignedResponseRequests(responderId.trim());
   }
 
+  async listCompletedResponseRequests(responderId: string) {
+    if (typeof responderId !== 'string' || !responderId.trim()) {
+      throw new ApiError(400, 'INVALID_RESPONDER_ID', 'A responder id is required.');
+    }
+    return this.repository.findCompletedResponseRequests(responderId.trim());
+  }
+
   async acceptResponseRequest(
     responseRequestId: string,
     actor: ResponderActionActor | null | undefined

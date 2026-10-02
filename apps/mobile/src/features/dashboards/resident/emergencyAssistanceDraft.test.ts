@@ -30,7 +30,7 @@ const validDraft: EmergencyAssistanceDraft = {
   contactDetails: {
     name: 'Kasun Perera',
     email: 'kasun@example.com',
-    phoneNumber: '+94 77 123 4567',
+    phoneNumber: '0771234567',
     usesAuthenticatedProfile: true
   },
   emergencyDescription: 'Rising flood waters trapped us on the first floor.',
@@ -166,7 +166,7 @@ describe('validateEmergencyAssistanceDraft (LDFEW-383)', () => {
         ...validDraft,
         contactDetails: { ...validDraft.contactDetails, phoneNumber: '' }
       }).errors.contactDetails
-    ).toBe('Enter a contact phone number.');
+    ).toBe('Enter a valid 10-digit contact phone number.');
 
     // Phone number with fewer than 7 digits
     expect(
@@ -174,7 +174,7 @@ describe('validateEmergencyAssistanceDraft (LDFEW-383)', () => {
         ...validDraft,
         contactDetails: { ...validDraft.contactDetails, phoneNumber: '12345' }
       }).errors.contactDetails
-    ).toBe('Enter a valid phone number.');
+    ).toBe('Enter a valid 10-digit contact phone number.');
 
     // Valid formats accepted
     expect(
@@ -189,7 +189,7 @@ describe('validateEmergencyAssistanceDraft (LDFEW-383)', () => {
         ...validDraft,
         contactDetails: { ...validDraft.contactDetails, phoneNumber: '+94-77-555-1234' }
       }).isValid
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it('validates emergency description (required, min 3 chars, max 500 chars)', () => {

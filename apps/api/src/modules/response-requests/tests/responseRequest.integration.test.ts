@@ -75,7 +75,7 @@ const validResponseRequestPayload = {
   roadAccessibility: 'LIMITED',
   contact: {
     name: 'Resident User',
-    phoneNumber: '+94-77-555-1234',
+    phoneNumber: '0775551234',
     email: 'resident.contact@example.com'
   },
   description: 'Two people are injured and flood water is rising around the house.',
@@ -105,7 +105,7 @@ function createStoredResponseRequest(
     roadAccessibility: 'LIMITED',
     contact: {
       name: 'Resident User',
-      phoneNumber: '+94-77-555-1234'
+      phoneNumber: '0775551234'
     },
     description: 'Assistance is needed at the reported location.',
     status: 'NEW',

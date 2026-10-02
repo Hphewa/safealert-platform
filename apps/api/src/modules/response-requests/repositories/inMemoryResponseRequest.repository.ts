@@ -86,6 +86,15 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
   }
 
+  async findCompletedResponseRequests(responderId: string) {
+    return [...this.responseRequests.values()]
+      .filter((request) => request.assignedResponderId === responderId && request.status === 'COMPLETED')
+      .sort((left, right) =>
+        (right.completedAt ?? '').localeCompare(left.completedAt ?? '') ||
+        right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      );
+  }
+
   async acceptResponseRequest(responseRequestId: string, responderId: string) {
     const responseRequest = this.responseRequests.get(responseRequestId);
 

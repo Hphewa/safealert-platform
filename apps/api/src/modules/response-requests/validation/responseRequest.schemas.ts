@@ -1,5 +1,9 @@
 import {
   EMERGENCY_ASSISTANCE_TYPES,
+  EMERGENCY_CONTACT_PHONE_PATTERN,
+  EMERGENCY_CONTACT_PHONE_MESSAGE,
+  EMERGENCY_VULNERABLE_COUNT_KEYS,
+  getEmergencyVulnerableCountError,
   RESPONSE_STATUSES,
   ROAD_ACCESSIBILITIES
 } from '@safealert/contracts';
@@ -137,10 +141,8 @@ export const createResponseRequestSchema = z
           .min(2, 'Contact name must be at least 2 characters.')
           .max(120, 'Contact name must be at most 120 characters.'),
         phoneNumber: z
-          .string()
-          .trim()
-          .min(7, 'Contact phone number must be at least 7 characters.')
-          .max(32, 'Contact phone number must be at most 32 characters.'),
+          .string({ required_error: EMERGENCY_CONTACT_PHONE_MESSAGE })
+          .regex(EMERGENCY_CONTACT_PHONE_PATTERN, EMERGENCY_CONTACT_PHONE_MESSAGE),
         email: z.string().trim().email('Contact email must be valid.').max(320).optional()
       })
       .strict(),
@@ -157,6 +159,13 @@ export const createResponseRequestSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    // The edit endpoint reuses this schema. Overlapping categories are allowed.
+    const vulnerableError = getEmergencyVulnerableCountError(value.affectedPeople, value.vulnerablePeople);
+    for (const key of EMERGENCY_VULNERABLE_COUNT_KEYS) {
+      if (value.vulnerablePeople[key] > value.affectedPeople) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: vulnerableError ?? 'Count exceeds affected people.', path: ['vulnerablePeople', key] });
+      }
+    }
     if (value.injuredPeople > value.affectedPeople) {
       context.addIssue({
         code: z.ZodIssueCode.custom,

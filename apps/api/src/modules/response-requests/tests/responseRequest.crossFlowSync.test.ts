@@ -23,7 +23,7 @@ function validCreationPayload(): CreateResponseRequestRequest {
     injuredPeople: 1,
     vulnerablePeople: { children: 1, elderlyPeople: 1, personsWithDisabilities: 0, pregnantPersons: 0 },
     roadAccessibility: 'ACCESSIBLE',
-    contact: { name: 'Resident Alice', phoneNumber: '+94-77-555-1234', email: 'alice@example.com' },
+    contact: { name: 'Resident Alice', phoneNumber: '0775551234', email: 'alice@example.com' },
     description: 'Emergency medical aid needed due to floodwaters.'
   };
 }

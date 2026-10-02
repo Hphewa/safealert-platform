@@ -77,6 +77,15 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return responseRequests.map(toSafeResponseRequest);
   }
 
+  async findCompletedResponseRequests(responderId: string) {
+    // Scope history in the database; a client-selected responder must never expand access.
+    const responseRequests = await ResponseRequestModel.find({
+      assignedResponderId: responderId,
+      status: 'COMPLETED'
+    }).sort({ completedAt: -1, createdAt: -1, _id: -1 }).exec();
+    return responseRequests.map(toSafeResponseRequest);
+  }
+
   async acceptResponseRequest(responseRequestId: string, responderId: string) {
     if (!mongoose.isValidObjectId(responseRequestId) || !mongoose.isValidObjectId(responderId)) {
       return null;

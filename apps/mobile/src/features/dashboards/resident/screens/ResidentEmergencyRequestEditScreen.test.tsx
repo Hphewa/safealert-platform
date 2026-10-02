@@ -240,6 +240,62 @@ describe('ResidentEmergencyRequestEditScreen Validation (LDFEW-343)', () => {
     expect(result.errors).toEqual({});
   });
 
+  it.each(['Children', 'Elderly people', 'Persons with disabilities', 'Pregnant persons', 'injured people'])(
+    'edit counter for %s reaches the total of 8 and stops at both bounds', async (label) => {
+      vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: {
+        ...mockNewRequest, affectedPeople: 8, injuredPeople: 0,
+        vulnerablePeople: { children: 0, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 }
+      } });
+      renderScreen();
+      lifecycle.effect?.();
+      await vi.waitFor(() => expect(findByAccessibilityLabel(renderScreen(), `Increase ${label}`)).not.toBeNull());
+      for (let count = 0; count < 8; count += 1) {
+        const increase = findByAccessibilityLabel(renderScreen(), `Increase ${label}`);
+        expect(increase?.props.disabled).toBe(false);
+        increase?.props.onPress?.();
+      }
+      expect(findByAccessibilityLabel(renderScreen(), `Increase ${label}`)?.props.disabled).toBe(true);
+      findByAccessibilityLabel(renderScreen(), `Increase ${label}`)?.props.onPress?.();
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')?.props.disabled).toBe(false);
+      for (let count = 8; count > 0; count -= 1) {
+        findByAccessibilityLabel(renderScreen(), `Decrease ${label}`)?.props.onPress?.();
+      }
+      expect(findByAccessibilityLabel(renderScreen(), `Decrease ${label}`)?.props.disabled).toBe(true);
+      findByAccessibilityLabel(renderScreen(), `Decrease ${label}`)?.props.onPress?.();
+      expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')?.props.disabled).toBe(false);
+    }
+  );
+
+  it('edit preserves dependent counts when total drops and blocks review until corrected', async () => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: {
+      ...mockNewRequest, affectedPeople: 8, injuredPeople: 6,
+      vulnerablePeople: { ...mockNewRequest.vulnerablePeople, children: 7 }
+    } });
+    const onValidContinue = vi.fn();
+    renderScreen({ onValidContinue });
+    lifecycle.effect?.();
+    await vi.waitFor(() => expect(findByAccessibilityLabel(renderScreen(), 'Decrease affected people')).not.toBeNull());
+    for (let count = 8; count > 4; count -= 1) {
+      findByAccessibilityLabel(renderScreen(), 'Decrease affected people')?.props.onPress?.();
+    }
+    expect(extractScreenText(renderScreen())).toContain('Each vulnerable-person count must be at most 4');
+    expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')?.props.disabled).toBe(true);
+    findByAccessibilityLabel(renderScreen(), 'Review Changes')?.props.onPress?.();
+    expect(onValidContinue).not.toHaveBeenCalled();
+    expect(updateResidentResponseRequest).not.toHaveBeenCalled();
+    for (let count = 7; count > 4; count -= 1) {
+      findByAccessibilityLabel(renderScreen(), 'Decrease Children')?.props.onPress?.();
+    }
+    for (let count = 6; count > 4; count -= 1) {
+      findByAccessibilityLabel(renderScreen(), 'Decrease injured people')?.props.onPress?.();
+    }
+    expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')?.props.disabled).toBe(false);
+    findByAccessibilityLabel(renderScreen({ onValidContinue }), 'Review Changes')?.props.onPress?.();
+    expect(onValidContinue).toHaveBeenCalledWith(expect.objectContaining({
+      affectedPeopleCount: 4, injuredCount: 4, vulnerablePeople: expect.objectContaining({ children: 4 })
+    }));
+  });
+
   it('2. Required assistance type is validated', () => {
     const form = { ...mapRequestToEditForm(mockNewRequest), assistanceType: null as unknown as 'OTHER' };
     const result = validateResidentEmergencyRequestEditForm(form);
@@ -323,7 +379,7 @@ describe('ResidentEmergencyRequestEditScreen Validation (LDFEW-343)', () => {
     };
     const result = validateResidentEmergencyRequestEditForm(form);
     expect(result.isValid).toBe(false);
-    expect(result.errors.contactDetails).toBe('Enter a contact phone number.');
+    expect(result.errors.contactDetails).toBe('Enter a valid 10-digit contact phone number.');
   });
 
   it('11. Invalid phone number is rejected according to existing validation rules', () => {
@@ -332,13 +388,13 @@ describe('ResidentEmergencyRequestEditScreen Validation (LDFEW-343)', () => {
       ...baseForm,
       contact: { ...baseForm.contact, phoneNumber: '123' }
     };
-    expect(validateResidentEmergencyRequestEditForm(shortPhone).errors.contactDetails).toBe('Enter a valid phone number.');
+    expect(validateResidentEmergencyRequestEditForm(shortPhone).errors.contactDetails).toBe('Enter a valid 10-digit contact phone number.');
 
     const letterPhone = {
       ...baseForm,
       contact: { ...baseForm.contact, phoneNumber: '0771234abc' }
     };
-    expect(validateResidentEmergencyRequestEditForm(letterPhone).errors.contactDetails).toBe('Enter a valid phone number.');
+    expect(validateResidentEmergencyRequestEditForm(letterPhone).errors.contactDetails).toBe('Enter a valid 10-digit contact phone number.');
   });
 
   it('12. Missing required description is rejected', () => {
@@ -560,7 +616,7 @@ describe('ResidentEmergencyRequestEditScreen Validation (LDFEW-343)', () => {
     });
   });
 
-  it('29. Trimming description and phone on blur formats text safely', async () => {
+  it('29. Whitespace in a pasted phone number remains invalid rather than being silently trimmed', async () => {
     vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: mockNewRequest });
     renderScreen();
     lifecycle.effect?.();
@@ -573,7 +629,9 @@ describe('ResidentEmergencyRequestEditScreen Validation (LDFEW-343)', () => {
     phoneInput?.props.onBlur?.();
 
     const reRenderedPhone = findByAccessibilityLabel(renderScreen(), 'Contact phone number');
-    expect(reRenderedPhone?.props.value).toBe('0771234567');
+    expect(reRenderedPhone?.props.value).toBe('  0771234567  ');
+    expect(extractScreenText(renderScreen())).toContain('Enter a valid 10-digit contact phone number.');
+    expect(findByAccessibilityLabel(renderScreen(), 'Review Changes')?.props.disabled).toBe(true);
   });
 });
 

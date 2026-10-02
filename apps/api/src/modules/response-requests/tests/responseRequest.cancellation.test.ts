@@ -39,7 +39,7 @@ function createContext() {
     injuredPeople: 0,
     vulnerablePeople: { children: 1, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 },
     roadAccessibility: 'BLOCKED',
-    contact: { name: 'Resident', phoneNumber: '+94775551234', email: 'resident@example.com' },
+    contact: { name: 'Resident', phoneNumber: '0775551234', email: 'resident@example.com' },
     description: 'Evacuation assistance needed.',
     specialRequirements: 'Accessible transport needed.',
     declinedByResponderIds: ['507f1f77bcf86cd799439097'],

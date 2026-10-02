@@ -10,6 +10,10 @@ export function listAssignedResponderRequests(accessToken: string) {
   return getResponderRequestQueue('/response-requests/responder/assigned', accessToken);
 }
 
+export function listCompletedResponderRequests(accessToken: string) {
+  return getResponderRequestQueue('/response-requests/responder/completed', accessToken);
+}
+
 // LDFEW-266 / LDFEW-355: Fetch single emergency request details for responder to display previously saved updates
 export async function getResponderRequestById(requestId: string, accessToken: string): Promise<SafeResponseRequest | null> {
   try {
