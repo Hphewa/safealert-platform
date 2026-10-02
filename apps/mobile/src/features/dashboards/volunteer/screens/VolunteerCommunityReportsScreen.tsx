@@ -5,6 +5,7 @@ import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
@@ -36,7 +37,9 @@ type VolunteerReportsErrorKind =
 export function VolunteerCommunityReportsScreen() {
   const router = useRouter();
   const { accessToken } = useAuth();
-  const [activeTab, setActiveTab] = useState<VolunteerReportListKey>('nearby');
+  // Open the complete incoming queue first. Near Me is an optional 10 km location filter;
+  // making it the default can make a valid resident report appear to be missing.
+  const [activeTab, setActiveTab] = useState<VolunteerReportListKey>('incoming');
   const [reports, setReports] = useState<VolunteerCommunityReport[]>([]);
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -204,7 +207,7 @@ export function VolunteerCommunityReportsScreen() {
                 <Pressable
                   accessibilityLabel="Go back"
                   accessibilityRole="button"
-                  onPress={() => router.back()}
+                  onPress={() => goBackSafely(router, '/volunteer')}
                   style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
                 >
                   <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />

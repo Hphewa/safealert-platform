@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import type { FieldConfirmation } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { ApiClientError } from '@/services/api/client';
 
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
@@ -14,6 +16,7 @@ import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { VoiceNotePlayer } from '../../shared/voice/VoiceNotePlayer';
 import { getCommunityReportById } from '../api/communityReportsApi';
+import { listMyFieldConfirmations } from '../api/fieldConfirmationsApi';
 import { VolunteerStateCard } from '../components/VolunteerStateCard';
 import { volunteerBottomNavItems } from '../mockData';
 import { VolunteerReportDetailItem } from '../components/VolunteerReportDetailItem';
@@ -35,6 +38,7 @@ export function VolunteerReportDetailsScreen() {
   const [report, setReport] = useState<VolunteerCommunityReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [myConfirmation, setMyConfirmation] = useState<FieldConfirmation | null>(null);
 
   const loadReport = useCallback(async () => {
     if (!reportId || !accessToken) {
@@ -46,10 +50,15 @@ export function VolunteerReportDetailsScreen() {
 
     setIsLoading(true);
     setErrorMessage(null);
+    setMyConfirmation(null);
 
     try {
-      const response = await getCommunityReportById(reportId, accessToken);
+      const [response, confirmationsResponse] = await Promise.all([
+        getCommunityReportById(reportId, accessToken),
+        listMyFieldConfirmations(accessToken)
+      ]);
       setReport(await resolveVolunteerReportLocation(mapCommunityReportToVolunteerReport(response.report)));
+      setMyConfirmation(confirmationsResponse.confirmations.find((confirmation) => confirmation.reportId === reportId) ?? null);
       setIsLoading(false);
     } catch (error) {
       setReport(null);
@@ -73,7 +82,7 @@ export function VolunteerReportDetailsScreen() {
           <Pressable
             accessibilityLabel="Go back"
             accessibilityRole="button"
-            onPress={() => router.back()}
+            onPress={() => goBackSafely(router, '/volunteer/reports')}
             style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
           >
             <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -99,7 +108,7 @@ export function VolunteerReportDetailsScreen() {
           <Pressable
             accessibilityLabel="Go back"
             accessibilityRole="button"
-            onPress={() => router.back()}
+            onPress={() => goBackSafely(router, '/volunteer/reports')}
             style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
           >
             <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -124,6 +133,7 @@ export function VolunteerReportDetailsScreen() {
 
   const photoUri = resolveMediaReferenceUri(report.mediaUrl);
   const voiceUri = resolveMediaReferenceUri(report.voiceEvidence?.mediaReference);
+  const confirmation = myConfirmation;
 
   return (
     <DashboardScreen bottomNavItems={volunteerBottomNavItems} contentContainerStyle={styles.content}>
@@ -131,7 +141,7 @@ export function VolunteerReportDetailsScreen() {
         <Pressable
           accessibilityLabel="Go back"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => goBackSafely(router, '/volunteer/reports')}
           style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -209,18 +219,23 @@ export function VolunteerReportDetailsScreen() {
 
       <View style={styles.actionCard}>
         <View style={styles.actionCopy}>
-          <Text style={styles.actionTitle}>Community Field Check</Text>
-          <Text style={styles.actionBody}>
-            Review the report in the field, add optional evidence, and submit your confirmation for Disaster Officer review.
-          </Text>
+          <Text style={styles.actionTitle}>{confirmation ? 'Field Check Submitted' : 'Community Field Check'}</Text>
+          <Text style={styles.actionBody}>{confirmation
+            ? confirmation.outcome === 'CONFIRMED'
+              ? 'You confirmed the current situation. This decision is locked and cannot be changed.'
+              : 'You marked this report as unable to confirm. This decision is locked and cannot be changed.'
+            : 'Review the report in the field, add optional evidence, and submit your confirmation for Disaster Officer review.'}</Text>
         </View>
-        <Pressable
+        {confirmation ? <View style={[styles.submittedBadge, confirmation.outcome === 'CONFIRMED' ? styles.confirmedBadge : styles.unableBadge]}>
+          <Text style={styles.submittedBadgeText}>{confirmation.outcome === 'CONFIRMED' ? 'Confirmed' : 'Unable to Confirm'}</Text>
+          <Text style={styles.submittedStatusText}>Officer review: {confirmation.status}</Text>
+        </View> : <Pressable
           accessibilityRole="button"
           onPress={() => router.push(volunteerConfirmationHref(report.id))}
           style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
         >
           <Text style={styles.primaryButtonText}>Start Field Confirmation</Text>
-        </Pressable>
+        </Pressable>}
       </View>
     </DashboardScreen>
   );
@@ -368,6 +383,17 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#ffffff'
   },
+  submittedBadge: {
+    minHeight: 54,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: dashboardTheme.radius.md,
+    borderWidth: 1
+  },
+  confirmedBadge: { backgroundColor: dashboardTheme.colors.successSoft, borderColor: '#86efac' },
+  unableBadge: { backgroundColor: dashboardTheme.colors.moderateSoft, borderColor: '#fdba74' },
+  submittedBadgeText: { fontSize: 16, fontWeight: '800', color: dashboardTheme.colors.text },
+  submittedStatusText: { fontSize: 12, fontWeight: '700', color: dashboardTheme.colors.muted },
   pressed: {
     opacity: 0.82
   }

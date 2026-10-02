@@ -1,7 +1,6 @@
 import type {
   FieldConfirmation,
   CommunityReportSummary,
-  CancelResidentReportResponse,
   CreateReportRequest,
   CreateReportResponse,
   GetCommunityReportResponse,
@@ -146,10 +145,10 @@ export class ReportService {
     return { report };
   }
 
-  async cancelPendingResidentReport(
+  async deletePendingResidentReport(
     residentId: string,
     reportId: string
-  ): Promise<CancelResidentReportResponse> {
+  ): Promise<void> {
     const existingReport = await this.repository.findReportByIdAndResidentId(reportId, residentId);
 
     if (!existingReport) {
@@ -157,24 +156,21 @@ export class ReportService {
     }
 
     if (existingReport.status !== 'PENDING') {
-      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be cancelled.');
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be deleted.');
     }
 
-    const report = await this.repository.cancelPendingResidentReport({
+    const deleted = await this.repository.deletePendingResidentReport({
       reportId,
-      residentId,
-      cancelledAt: new Date()
+      residentId
     });
 
-    if (!report) {
-      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be cancelled.');
+    if (!deleted) {
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be deleted.');
     }
 
-    if (report.communityReportClusterId) {
-      await this.tryRecomputeCluster(report.communityReportClusterId, 'recompute cancelled report');
+    if (existingReport.communityReportClusterId) {
+      await this.tryRecomputeCluster(existingReport.communityReportClusterId, 'recompute deleted report');
     }
-
-    return { report };
   }
 
   async listCommunityReportsForVolunteer(

@@ -1,7 +1,6 @@
 import type {
   CreateReportRequest,
   CreateReportResponse,
-  CancelResidentReportResponse,
   GetResidentReportResponse,
   GetResidentFieldConfirmationsResponse,
   GetResidentReportsResponse,
@@ -51,8 +50,8 @@ export function updateMyPendingReport(
 }
 
 export function cancelMyPendingReport(reportId: string, accessToken: string) {
-  return apiRequest<CancelResidentReportResponse>(`/reports/mine/${encodeURIComponent(reportId)}/cancel`, {
-    method: 'PATCH',
+  return apiRequest<unknown>(`/reports/mine/${encodeURIComponent(reportId)}`, {
+    method: 'DELETE',
     accessToken
   });
 }

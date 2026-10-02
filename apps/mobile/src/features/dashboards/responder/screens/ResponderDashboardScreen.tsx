@@ -9,6 +9,7 @@ import { ApiClientError } from '@/services/api/client';
 import { DashboardHeader } from '../../shared/components/DashboardHeader';
 import { ActionCard } from '../../shared/components/ActionCard';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { ReportListItem } from '../../shared/components/ReportListItem';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
@@ -277,7 +278,11 @@ function ResponderRequestItem({ request, sourceTab }: { request: SafeResponseReq
       icon={assistanceTypeIcon(request.assistanceType)}
       statusLabel={presentation.status}
       statusTone={request.status === 'ASSIGNED' ? 'success' : 'info'}
-      subtitle={presentation.location}
+      subtitle={
+        request.location ? (
+          <HumanReadableLocation location={request.location} />
+        ) : presentation.location
+      }
       timeLabel={presentation.submittedAt}
       title={presentation.title}
     />

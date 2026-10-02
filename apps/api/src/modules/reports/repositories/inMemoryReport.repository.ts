@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import type { CommunityReportSummary, MonitoringReportSummary, ReportStatus, SafeReport } from '@safealert/contracts';
 
 import type {
-  CancelPendingResidentReportInput,
+  DeletePendingResidentReportInput,
   CreateReportInput,
   NearbyCommunityReportsQuery,
   ReportRepository,
@@ -199,24 +199,18 @@ export class InMemoryReportRepository implements ReportRepository {
     return updatedReport;
   }
 
-  async cancelPendingResidentReport(input: CancelPendingResidentReportInput) {
+  async deletePendingResidentReport(input: DeletePendingResidentReportInput) {
     const report = this.reports.get(input.reportId);
 
     if (!report || report.residentId !== input.residentId || report.status !== 'PENDING') {
-      return null;
+      return false;
     }
 
-    const cancelledAt = input.cancelledAt.toISOString();
-    const updatedReport: SafeReport = {
-      ...report,
-      status: 'CANCELLED',
-      updatedAt: cancelledAt,
-      cancelledById: input.residentId,
-      cancelledAt
-    };
-
-    this.reports.set(updatedReport.id, updatedReport);
-    return updatedReport;
+    this.reports.delete(report.id);
+    for (const [key, reportId] of this.clientOperationIds) {
+      if (reportId === report.id) this.clientOperationIds.delete(key);
+    }
+    return true;
   }
 
   async reviewReport(input: ReviewReportInput) {

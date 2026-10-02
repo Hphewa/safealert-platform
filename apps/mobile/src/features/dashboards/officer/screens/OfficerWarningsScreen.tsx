@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useRouter } from 'expo-router';
-import { canCreateWarning, type IncidentMonitoringSummary, type WarningRiskLevel } from '@safealert/contracts';
+import { canCreateWarning, type GeoJsonPoint, type IncidentMonitoringSummary, type WarningRiskLevel } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { listIncidentMonitoring } from '../api/incidentApi';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
@@ -9,6 +9,7 @@ import { AssessmentLoadState, assessmentLabel, assessmentStyles } from '../compo
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { HazardImage } from '../../shared/components/HazardImage';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { officerBottomNavItems } from '../officerNavigation';
@@ -27,6 +28,7 @@ type WarningRow = {
   title: string;
   hazardType: string;
   location: string;
+  locationPoint: GeoJsonPoint;
   status: WarningCardStatus;
   warningId: string | null;
   whenLabel: 'Created' | 'Published' | 'Cancelled' | 'Archived' | 'Assessed';
@@ -87,6 +89,7 @@ export function OfficerWarningsScreen() {
         title: assessmentLabel(item.incident.hazardType),
         hazardType: item.incident.hazardType,
         location: formatIncidentLocation(item.incident.location),
+        locationPoint: item.incident.location,
         status,
         warningId: warning?.id ?? null,
         whenLabel: timing.label,
@@ -273,7 +276,7 @@ export function OfficerWarningsScreen() {
                       </View>
                       <View style={styles.locationRow}>
                         <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="locate-outline" size={15} />
-                        <Text style={styles.locationText}>{row.location}</Text>
+                        <HumanReadableLocation location={row.locationPoint} style={styles.locationText} />
                       </View>
                       <View style={styles.dateRow}>
                         <DashboardGlyph color={dashboardTheme.colors.muted} name="time-outline" size={14} />

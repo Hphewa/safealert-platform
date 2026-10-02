@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   EMERGENCY_ASSISTANCE_TYPES,
   EMERGENCY_CONTACT_PHONE_MESSAGE,
@@ -21,7 +21,7 @@ import { ApiClientError } from '../../../../services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
-import { formatCoordinate } from '../../shared/currentLocation';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import type { DashboardIconName } from '../../shared/types';
 import { CounterField } from '../components/CounterField';
@@ -345,13 +345,13 @@ export function ResidentEmergencyRequestEditScreen({
 
   // Initialize persisted values only once per request ID so later renders do not overwrite
   // the Resident's in-progress edits.
-  let currentForm = formData;
-  if (request && isEditable && initializedRequestId !== request.id) {
-    const initialForm = mapRequestToEditForm(request);
+  useEffect(() => {
+    if (!request || !isEditable || initializedRequestId === request.id) return;
     setInitializedRequestId(request.id);
-    setFormData(initialForm);
-    currentForm = initialForm;
-  }
+    setFormData(mapRequestToEditForm(request));
+  }, [initializedRequestId, isEditable, request]);
+
+  const currentForm = formData;
 
   // Real-time validation computation: updates automatically as the Resident modifies fields,
   // ensuring that stale errors clear immediately upon correction without requiring another tap.
@@ -686,9 +686,10 @@ export function ResidentEmergencyRequestEditScreen({
                 <Text style={styles.panelTitle}>Emergency Location</Text>
                 <View style={styles.detectedLocation}>
                   <Text style={styles.detectedText}>Saved emergency location</Text>
-                  <Text style={styles.coordinateText}>
-                    {`Lat ${formatCoordinate(currentForm.latitude) || currentForm.latitude.toFixed(6)}, Long ${formatCoordinate(currentForm.longitude) || currentForm.longitude.toFixed(6)}`}
-                  </Text>
+                  <HumanReadableLocation
+                    location={{ type: 'Point', coordinates: [currentForm.longitude, currentForm.latitude] }}
+                    style={styles.coordinateText}
+                  />
                   <Text style={styles.helperNote}>
                     Preserved from your submitted request.
                   </Text>
@@ -941,12 +942,10 @@ export function ResidentEmergencyRequestReviewView({
       <SummaryPanel icon="locate-outline" title="Emergency Location">
         <View style={styles.detectedLocation}>
           <Text style={styles.detectedText}>Saved emergency location</Text>
-          <Text style={styles.coordinateText}>
-            {`Latitude ${formatCoordinate(form.latitude) || form.latitude.toFixed(6)}`}
-          </Text>
-          <Text style={styles.coordinateText}>
-            {`Longitude ${formatCoordinate(form.longitude) || form.longitude.toFixed(6)}`}
-          </Text>
+          <HumanReadableLocation
+            location={{ type: 'Point', coordinates: [form.longitude, form.latitude] }}
+            style={styles.coordinateText}
+          />
           <Text style={styles.helperNote}>Preserved from your submitted request.</Text>
         </View>
       </SummaryPanel>

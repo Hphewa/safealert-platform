@@ -11,7 +11,6 @@ import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { RoleStatusBanner } from '../../shared/components/RoleStatusBanner';
 import { dashboardTheme } from '../../shared/theme';
-import { getFirstName } from '../../shared/utils';
 import { residentBottomNavItems, residentPrimaryActions } from '../mockData';
 import { useReportHazardDraft } from '../reportDraft';
 import { listResidentWarnings } from '../../../warnings/api/residentWarningApi';
@@ -38,7 +37,7 @@ function warningTone(riskLevel: ResidentWarning['riskLevel']) {
 }
 
 export function ResidentDashboardScreen() {
-  const { accessToken, user } = useAuth();
+  const { accessToken } = useAuth();
   const router = useRouter();
   const { hasDraft, resetDraft } = useReportHazardDraft();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -46,7 +45,6 @@ export function ResidentDashboardScreen() {
   const [notificationsLoading, setNotificationsLoading] = useState(true);
   const [notificationsError, setNotificationsError] = useState<string | null>(null);
   const requestInFlight = useRef(false);
-  const firstName = user ? getFirstName(user.name) : 'Resident';
   const [primaryCard, reportsCard, helpCard] = residentPrimaryActions;
 
   const loadWarnings = useCallback(() => {
@@ -88,18 +86,18 @@ export function ResidentDashboardScreen() {
   };
 
   return (
-    <DashboardScreen bottomNavItems={residentBottomNavItems}>
+    <DashboardScreen bottomNavItems={residentBottomNavItems} topBarAction={
+      <Pressable accessibilityRole="button" accessibilityLabel="Notifications" onPress={() => setNotificationsOpen(true)} style={styles.topBarBell}>
+        <DashboardGlyph color="#ffffff" name="notifications-outline" size={20} />
+        {warnings.length > 0 ? <View style={styles.topBarBadge}><Text style={styles.topBarBadgeText}>{warnings.length > 9 ? '9+' : warnings.length}</Text></View> : null}
+      </Pressable>
+    }>
       <DashboardHeader
         roleLabel="COMMUNITY SAFETY"
         accentColor={dashboardTheme.colors.primary}
         description="Stay informed. Stay safe."
-        subtitle={`Hello, ${firstName}`}
-        title="SafeAlert"
+        title="Your safety dashboard"
         titleAlign="center"
-        trailingAccessibilityLabel="Notifications"
-        trailingIcon="notifications-outline"
-        onTrailingPress={() => setNotificationsOpen(true)}
-        showLogoutButton
       />
 
       {warnings.length > 0 ? <RoleStatusBanner
@@ -260,6 +258,9 @@ export function ResidentDashboardScreen() {
 }
 
 const styles = StyleSheet.create({
+  topBarBell: { width: 38, height: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.18)' },
+  topBarBadge: { position: 'absolute', top: -2, right: -2, minWidth: 17, height: 17, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3, borderRadius: 9, backgroundColor: dashboardTheme.colors.critical },
+  topBarBadgeText: { fontSize: 9, fontWeight: '900', color: '#ffffff' },
   twoColumnGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',

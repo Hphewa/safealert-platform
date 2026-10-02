@@ -88,6 +88,13 @@ export class CommunityReportGroupingService {
     };
   }
 
+  async listOfficerClusterHistory(): Promise<GetOfficerCommunityReportClustersResponse> {
+    const clusters = await this.clusters.findAllClusters();
+    return {
+      clusters: await Promise.all(clusters.map((cluster) => this.enrichClusterSummary(cluster)))
+    };
+  }
+
   async getOfficerCluster(clusterId: string): Promise<GetOfficerCommunityReportClusterResponse> {
     const cluster = await this.clusters.findById(clusterId);
     if (!cluster) throw new ApiError(404, 'COMMUNITY_REPORT_CLUSTER_NOT_FOUND', 'Community incident is no longer available.');

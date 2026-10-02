@@ -11,10 +11,15 @@ export function listOfficerCommunityReportClusters(accessToken: string) {
   });
 }
 
+export function listOfficerCommunityReportClusterHistory(accessToken: string) {
+  return apiRequest<GetOfficerCommunityReportClustersResponse>('/report-clusters/officer/history', {
+    accessToken
+  });
+}
+
 export function getOfficerCommunityReportCluster(clusterId: string, accessToken: string) {
   return apiRequest<GetOfficerCommunityReportClusterResponse>(
     `/report-clusters/officer/${encodeURIComponent(clusterId)}`,
     { accessToken }
   );
 }
-

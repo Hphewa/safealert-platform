@@ -26,7 +26,7 @@ const state = vi.hoisted(() => ({
 vi.mock('react-native', () => {
   const container = ({ children }: { children?: ReactNode }) => <div>{children}</div>;
   return {
-    View: container, Text: container, ScrollView: container,
+    View: container, Text: container, Image: container, ScrollView: container,
     useWindowDimensions: () => ({ width: 390, height: 844, scale: 1, fontScale: 1 }),
     Platform: { select: (values: { web?: unknown; default?: unknown }) => values.default ?? values.web },
     Pressable: ({ children, disabled, accessibilityLabel, onPress }: {
@@ -98,17 +98,17 @@ function dashboardData(reports: SafeReport[] = []): DashboardData {
   return { pendingReports: { reports }, assessmentQueue: [], monitoring: [] };
 }
 
-it('shows the API total and only the three newest pending reports', () => {
+it('shows the API total and only the two newest pending reports', () => {
   state.data = dashboardData([1, 4, 2, 3].map((day) => ({
     ...report, id: `report-${day}`, description: `Bridge observation ${day}`,
     createdAt: `2026-09-0${day}T09:00:00.000Z`
   })));
   const markup = renderToStaticMarkup(<OfficerDashboardScreen />);
   expect(markup).toContain('>4<');
-  expect(markup).toContain('Pending Reports');
+  expect(markup).toContain('Pending reports');
   expect(markup).not.toContain('Bridge observation 1');
+  expect(markup).not.toContain('Bridge observation 2');
   expect(markup.indexOf('Bridge observation 4')).toBeLessThan(markup.indexOf('Bridge observation 3'));
-  expect(markup.indexOf('Bridge observation 3')).toBeLessThan(markup.indexOf('Bridge observation 2'));
   for (const label of ['Field Updates', 'Verified Today', 'Riverbend']) {
     expect(markup).not.toContain(label);
   }
@@ -119,8 +119,8 @@ it('shows zero and an empty state only after a successful empty response', () =>
   const markup = renderToStaticMarkup(<OfficerDashboardScreen />);
   expect(markup).toContain('>0<');
   expect(markup).toContain('No pending reports');
-  expect(markup).toContain('Review Reports');
-  expect(markup).toContain('Assess Risk');
+  expect(markup).toContain('Pending reports');
+  expect(markup).toContain('Assessments');
 });
 
 it('shows loading without reporting a false zero or empty result', () => {

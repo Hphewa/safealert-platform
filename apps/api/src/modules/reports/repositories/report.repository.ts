@@ -38,10 +38,9 @@ export type UpdatePendingResidentReportInput = {
   update: UpdateResidentReportRequest;
 };
 
-export type CancelPendingResidentReportInput = {
+export type DeletePendingResidentReportInput = {
   reportId: string;
   residentId: string;
-  cancelledAt: Date;
 };
 
 export type VerifiedReportImageEvidence = {
@@ -66,6 +65,6 @@ export interface ReportRepository {
   findCommunityReportById(reportId: string, statuses: ReportStatus[]): Promise<CommunityReportSummary | null>;
   setCommunityReportCluster(input: SetCommunityReportClusterInput): Promise<SafeReport | null>;
   updatePendingResidentReport(input: UpdatePendingResidentReportInput): Promise<SafeReport | null>;
-  cancelPendingResidentReport(input: CancelPendingResidentReportInput): Promise<SafeReport | null>;
+  deletePendingResidentReport(input: DeletePendingResidentReportInput): Promise<boolean>;
   reviewReport(input: ReviewReportInput): Promise<SafeReport | null>;
 }

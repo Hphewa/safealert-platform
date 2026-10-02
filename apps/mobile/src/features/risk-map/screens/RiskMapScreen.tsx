@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { MultiMarkerLocationPreview } from '../../dashboards/shared/maps/MultiMarkerLocationPreview';
 import { RiskMapDetailsCard } from '../components/RiskMapDetailsCard';
 import { RiskMapFilters } from '../components/RiskMapFilters';
@@ -29,7 +30,7 @@ export function RiskMapScreen() {
   return <SafeAreaView style={styles.screen}>
     <DashboardTopBar />
     <View style={styles.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()}><Text style={styles.action}>‹ Back</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => goBackSafely(router)}><Text style={styles.action}>‹ Back</Text></Pressable>
       <Text style={styles.title}>Risk Locations</Text>
       <Pressable accessibilityRole="button" accessibilityLabel="Refresh risk locations" disabled={loading} onPress={() => void refresh()}><Text style={styles.action}>Refresh</Text></Pressable>
     </View>

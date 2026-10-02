@@ -4,11 +4,12 @@ import { useRouter } from 'expo-router';
 import type { CreateResponseRequestRequest } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { ApiClientError } from '@/services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
-import { formatCoordinate } from '../../shared/currentLocation';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { createResidentResponseRequest } from '../api/responseRequestApi';
 import { saveEmergencyRequestWithOfflineSupport } from '../offlineEmergencyRequestQueue';
@@ -119,7 +120,7 @@ export function ReviewEmergencyRequestScreen() {
         <Pressable
           accessibilityLabel="Go back"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => goBackSafely(router, '/resident/emergency-assistance')}
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -140,8 +141,10 @@ export function ReviewEmergencyRequestScreen() {
         {draft.location.status === 'DETECTED' ? (
           <View style={styles.locationPreview}>
             <Text style={styles.locationPreviewTitle}>Detected coordinates</Text>
-            <Text style={styles.coordinateText}>Latitude {formatCoordinate(draft.location.latitude)}</Text>
-            <Text style={styles.coordinateText}>Longitude {formatCoordinate(draft.location.longitude)}</Text>
+            <HumanReadableLocation
+              location={{ type: 'Point', coordinates: [draft.location.longitude, draft.location.latitude] }}
+              style={styles.coordinateText}
+            />
             <Text style={styles.helperText}>Saved for the backend as [longitude, latitude].</Text>
           </View>
         ) : (

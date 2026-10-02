@@ -27,7 +27,7 @@ function canonicalDistrict(value: string | null | undefined): WarningDistrict | 
 
 export function NotificationProfileScreen() {
   const router = useRouter();
-  const { accessToken, user } = useAuth();
+  const { accessToken, user, logout } = useAuth();
   const [profile, setProfile] = useState<NotificationProfile>({});
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -143,6 +143,9 @@ export function NotificationProfileScreen() {
         <Pressable accessibilityState={{ disabled: saving || loading || !loaded }} disabled={saving || loading || !loaded} onPress={() => void save()} style={({ pressed }) => [styles.button, pressed && styles.pressed]}>
           <Text style={styles.buttonText}>{saving ? 'Saving…' : 'Save notification profile'}</Text>
         </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Log out" onPress={() => { void logout(); }} style={({ pressed }) => [styles.logoutButton, pressed && styles.pressed]}>
+          <Text style={styles.logoutText}>Log out</Text>
+        </Pressable>
       </View>
       <View style={styles.warningsCard}>
           <Text style={styles.sectionTitle}>SAFETY ALERTS & WARNINGS</Text>
@@ -213,6 +216,8 @@ const styles = StyleSheet.create({
   button: { minHeight: 50, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: dashboardTheme.colors.primary },
   pressed: { opacity: 0.82 },
   buttonText: { color: '#ffffff', fontWeight: '800', fontSize: 15 },
+  logoutButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: dashboardTheme.colors.criticalSoft },
+  logoutText: { color: dashboardTheme.colors.critical, fontWeight: '800', fontSize: 15 },
   error: { color: dashboardTheme.colors.critical, fontWeight: '700' },
   success: { color: dashboardTheme.colors.success, fontWeight: '700' }
 });

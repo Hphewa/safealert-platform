@@ -54,6 +54,12 @@ export class InMemoryCommunityReportClusterRepository implements CommunityReport
       .map((cluster) => structuredClone(cluster));
   }
 
+  async findAllClusters() {
+    return [...this.clusters.values()]
+      .sort((left, right) => right.lastReportedAt.localeCompare(left.lastReportedAt))
+      .map((cluster) => structuredClone(cluster));
+  }
+
   async updateSummary(clusterId: string, input: UpdateCommunityReportClusterSummaryInput) {
     const existing = this.clusters.get(clusterId);
     if (!existing) return null;
@@ -72,4 +78,3 @@ export class InMemoryCommunityReportClusterRepository implements CommunityReport
     this.clusters.delete(clusterId);
   }
 }
-

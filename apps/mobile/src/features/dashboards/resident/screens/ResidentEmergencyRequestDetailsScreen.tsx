@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { EmergencyRequestProgressTracker } from '../components/EmergencyRequestProgressTracker';
 import { EmergencyRequestCancellationDialog } from '../components/EmergencyRequestCancellationDialog';
@@ -90,7 +91,11 @@ export function ResidentEmergencyRequestDetailsScreen(props?: ResidentEmergencyR
               {section.fields.map((field) => (
                 <View key={field.label} style={styles.field}>
                   <Text style={styles.label}>{field.label}</Text>
-                  <Text style={styles.value}>{field.value}</Text>
+                  {field.label === 'Latitude' && request?.location ? (
+                    <HumanReadableLocation location={request.location} style={styles.value} />
+                  ) : field.label === 'Longitude' ? null : (
+                    <Text style={styles.value}>{field.value}</Text>
+                  )}
                 </View>
               ))}
             </View>

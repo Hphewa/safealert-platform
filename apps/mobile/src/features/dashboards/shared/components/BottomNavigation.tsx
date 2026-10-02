@@ -52,7 +52,7 @@ export function BottomNavigation({ items }: BottomNavigationProps) {
                   name={item.icon}
                   size={20}
                 />}
-              <Text numberOfLines={1} style={[styles.label, isActive && styles.labelActive]}>{label}</Text>
+              <Text numberOfLines={1} style={[styles.label, isOfficerNavigation && styles.officerLabel, isActive && styles.labelActive]}>{label}</Text>
             </Pressable>
           );
         })}
@@ -120,5 +120,9 @@ const styles = StyleSheet.create({
   },
   labelActive: {
     color: dashboardTheme.colors.primaryStrong
+  },
+  officerLabel: {
+    color: dashboardTheme.colors.primaryStrong,
+    fontWeight: '700'
   }
 });

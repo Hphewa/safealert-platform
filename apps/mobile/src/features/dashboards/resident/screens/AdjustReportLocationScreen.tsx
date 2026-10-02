@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { goBackSafely } from '@/features/navigation/safeBack';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
@@ -36,7 +37,7 @@ export function AdjustReportLocationScreen() {
         accuracyMeters: metadata?.accuracyMeters
       })
     );
-    router.back();
+    goBackSafely(router, '/resident/report-hazard');
   };
 
   return (
@@ -45,7 +46,7 @@ export function AdjustReportLocationScreen() {
         <Pressable
           accessibilityLabel="Cancel location adjustment"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => goBackSafely(router, '/resident/report-hazard')}
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -67,7 +68,7 @@ export function AdjustReportLocationScreen() {
       </View>
 
       <LocationPicker
-        onCancel={() => router.back()}
+        onCancel={() => goBackSafely(router, '/resident/report-hazard')}
         onChange={setSelectedLocation}
         onConfirm={confirmLocation}
         value={selectedLocation}

@@ -13,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
@@ -173,7 +174,7 @@ export function OfficerGroupedReportsScreen() {
                 <Pressable
                   accessibilityLabel="Go back"
                   accessibilityRole="button"
-                  onPress={() => router.back()}
+                  onPress={() => goBackSafely(router, '/officer/incidents')}
                   style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
                 >
                   <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />

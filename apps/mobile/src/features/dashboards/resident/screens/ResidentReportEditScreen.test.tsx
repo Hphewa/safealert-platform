@@ -66,6 +66,7 @@ vi.mock('expo-image-picker/src/ImagePicker', () => imagePicker);
 vi.mock('react-native', () => ({
   ActivityIndicator: 'span',
   Image: 'img',
+  Platform: { OS: 'ios', select: (value: Record<string, unknown>) => value.ios ?? value.default },
   Pressable: 'button',
   ScrollView: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
   StyleSheet: { create: (styles: unknown) => styles },

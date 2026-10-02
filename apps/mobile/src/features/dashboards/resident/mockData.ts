@@ -16,14 +16,14 @@ export const residentPrimaryActions: QuickAction[] = [
     icon: 'warning-outline'
   },
   {
-    title: 'Report Status & Reviews',
+    title: 'My Reports',
     subtitle: 'Track reviews and updates for your recent reports',
     href: '/resident/reports',
     icon: 'checkmark-done-outline'
   },
   {
-    title: 'Help / Emergency Assistance',
-    subtitle: 'Request urgent help and share your current situation',
+    title: 'Emergency Requests',
+    subtitle: 'Request urgent help and track assistance',
     href: '/resident/help',
     icon: 'help-buoy-outline'
   }

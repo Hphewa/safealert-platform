@@ -2,6 +2,7 @@ import type { GeoJsonPoint } from '@safealert/contracts';
 import { Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { formatMapCoordinate, geoJsonPointToMapCoordinates } from './types';
+import { reverseGeocodePlace } from './locationSearch';
 
 type LocationLabelEntry = { label: string; request: Promise<string> };
 // Shared by queue cards, overview, and expanded evidence for this app session.
@@ -24,8 +25,19 @@ export function cachedLocationLabel(location: GeoJsonPoint) {
 }
 
 function addressLabel(address: Location.LocationGeocodedAddress) {
+  const detailedAddress = address as Location.LocationGeocodedAddress & {
+    name?: string | null;
+    street?: string | null;
+    postalCode?: string | null;
+  };
   const locality = address.city?.trim() || address.district?.trim() || address.subregion?.trim();
-  const parts = [locality, address.region?.trim()].filter((part): part is string => Boolean(part));
+  const parts = [
+    detailedAddress.name?.trim(),
+    detailedAddress.street?.trim(),
+    locality,
+    address.region?.trim(),
+    detailedAddress.postalCode?.trim()
+  ].filter((part): part is string => Boolean(part));
   return parts.filter((part, index) => parts.findIndex((other) => other.toLowerCase() === part.toLowerCase()) === index).join(', ');
 }
 
@@ -36,7 +48,10 @@ export function resolveLocationLabel(location: GeoJsonPoint): Promise<string> {
   const fallback = coordinateLocationLabel(location);
   const coordinates = geoJsonPointToMapCoordinates(location);
   const request = geocodingQueue.then(async () => {
-    if (!coordinates || Platform.OS === 'web') return fallback;
+    if (!coordinates) return fallback;
+    if (Platform.OS === 'web') {
+      return (await reverseGeocodePlace(coordinates.latitude, coordinates.longitude)) || fallback;
+    }
     try {
       // Android requires existing permission even for known coordinates. Never prompt or capture GPS here.
       if (Platform.OS === 'android' && (await Location.getForegroundPermissionsAsync()).status !== 'granted') return fallback;

@@ -44,6 +44,7 @@ vi.mock('react-native', () => ({
   Alert: alertMock,
   FlatList: 'div',
   Image: 'img',
+  Platform: { OS: 'ios', select: (value: Record<string, unknown>) => value.ios ?? value.default },
   Pressable: 'button',
   RefreshControl: 'refresh',
   ScrollView: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,

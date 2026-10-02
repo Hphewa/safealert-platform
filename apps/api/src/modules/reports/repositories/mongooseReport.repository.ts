@@ -3,7 +3,7 @@ import type { CommunityReportSummary, MonitoringReportSummary } from '@safealert
 import { ReportModel, toSafeReport } from '../models/report.model.js';
 import type {
   CreateReportInput,
-  CancelPendingResidentReportInput,
+  DeletePendingResidentReportInput,
   NearbyCommunityReportsQuery,
   ReportRepository,
   ReviewReportInput,
@@ -201,27 +201,15 @@ export class MongooseReportRepository implements ReportRepository {
     return report ? toSafeReport(report) : null;
   }
 
-  async cancelPendingResidentReport(input: CancelPendingResidentReportInput) {
-    const report = await ReportModel.findOneAndUpdate(
+  async deletePendingResidentReport(input: DeletePendingResidentReportInput) {
+    const result = await ReportModel.deleteOne(
       {
         _id: input.reportId,
         residentId: input.residentId,
         status: 'PENDING'
-      },
-      {
-        $set: {
-          status: 'CANCELLED',
-          cancelledById: input.residentId,
-          cancelledAt: input.cancelledAt
-        }
-      },
-      {
-        new: true,
-        runValidators: true
       }
     ).exec();
-
-    return report ? toSafeReport(report) : null;
+    return result.deletedCount === 1;
   }
 
   async reviewReport(input: ReviewReportInput) {

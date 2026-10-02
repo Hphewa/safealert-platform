@@ -4,10 +4,12 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 
 import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
-import { captureCurrentLocation, formatCoordinate } from '../../shared/currentLocation';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
+import { captureCurrentLocation } from '../../shared/currentLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { CounterField } from '../components/CounterField';
 import { SelectableCard } from '../components/SelectableCard';
@@ -279,7 +281,7 @@ export function EmergencyAssistanceScreen() {
         <Pressable
           accessibilityLabel="Go back"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => goBackSafely(router, '/resident')}
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -343,8 +345,10 @@ export function EmergencyAssistanceScreen() {
               <View style={styles.detectedLocation}>
                 <Text style={styles.detectedText}>Detected current location</Text>
                 <Text style={styles.coordinateText}>
-                  Lat {formatCoordinate(draft.location.latitude)}, Long{' '}
-                  {formatCoordinate(draft.location.longitude)}
+                  <HumanReadableLocation
+                    location={{ type: 'Point', coordinates: [draft.location.longitude, draft.location.latitude] }}
+                    style={styles.coordinateText}
+                  />
                 </Text>
                 <Text style={styles.helperNote}>Saved for response requests as [longitude, latitude].</Text>
                 <Text style={styles.helperNote}>

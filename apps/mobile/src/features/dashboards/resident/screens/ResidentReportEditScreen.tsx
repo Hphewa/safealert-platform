@@ -8,10 +8,13 @@ import type {
 } from '@safealert/contracts';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -24,16 +27,17 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
+import { DashboardTopBar } from '../../shared/components/DashboardTopBar';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
-import { formatCoordinate } from '../../shared/currentLocation';
 import { LocationPicker } from '../../shared/maps/LocationPicker';
 import { LocationPreview } from '../../shared/maps/LocationPreview';
+import { reverseGeocodePlace } from '../../shared/maps/locationSearch';
 import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { VoiceNoteRecorder } from '../../shared/voice/VoiceNoteRecorder';
 import { toReportVoiceEvidence, type LocalVoiceEvidence } from '../../shared/voice/voiceEvidence';
 import { uploadReportEvidence } from '../api/mediaApi';
-import { getMyReportById, updateMyPendingReport } from '../api/reportApi';
+import { cancelMyPendingReport, getMyReportById, updateMyPendingReport } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
 import { descriptionMaxLength, descriptionMinLength } from '../reportDraft';
 import { reportGeoJsonToLocationCoordinates, type ReportLocationCoordinates } from '../reportLocation';
@@ -43,11 +47,16 @@ import {
   statusLabelForResident
 } from '../reports';
 
-const hazardOptions: Array<{ label: string; value: HazardType; icon: string }> = [
-  { label: 'Flood', value: 'FLOOD', icon: 'water-outline' },
-  { label: 'Blocked Road', value: 'BLOCKED_ROAD', icon: 'trail-sign-outline' },
-  { label: 'Landslide', value: 'LANDSLIDE', icon: 'leaf-outline' },
-  { label: 'Other', value: 'OTHER', icon: 'alert-circle-outline' }
+import blockedRoadHazardImage from '../../../../../assets/hazards/blocked-road.png';
+import floodHazardImage from '../../../../../assets/hazards/flood.png';
+import landslideHazardImage from '../../../../../assets/hazards/landslide.png';
+import otherHazardImage from '../../../../../assets/hazards/other.png';
+
+const hazardOptions: Array<{ label: string; value: HazardType; image: number }> = [
+  { label: 'Flood', value: 'FLOOD', image: floodHazardImage },
+  { label: 'Blocked Road', value: 'BLOCKED_ROAD', image: blockedRoadHazardImage },
+  { label: 'Landslide', value: 'LANDSLIDE', image: landslideHazardImage },
+  { label: 'Other', value: 'OTHER', image: otherHazardImage }
 ];
 
 const severityOptions: ReportSeverity[] = ['LOW', 'MODERATE', 'HIGH'];
@@ -87,7 +96,9 @@ export function ResidentReportEditScreen() {
   const [submitStatus, setSubmitStatus] = useState<EditSubmitStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [canRetrySave, setCanRetrySave] = useState(false);
+  const [locationAddress, setLocationAddress] = useState<string | null>(null);
   const submitInFlightRef = useRef(false);
+  const deleteInFlightRef = useRef(false);
 
   const loadReport = useCallback(async () => {
     if (!reportId) {
@@ -126,6 +137,25 @@ export function ResidentReportEditScreen() {
   useEffect(() => {
     void loadReport();
   }, [loadReport]);
+
+  useEffect(() => {
+    if (!form) {
+      setLocationAddress(null);
+      return;
+    }
+
+    let active = true;
+    setLocationAddress('Finding nearby address...');
+    void reverseGeocodePlace(form.coordinates.latitude, form.coordinates.longitude).then((placeName) => {
+      if (active) {
+        setLocationAddress(placeName ?? 'Address unavailable for this location.');
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [form?.coordinates.latitude, form?.coordinates.longitude]);
 
   const saveChanges = async () => {
     if (!accessToken || !report || !form || submitInFlightRef.current) {
@@ -283,6 +313,48 @@ export function ResidentReportEditScreen() {
     setIsEditingLocation(true);
   };
 
+  const deleteReport = async () => {
+    if (!accessToken || !report || deleteInFlightRef.current) {
+      return;
+    }
+
+    deleteInFlightRef.current = true;
+    setErrorMessage(null);
+
+    try {
+      await cancelMyPendingReport(report.id, accessToken);
+      router.replace('/resident/reports');
+    } catch (error) {
+      setErrorMessage(
+        error instanceof ApiClientError && error.status === 409
+          ? 'This report can no longer be deleted because its status has changed.'
+          : 'Your report could not be deleted.'
+      );
+    } finally {
+      deleteInFlightRef.current = false;
+    }
+  };
+
+  const confirmDeleteReport = () => {
+    const message = 'This permanently removes the pending report from SafeAlert. This action cannot be undone.';
+
+    if (Platform.OS === 'web') {
+      if (typeof globalThis.confirm === 'function' && globalThis.confirm(`Delete this report?\n\n${message}`)) {
+        void deleteReport();
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Delete this report?',
+      message,
+      [
+        { text: 'Keep Report', style: 'cancel' },
+        { text: 'Delete Report', style: 'destructive', onPress: () => void deleteReport() }
+      ]
+    );
+  };
+
   const cancelEditingLocation = () => {
     setPendingCoordinates(null);
     setIsEditingLocation(false);
@@ -305,12 +377,13 @@ export function ResidentReportEditScreen() {
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <View style={styles.contentWrap}>
+        <DashboardTopBar />
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.headerRow}>
             <Pressable
               accessibilityLabel="Go back"
               accessibilityRole="button"
-              onPress={() => router.back()}
+              onPress={() => goBackSafely(router, '/resident/reports')}
               style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
             >
               <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -353,10 +426,10 @@ export function ResidentReportEditScreen() {
                         pressed && styles.pressed
                       ]}
                     >
-                      <DashboardGlyph
-                        color={form.hazardType === option.value ? dashboardTheme.colors.primaryStrong : dashboardTheme.colors.muted}
-                        name={option.icon}
-                        size={20}
+                      <Image
+                        accessibilityLabel={`${option.label} hazard icon`}
+                        source={option.image}
+                        style={styles.hazardIcon}
                       />
                       <Text style={styles.optionLabel}>{option.label}</Text>
                     </Pressable>
@@ -397,9 +470,10 @@ export function ResidentReportEditScreen() {
                   />
                 ) : (
                   <>
-                    <Text style={styles.panelText}>
-                      Selected location: {formatCoordinate(form.coordinates.latitude)}, {formatCoordinate(form.coordinates.longitude)}
-                    </Text>
+                    <View style={styles.locationSummary}>
+                      <Text style={styles.panelText}>Selected location:</Text>
+                      <Text style={styles.locationAddress}>{locationAddress ?? 'Finding nearby address...'}</Text>
+                    </View>
                     <LocationPreview coordinates={form.coordinates} height={210} title="Hazard location" />
                     <Pressable
                       accessibilityLabel="Adjust report location"
@@ -512,6 +586,16 @@ export function ResidentReportEditScreen() {
                 <Text style={styles.saveButtonText}>
                   {isSubmitting ? 'Saving changes...' : canRetrySave ? 'Try Again' : 'Save Changes'}
                 </Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityLabel="Delete report"
+                accessibilityRole="button"
+                disabled={isSubmitting}
+                onPress={confirmDeleteReport}
+                style={({ pressed }) => [styles.deleteButton, isSubmitting && styles.buttonDisabled, pressed && styles.pressed]}
+              >
+                <Text style={styles.deleteButtonText}>Delete Report</Text>
               </Pressable>
 
               <Text style={styles.hintText}>
@@ -667,6 +751,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: dashboardTheme.colors.muted
   },
+  locationSummary: {
+    gap: 4
+  },
+  locationAddress: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+    color: dashboardTheme.colors.text
+  },
   optionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -694,6 +787,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
     color: dashboardTheme.colors.text
+  },
+  hazardIcon: {
+    width: 26,
+    height: 26,
+    resizeMode: 'contain'
   },
   optionRow: {
     flexDirection: 'row',
@@ -762,6 +860,20 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
     color: '#ffffff'
+  },
+  deleteButton: {
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.critical,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: dashboardTheme.colors.critical
   },
   secondaryButton: {
     minHeight: 46,

@@ -1146,7 +1146,7 @@ describe('report API', () => {
     expect(response.status).toBe(400);
   });
 
-  it('prevents foreign residents and non-resident roles from editing or cancelling resident reports', async () => {
+  it('prevents foreign residents and non-resident roles from editing or deleting resident reports', async () => {
     const { app, authRepository } = createTestContext();
     const residentA = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-owner@example.com');
     const residentB = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-foreign@example.com');
@@ -1164,18 +1164,18 @@ describe('report API', () => {
       .set('Authorization', `Bearer ${residentB.token}`)
       .send({ description: 'Foreign edit attempt.' });
     const foreignCancel = await request(app)
-      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .delete(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${residentB.token}`);
     const unauthenticatedEdit = await request(app)
       .patch(`/api/v1/reports/mine/${reportId}`)
       .send({ description: 'Unauthenticated edit attempt.' });
-    const unauthenticatedCancel = await request(app).patch(`/api/v1/reports/mine/${reportId}/cancel`);
+    const unauthenticatedCancel = await request(app).delete(`/api/v1/reports/mine/${reportId}`);
     const volunteerEdit = await request(app)
       .patch(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${volunteer.token}`)
       .send({ description: 'Volunteer edit attempt.' });
     const officerCancel = await request(app)
-      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .delete(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${officer.token}`);
 
     expect(foreignEdit.status).toBe(404);
@@ -1186,7 +1186,7 @@ describe('report API', () => {
     expect(officerCancel.status).toBe(403);
   });
 
-  it('soft-cancels a resident-owned pending report and removes it from pending workflows', async () => {
+  it('deletes a resident-owned pending report and removes it from pending workflows', async () => {
     const { app, authRepository, reportRepository } = createTestContext();
     const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-cancel@example.com');
     const volunteer = await createAuthenticatedUser(authRepository, 'COMMUNITY_VOLUNTEER', 'volunteer-cancel-list@example.com');
@@ -1199,7 +1199,7 @@ describe('report API', () => {
     const reportId = created.body.report.id as string;
 
     const response = await request(app)
-      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .delete(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${resident.token}`);
     const stored = await reportRepository.findReportById(reportId);
     const volunteerList = await request(app)
@@ -1212,23 +1212,15 @@ describe('report API', () => {
       .get(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${resident.token}`);
 
-    expect(response.status).toBe(200);
-    expect(response.body.report).toEqual(
-      expect.objectContaining({
-        id: reportId,
-        status: 'CANCELLED',
-        cancelledById: resident.user.id,
-        cancelledAt: expect.any(String)
-      })
-    );
-    expect(stored).toEqual(expect.objectContaining({ id: reportId, status: 'CANCELLED' }));
+    expect(response.status).toBe(204);
+    expect(stored).toBeNull();
     expect(volunteerList.body.reports.map((report: SafeReport) => report.id)).not.toContain(reportId);
     expect(officerList.body.reports.map((report: SafeReport) => report.id)).not.toContain(reportId);
-    expect(residentDetail.body.report.status).toBe('CANCELLED');
+    expect(residentDetail.status).toBe(404);
   });
 
   it.each(['VERIFIED', 'REJECTED', 'CANCELLED', 'RESOLVED'] as const)(
-    'rejects resident edit and cancel for %s reports',
+    'rejects resident edit and delete for %s reports',
     async (status) => {
       const { app, authRepository, reportRepository } = createTestContext();
       const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', `resident-lock-${status.toLowerCase()}@example.com`);
@@ -1245,7 +1237,7 @@ describe('report API', () => {
         .set('Authorization', `Bearer ${resident.token}`)
         .send({ description: 'Should not be accepted.' });
       const cancel = await request(app)
-        .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+        .delete(`/api/v1/reports/mine/${reportId}`)
         .set('Authorization', `Bearer ${resident.token}`);
 
       expect(edit.status).toBe(409);
@@ -1274,7 +1266,7 @@ describe('report API', () => {
       .set('Authorization', `Bearer ${resident.token}`)
       .send({ description: 'Stale resident edit after officer decision.' });
     const staleCancel = await request(app)
-      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .delete(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${resident.token}`);
 
     expect(staleEdit.status).toBe(409);

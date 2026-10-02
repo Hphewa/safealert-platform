@@ -8,6 +8,7 @@ import { dashboardTheme, cardShadow } from '../../shared/theme';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { StatusBadge } from '../../shared/components/StatusBadge';
+import { HazardImage } from '../../shared/components/HazardImage';
 import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { officerBottomNavItems } from '../officerNavigation';
 import { listInitialAssessmentQueue } from '../api/incidentApi';
@@ -83,6 +84,7 @@ export function OfficerRiskAssessmentsScreen() {
           accessibilityLabel={`${filter.label}, ${filter.count} incidents${selected ? ', selected' : ''}`}
           onPress={() => setSelectedHazard(filter.hazardType)}
           style={({ pressed }) => [styles.filterChip, selected && styles.filterChipSelected, pressed && styles.pressed]}>
+          {filter.hazardType ? <HazardImage hazardType={filter.hazardType} size={24} /> : null}
           <Text style={[styles.filterText, selected && styles.filterTextSelected]}>{filter.label} {filter.count}</Text>
         </Pressable>;
       })}
@@ -124,14 +126,13 @@ export function AssessmentQueueFilteredEmptyState({ hazard, onShowAll }: { hazar
 function AssessmentQueueCard({ incident, onPress }: { incident: IncidentWithReportsResponse; onPress: () => void }) {
   const hazard = formatAssessmentHazard(incident.incident.hazardType);
   const reportCount = incident.reports.length;
-  const icon = hazardIcon(incident.incident.hazardType);
   const latestReportAt = latestIncidentReportAt(incident);
   return <Pressable accessibilityRole="button" accessibilityLabel={`View ${hazard} incident overview`}
     accessibilityHint="Review verified evidence before starting an assessment" onPress={onPress}
     style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
     <View style={styles.cardHeader}>
       <View style={styles.hazardHeading}>
-        <View style={styles.hazardIcon}><DashboardGlyph name={icon} color={dashboardTheme.colors.primaryStrong} size={18} /></View>
+        <HazardImage hazardType={incident.incident.hazardType} size={42} />
         <Text style={styles.hazardTitle}>{hazard}</Text>
       </View>
       <StatusBadge label="NEEDS ASSESSMENT" tone="info" />
@@ -151,16 +152,6 @@ function AssessmentQueueCard({ incident, onPress }: { incident: IncidentWithRepo
   </Pressable>;
 }
 
-function hazardIcon(value: string) {
-  switch (value) {
-    case 'FLOOD': return 'water-outline';
-    case 'BLOCKED_ROAD': return 'trail-sign-outline';
-    case 'LANDSLIDE': return 'warning-outline';
-    case 'OTHER': return 'help-circle-outline';
-    default: return 'warning-outline';
-  }
-}
-
 const styles = StyleSheet.create({
   headingRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   mapAction: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, backgroundColor: dashboardTheme.colors.primarySoft, borderRadius: 12 },
@@ -168,14 +159,13 @@ const styles = StyleSheet.create({
   title: { fontSize: 26, fontWeight: '800', color: dashboardTheme.colors.text },
   count: { fontSize: 15, fontWeight: '600', color: dashboardTheme.colors.muted },
   filters: { flexDirection: 'row', gap: 8, paddingVertical: 2 },
-  filterChip: { minHeight: 42, paddingHorizontal: 14, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 999, alignItems: 'center', justifyContent: 'center', backgroundColor: dashboardTheme.colors.surface },
+  filterChip: { minHeight: 42, paddingHorizontal: 10, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 999, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: dashboardTheme.colors.surface },
   filterChipSelected: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.primarySoft },
   filterText: { fontSize: 13, fontWeight: '700', color: dashboardTheme.colors.muted },
   filterTextSelected: { color: dashboardTheme.colors.primaryStrong },
   card: { gap: 10, padding: 14, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.md, backgroundColor: dashboardTheme.colors.surface, ...cardShadow },
   cardHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   hazardHeading: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 9 },
-  hazardIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: dashboardTheme.colors.primarySoft },
   hazardTitle: { flexShrink: 1, fontSize: 18, fontWeight: '800', color: dashboardTheme.colors.text },
   locationRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   location: { flex: 1, fontSize: 14, fontWeight: '600', color: dashboardTheme.colors.text },

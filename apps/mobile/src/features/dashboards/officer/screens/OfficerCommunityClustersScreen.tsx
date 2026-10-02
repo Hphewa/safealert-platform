@@ -1,9 +1,10 @@
-import { useCallback, useRef, useState } from 'react';
-import type { SafeCommunityReportClusterSummary } from '@safealert/contracts';
-import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import type { HazardType, SafeCommunityReportClusterSummary } from '@safealert/contracts';
+import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
@@ -11,21 +12,38 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
-import { listOfficerCommunityReportClusters } from '../api/communityReportClusterApi';
+import { listOfficerCommunityReportClusterHistory, listOfficerCommunityReportClusters } from '../api/communityReportClusterApi';
 import { hazardImageForResident } from '../../resident/reports';
 
 type LoadStatus = 'idle' | 'loading' | 'refreshing' | 'success' | 'error';
+type ViewMode = 'pending' | 'history';
+type StatusFilter = 'ALL' | 'PENDING' | 'VERIFIED' | 'REJECTED' | 'RESOLVED' | 'CANCELLED';
+
+const statusFilters: Array<{ label: string; value: StatusFilter }> = [
+  { label: 'All', value: 'ALL' }, { label: 'Pending', value: 'PENDING' },
+  { label: 'Verified', value: 'VERIFIED' }, { label: 'Rejected', value: 'REJECTED' },
+  { label: 'Resolved', value: 'RESOLVED' }, { label: 'Cancelled', value: 'CANCELLED' }
+];
+const hazardFilters: Array<{ label: string; value: HazardType | 'ALL' }> = [
+  { label: 'All hazards', value: 'ALL' }, { label: 'Flood', value: 'FLOOD' },
+  { label: 'Blocked road', value: 'BLOCKED_ROAD' }, { label: 'Landslide', value: 'LANDSLIDE' },
+  { label: 'Other', value: 'OTHER' }
+];
 
 export function OfficerCommunityClustersScreen() {
   const router = useRouter();
   const { accessToken } = useAuth();
   const [clusters, setClusters] = useState<SafeCommunityReportClusterSummary[]>([]);
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('idle');
+  const [viewMode, setViewMode] = useState<ViewMode>('pending');
+  const [searchText, setSearchText] = useState('');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('PENDING');
+  const [hazardFilter, setHazardFilter] = useState<HazardType | 'ALL'>('ALL');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const inFlightRef = useRef(false);
   const latestRequestIdRef = useRef(0);
 
-  const loadClusters = useCallback(async (isRefresh = false) => {
+  const loadClusters = useCallback(async (isRefresh = false, mode: ViewMode = viewMode) => {
     if (inFlightRef.current) return;
     if (!accessToken) {
       setLoadStatus('error');
@@ -40,7 +58,9 @@ export function OfficerCommunityClustersScreen() {
     setErrorMessage(null);
 
     try {
-      const response = await listOfficerCommunityReportClusters(accessToken);
+      const response = mode === 'history'
+        ? await listOfficerCommunityReportClusterHistory(accessToken)
+        : await listOfficerCommunityReportClusters(accessToken);
       if (latestRequestIdRef.current !== requestId) return;
       setClusters(response.clusters);
       setLoadStatus('success');
@@ -53,7 +73,7 @@ export function OfficerCommunityClustersScreen() {
     } finally {
       if (latestRequestIdRef.current === requestId) inFlightRef.current = false;
     }
-  }, [accessToken]);
+  }, [accessToken, viewMode]);
 
   useFocusEffect(useCallback(() => {
     void loadClusters();
@@ -65,12 +85,23 @@ export function OfficerCommunityClustersScreen() {
 
   const isLoading = loadStatus === 'idle' || loadStatus === 'loading';
   const isRefreshing = loadStatus === 'refreshing';
+  const visibleClusters = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+    return clusters.filter((cluster) => {
+      if (hazardFilter !== 'ALL' && cluster.hazardType !== hazardFilter) return false;
+      if (statusFilter !== 'ALL') {
+        const count = statusCount(cluster, statusFilter);
+        if (count === 0) return false;
+      }
+      return !query || cluster.hazardType.replace(/_/g, ' ').toLowerCase().includes(query);
+    });
+  }, [clusters, hazardFilter, searchText, statusFilter]);
 
   return (
     <View style={styles.screen}>
       <FlatList
         contentContainerStyle={styles.content}
-        data={clusters}
+        data={visibleClusters}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
           <View style={styles.headerBlock}>
@@ -78,7 +109,7 @@ export function OfficerCommunityClustersScreen() {
               <Pressable
                 accessibilityLabel="Go back"
                 accessibilityRole="button"
-                onPress={() => router.back()}
+                onPress={() => goBackSafely(router, '/officer')}
                 style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
               >
                 <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -98,18 +129,28 @@ export function OfficerCommunityClustersScreen() {
                 )}
               </Pressable>
             </View>
-            <Text style={styles.description}>
-              Review related pending community reports that may describe the same hazard.
-            </Text>
+            <Text style={styles.description}>{viewMode === 'pending' ? 'Review related pending reports that may describe the same hazard.' : 'Browse the full community-incident history and review every report status.'}</Text>
+            <View style={styles.modeRow}>
+              {(['pending', 'history'] as const).map((mode) => <Pressable key={mode} accessibilityRole="tab" accessibilityState={{ selected: viewMode === mode }} onPress={() => { setViewMode(mode); setStatusFilter(mode === 'pending' ? 'PENDING' : 'ALL'); void loadClusters(true, mode); }} style={[styles.modeButton, viewMode === mode && styles.modeButtonActive]}><Text style={[styles.modeText, viewMode === mode && styles.modeTextActive]}>{mode === 'pending' ? 'Needs review' : 'History'}</Text></Pressable>)}
+            </View>
+            <View style={styles.searchCard}><DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="search-outline" size={17} /><TextInput accessibilityLabel="Search community incidents" onChangeText={setSearchText} placeholder="Search by hazard type" placeholderTextColor={dashboardTheme.colors.muted} style={styles.searchInput} value={searchText} /></View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow} accessibilityLabel="Filter community incident status">
+              {statusFilters.map((filter) => <Pressable key={filter.value} accessibilityRole="radio" accessibilityState={{ checked: statusFilter === filter.value }} onPress={() => setStatusFilter(filter.value)} style={[styles.filterChip, statusFilter === filter.value && styles.filterChipActive]}><Text style={[styles.filterText, statusFilter === filter.value && styles.filterTextActive]}>{filter.label}</Text></Pressable>)}
+            </ScrollView>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow} accessibilityLabel="Filter community incident hazard">
+              {hazardFilters.map((filter) => <Pressable key={filter.value} accessibilityRole="radio" accessibilityState={{ checked: hazardFilter === filter.value }} onPress={() => setHazardFilter(filter.value)} style={[styles.filterChip, hazardFilter === filter.value && styles.filterChipActive]}><Text style={[styles.filterText, hazardFilter === filter.value && styles.filterTextActive]}>{filter.label}</Text></Pressable>)}
+            </ScrollView>
+            {loadStatus === 'success' ? <Text style={styles.resultSummary}>{visibleClusters.length} incident{visibleClusters.length === 1 ? '' : 's'} shown</Text> : null}
             {errorMessage && clusters.length ? <Text style={styles.errorText}>{errorMessage}</Text> : null}
           </View>
         }
         ListEmptyComponent={
-          <ClusterListState
+            <ClusterListState
             errorMessage={errorMessage}
             isLoading={isLoading}
             onRetry={() => void loadClusters(true)}
-          />
+              emptyLabel={viewMode === 'pending' ? 'No community incident groups are waiting for review.' : 'No community incident history is available yet.'}
+            />
         }
         refreshControl={
           <RefreshControl
@@ -160,6 +201,9 @@ function ClusterCard({
         <Metric label="Pending" value={String(cluster.pendingReportCount)} />
         <Metric label="Field checks" value={String(cluster.fieldConfirmationCount)} />
       </View>
+      <Text accessibilityLabel={`${cluster.verifiedReportCount} verified, ${cluster.rejectedReportCount} rejected, ${cluster.resolvedReportCount} resolved`} style={styles.statusSummary}>
+        {cluster.verifiedReportCount} verified {'\u00B7'} {cluster.rejectedReportCount} rejected {'\u00B7'} {cluster.resolvedReportCount} resolved
+      </Text>
       <View style={styles.cardBodyRow}>
         <DashboardGlyph color={dashboardTheme.colors.muted} name="time-outline" size={16} />
         <Text style={styles.cardBody}>Latest report {formatDateTime(cluster.lastReportedAt)}</Text>
@@ -181,17 +225,19 @@ function Metric({ label, value }: { label: string; value: string }) {
 function ClusterListState({
   errorMessage,
   isLoading,
-  onRetry
+  onRetry,
+  emptyLabel
 }: {
   errorMessage: string | null;
   isLoading: boolean;
   onRetry: () => void;
+  emptyLabel: string;
 }) {
   return (
     <View style={styles.stateCard}>
       {isLoading ? <ActivityIndicator color={dashboardTheme.colors.primary} size="small" /> : null}
       <Text style={styles.stateTitle}>
-        {isLoading ? 'Loading community incidents...' : errorMessage ? 'Community incidents could not be loaded.' : 'No community incident groups are waiting for review.'}
+        {isLoading ? 'Loading community incidents...' : errorMessage ? 'Community incidents could not be loaded.' : emptyLabel}
       </Text>
       {errorMessage && !isLoading ? (
         <Pressable accessibilityRole="button" onPress={onRetry} style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}>
@@ -200,6 +246,16 @@ function ClusterListState({
       ) : null}
     </View>
   );
+}
+
+function statusCount(cluster: SafeCommunityReportClusterSummary, status: Exclude<StatusFilter, 'ALL'>) {
+  return {
+    PENDING: cluster.pendingReportCount,
+    VERIFIED: cluster.verifiedReportCount,
+    REJECTED: cluster.rejectedReportCount,
+    RESOLVED: cluster.resolvedReportCount,
+    CANCELLED: cluster.cancelledReportCount
+  }[status];
 }
 
 function formatDateTime(value: string) {
@@ -211,10 +267,23 @@ function formatDateTime(value: string) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: dashboardTheme.colors.background },
   content: { gap: 14, paddingHorizontal: 16, paddingTop: 8, paddingBottom: 100 },
-  headerBlock: { gap: 14, marginBottom: 4 },
+  headerBlock: { gap: 12, marginBottom: 4 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   headerTitle: { flex: 1, fontSize: 25, fontWeight: '800', textAlign: 'center', color: dashboardTheme.colors.text },
   description: { fontSize: 15, lineHeight: 22, color: dashboardTheme.colors.muted },
+  modeRow: { flexDirection: 'row', padding: 4, borderRadius: 14, backgroundColor: dashboardTheme.colors.surfaceMuted },
+  modeButton: { flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 10 },
+  modeButtonActive: { backgroundColor: dashboardTheme.colors.surface, ...cardShadow },
+  modeText: { fontSize: 13, fontWeight: '700', color: dashboardTheme.colors.muted },
+  modeTextActive: { color: dashboardTheme.colors.primaryStrong },
+  searchCard: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 46, paddingHorizontal: 12, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 12, backgroundColor: dashboardTheme.colors.surface },
+  searchInput: { flex: 1, minHeight: 44, fontSize: 14, color: dashboardTheme.colors.text },
+  filterRow: { gap: 8 },
+  filterChip: { minHeight: 36, paddingHorizontal: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 999, backgroundColor: dashboardTheme.colors.surface },
+  filterChipActive: { borderColor: dashboardTheme.colors.primary, backgroundColor: dashboardTheme.colors.primarySoft },
+  filterText: { fontSize: 12, fontWeight: '700', color: dashboardTheme.colors.muted },
+  filterTextActive: { color: dashboardTheme.colors.primaryStrong },
+  resultSummary: { fontSize: 13, fontWeight: '700', color: dashboardTheme.colors.muted },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 22, backgroundColor: dashboardTheme.colors.surface },
   card: { gap: 12, padding: 16, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.md, backgroundColor: dashboardTheme.colors.surface, ...cardShadow },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
@@ -230,6 +299,7 @@ const styles = StyleSheet.create({
   metric: { flex: 1, minWidth: 92, gap: 3, padding: 12, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surfaceMuted },
   metricValue: { fontSize: 18, fontWeight: '800', color: dashboardTheme.colors.text },
   metricLabel: { fontSize: 12, fontWeight: '700', color: dashboardTheme.colors.muted },
+  statusSummary: { fontSize: 13, fontWeight: '700', color: dashboardTheme.colors.primaryStrong },
   stateCard: { gap: 12, alignItems: 'center', padding: 20, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.md, backgroundColor: dashboardTheme.colors.surface },
   stateTitle: { fontSize: 17, lineHeight: 24, fontWeight: '800', textAlign: 'center', color: dashboardTheme.colors.text },
   retryButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.primary },
@@ -237,3 +307,5 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 13, color: dashboardTheme.colors.critical },
   pressed: { opacity: 0.82 }
 });
+
+

@@ -4,12 +4,14 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import type { IncidentWithReportsResponse, SafeReport } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
 import { getIncidentDetails } from '../api/incidentApi';
-import { formatIncidentLocation, formatIncidentTime, incidentGroupingErrorMessage } from '../incidentGrouping';
+import { formatIncidentTime, incidentGroupingErrorMessage } from '../incidentGrouping';
 
 type DetailsStatus = 'idle' | 'loading' | 'success' | 'error';
 
@@ -66,7 +68,7 @@ export function IncidentDetailsScreen() {
         <Pressable
           accessibilityLabel="Back to incident candidates"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => goBackSafely(router, '/officer/incidents')}
           style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -93,7 +95,7 @@ export function IncidentDetailsScreen() {
             <Text style={styles.cardTitle}>{data.incident.hazardType.replace(/_/g, ' ')}</Text>
             <Text style={styles.cardBody}>One real-world event represented by verified report evidence.</Text>
             <Detail label="Status" value={data.incident.status} />
-            <Detail label="Approximate location" value={formatIncidentLocation(data.incident.location)} />
+            <View style={styles.detail}><Text style={styles.detailLabel}>Approximate location</Text><HumanReadableLocation location={data.incident.location} style={styles.detailValue} /></View>
             <Detail label="Verified reports" value={String(data.incident.reportIds.length)} />
           </View>
           <Text style={styles.sectionTitle}>Reports in this incident</Text>
@@ -120,7 +122,7 @@ function RelatedReportCard({ report }: { report: SafeReport }) {
       </View>
       <Text style={styles.cardBody}>{report.description}</Text>
       <Detail label="Reported" value={formatIncidentTime(report.createdAt)} />
-      <Detail label="Location" value={formatIncidentLocation(report.location)} />
+      <View style={styles.detail}><Text style={styles.detailLabel}>Location</Text><HumanReadableLocation location={report.location} style={styles.detailValue} /></View>
       <Text selectable style={styles.reference}>Reference: {report.id}</Text>
     </View>
   );

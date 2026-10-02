@@ -39,10 +39,10 @@ export interface CommunityReportClusterRepository {
     radiusMeters: number;
   }): Promise<CommunityReportClusterCandidate[]>;
   findClustersWithPendingReports(): Promise<SafeCommunityReportClusterSummary[]>;
+  findAllClusters(): Promise<SafeCommunityReportClusterSummary[]>;
   updateSummary(
     clusterId: string,
     input: UpdateCommunityReportClusterSummaryInput
   ): Promise<SafeCommunityReportClusterSummary | null>;
   deleteById(clusterId: string): Promise<void>;
 }
-

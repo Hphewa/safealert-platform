@@ -107,7 +107,7 @@ export function createReportController(reportService: ReportService) {
     response.status(200).json(result);
   });
 
-  const cancelMineById: RequestHandler = asyncHandler(async (request, response) => {
+  const deleteMineById: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) {
       throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
     }
@@ -118,9 +118,8 @@ export function createReportController(reportService: ReportService) {
       throw new ApiError(400, 'INVALID_REPORT_ID', 'Report id is required.');
     }
 
-    const result = await reportService.cancelPendingResidentReport(request.auth.id, reportId);
-
-    response.status(200).json(result);
+    await reportService.deletePendingResidentReport(request.auth.id, reportId);
+    response.status(204).send();
   });
 
   const listCommunity: RequestHandler = asyncHandler(async (request, response) => {
@@ -210,7 +209,7 @@ export function createReportController(reportService: ReportService) {
     getMineById,
     listMineFieldConfirmations,
     updateMineById,
-    cancelMineById,
+    deleteMineById,
     listCommunity,
     getCommunityById,
     listPendingOfficerReports,

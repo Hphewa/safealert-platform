@@ -7,6 +7,7 @@ import { DashboardHeader } from '../../shared/components/DashboardHeader';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { LocationPreview } from '../../shared/maps/LocationPreview';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { responderBottomNavItems } from '../mockData';
 import { extractEmergencyCoordinates, initiateViewLocationRoute } from '../contactLocationUi';
@@ -113,7 +114,12 @@ export function ResponderAssignmentsScreen({ view }: { view: ResponderAssignment
             <StatusBadge label={presentation.status} tone={view === 'history' ? 'success' : 'info'} />
             <Text accessibilityRole="header" style={styles.title}>{presentation.title}</Text>
             <Text style={styles.description}>{presentation.details.join(' · ')}</Text>
-            <Text style={styles.description}>{coordinates.isValid ? presentation.location : 'Emergency location unavailable'}</Text>
+            {coordinates.isValid ? (
+              <HumanReadableLocation
+                location={request.location}
+                style={styles.description}
+              />
+            ) : <Text style={styles.description}>Emergency location unavailable</Text>}
             <Text style={styles.description}>
               {view === 'history' ? 'Completed' : 'Last updated'}: {presentation.updatedAt ?? 'Time unavailable'}
             </Text>

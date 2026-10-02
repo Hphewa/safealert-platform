@@ -1,23 +1,21 @@
 import { useCallback, useMemo } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import type { Href } from 'expo-router';
 import { canCreateWarning, type GetPendingOfficerReportsResponse, type IncidentMonitoringSummary, type IncidentWithReportsResponse } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 
-import { ActionCard } from '../../shared/components/ActionCard';
 import { DashboardHeader } from '../../shared/components/DashboardHeader';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardSection } from '../../shared/components/DashboardSection';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
-import { RoleStatusBanner } from '../../shared/components/RoleStatusBanner';
 import { ReportListItem } from '../../shared/components/ReportListItem';
-import { StatCard } from '../../shared/components/StatCard';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listInitialAssessmentQueue, listIncidentMonitoring } from '../api/incidentApi';
 import { listPendingOfficerReports } from '../api/officerReportsApi';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
-import { officerBottomNavItems, officerQuickActions } from '../officerNavigation';
+import { officerBottomNavItems } from '../officerNavigation';
 import { mapSafeReportToOfficerGroupedReportSummary } from '../reports';
 import { warningStatusCounts, type WarningCardStatus } from '../warningList';
 
@@ -27,21 +25,9 @@ type OfficerDashboardData = {
   monitoring: IncidentMonitoringSummary[];
 };
 
-const dashboardQuickActions = [
-  ...officerQuickActions,
-  {
-    title: 'Warnings',
-    subtitle: 'Review warning status and history',
-    href: '/officer/warnings' as const,
-    icon: 'warning-outline'
-  }
-];
-
 export function OfficerDashboardScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
-  const { width } = useWindowDimensions();
-  const isCompactLayout = width < 600;
   const loadDashboard = useCallback(async (): Promise<OfficerDashboardData> => {
     if (!accessToken) throw new Error('Your Officer session is unavailable. Please log in again.');
     const [pendingReports, assessmentQueue, monitoring] = await Promise.all([
@@ -61,7 +47,7 @@ export function OfficerDashboardScreen() {
     if (!data) return [];
     return [...data.pendingReports.reports]
       .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
-      .slice(0, 3)
+      .slice(0, 2)
       .map((report) => mapSafeReportToOfficerGroupedReportSummary(report));
   }, [data]);
 
@@ -83,11 +69,13 @@ export function OfficerDashboardScreen() {
   );
   return (
     <DashboardScreen bottomNavItems={officerBottomNavItems} contentContainerStyle={styles.content}>
-      <DashboardHeader roleLabel="INCIDENT COMMAND" accentColor={dashboardTheme.colors.critical} title="Officer Dashboard" trailingIcon="person-circle-outline" trailingProfile trailingAccessibilityLabel="Open officer profile" onTrailingPress={() => router.push('/officer/profile')} />
-      <Pressable accessibilityRole="button" accessibilityLabel="Refresh officer dashboard" disabled={loading} onPress={() => void reload()} style={[styles.refreshButton, !isCompactLayout && styles.refreshButtonWeb, loading && styles.disabled]}>
-        {loading ? <ActivityIndicator color={dashboardTheme.colors.primary} size="small" /> : <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="refresh-outline" size={18} />}
-        <Text style={styles.refreshLabel}>{loading ? 'Refreshing dashboard...' : 'Refresh dashboard'}</Text>
-      </Pressable>
+      <View style={styles.hero}>
+        <DashboardHeader roleLabel="INCIDENT COMMAND" accentColor={dashboardTheme.colors.critical} title="Officer Dashboard" subtitle="Prioritize what needs your attention" trailingIcon="person-circle-outline" trailingProfile trailingAccessibilityLabel="Open officer profile" onTrailingPress={() => router.push('/officer/profile')} />
+        <Pressable accessibilityRole="button" accessibilityLabel="Refresh officer dashboard" disabled={loading} onPress={() => void reload()} style={[styles.refreshButton, loading && styles.disabled]}>
+          {loading ? <ActivityIndicator color={dashboardTheme.colors.primary} size="small" /> : <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="refresh-outline" size={18} />}
+          <Text style={styles.refreshLabel}>{loading ? 'Refreshing...' : 'Refresh'}</Text>
+        </Pressable>
+      </View>
 
       {loading ? (
         <View style={styles.state}>
@@ -103,16 +91,17 @@ export function OfficerDashboardScreen() {
         </View>
       ) : data ? (
         <>
-          <RoleStatusBanner title="Operational overview" message="Review incoming reports, assess verified incidents, and publish warnings when required." tone="warning" icon="shield-checkmark-outline" />
-          <View style={styles.statGrid}>
-            <StatCard label="Pending Reports" value={data.pendingReports.reports.length} icon="document-text-outline" tone="info" />
-            <StatCard label="Risk Assessments" value={data.assessmentQueue.length} icon="shield-checkmark-outline" tone="high" />
-            <StatCard label="New Verified Evidence" value={newEvidenceCount} icon="alert-circle-outline" tone={newEvidenceCount ? 'critical' : 'success'} />
-            <StatCard label="Draft Warnings" value={warningCounts.draft} icon="create-outline" tone="neutral" />
-            <StatCard label="Published Warnings" value={warningCounts.published} icon="warning-outline" tone="success" />
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryHeader}><View><Text style={styles.summaryEyebrow}>NEEDS ATTENTION</Text><Text style={styles.summaryTitle}>Today’s operational queue</Text></View><DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="chevron-forward" size={18} /></View>
+            <View style={styles.statGrid}>
+              <SummaryTile href="/officer/reports" label="Pending reports" value={data.pendingReports.reports.length} icon="document-text-outline" tone="info" />
+              <SummaryTile href="/officer/assessments" label="Assessments" value={data.assessmentQueue.length} icon="shield-checkmark-outline" tone="high" />
+              <SummaryTile href="/officer/monitoring" label="New evidence" value={newEvidenceCount} icon="alert-circle-outline" tone={newEvidenceCount ? 'critical' : 'success'} />
+              <SummaryTile href="/officer/warnings" label="Warnings needed" value={warningCounts.needsWarning} icon="warning-outline" tone={warningCounts.needsWarning ? 'critical' : 'success'} />
+            </View>
           </View>
 
-          <DashboardSection actionHref="/officer/reports" actionLabel="View All" title="Latest Pending Reports">
+          <DashboardSection actionHref="/officer/reports" actionLabel="View all" title="Start with these reports">
             <View style={styles.list}>
               {latestReports.length === 0 ? (
                 <Text style={styles.message}>No pending reports. New resident reports will appear here.</Text>
@@ -134,7 +123,10 @@ export function OfficerDashboardScreen() {
 
           <View style={styles.monitoringCard}>
             <View style={styles.monitoringHeader}>
-              <Text style={styles.monitoringEyebrow}>ACTIVE MONITORING</Text>
+              <View style={styles.monitoringTitleBlock}>
+                <Text style={styles.monitoringEyebrow}>ACTIVE MONITORING</Text>
+                <Text style={styles.monitoringSubtext}>Watch live incidents and new verified evidence.</Text>
+              </View>
               <Pressable
                 accessibilityRole="button"
                 accessibilityLabel="Open Monitoring"
@@ -160,46 +152,41 @@ export function OfficerDashboardScreen() {
                   <Text style={styles.monitoringLabel}>Warnings needed</Text>
                 </View>
               </View>
-              <View style={styles.monitoringNote}>
-                <View style={styles.monitoringNoteBar} />
-                <Text style={styles.monitoringDescription}>
-                  Monitor assessed incidents and newly verified evidence.{`\n`}
-                  HIGH and CRITICAL risks may require a public warning.
-                </Text>
-              </View>
+              <Text style={styles.monitoringDescription}>High and critical risks may require a public warning.</Text>
             </View>
           </View>
 
-          <DashboardSection title="Quick Actions">
-            <View style={[styles.actionGrid, isCompactLayout && styles.actionGridCompact]}>
-              {dashboardQuickActions.map((action, index) => (
-                <ActionCard
-                  href={action.href}
-                  icon={action.icon}
-                  key={`${action.title}-${index}`}
-                  layout={isCompactLayout ? 'row' : 'column'}
-                  subtitle={action.subtitle}
-                  title={action.title}
-                  variant={index === 0 ? 'primary' : 'default'}
-                />
-              ))}
-            </View>
-          </DashboardSection>
         </>
       ) : null}
     </DashboardScreen>
   );
 }
 
+function SummaryTile({ href, label, value, icon, tone }: { href: Href; label: string; value: number; icon: string; tone: 'info' | 'high' | 'critical' | 'success' }) {
+  const router = useRouter();
+  const colors = {
+    info: [dashboardTheme.colors.infoSoft, dashboardTheme.colors.info],
+    high: [dashboardTheme.colors.highSoft, dashboardTheme.colors.high],
+    critical: [dashboardTheme.colors.criticalSoft, dashboardTheme.colors.critical],
+    success: [dashboardTheme.colors.successSoft, dashboardTheme.colors.success]
+  }[tone];
+  return <Pressable accessibilityRole="button" accessibilityLabel={`Open ${label}`} onPress={() => router.push(href)} style={({ pressed }) => [styles.summaryTile, pressed && styles.pressed]}>
+    <View style={[styles.summaryIcon, { backgroundColor: colors[0] }]}><DashboardGlyph color={colors[1]} name={icon} size={16} /></View>
+    <View style={styles.summaryTileCopy}><Text style={styles.summaryValue}>{value}</Text><Text numberOfLines={1} style={styles.summaryLabel}>{label}</Text></View>
+    <DashboardGlyph color={dashboardTheme.colors.muted} name="chevron-forward" size={16} />
+  </Pressable>;
+}
+
 const styles = StyleSheet.create({
   content: {
     width: '100%',
     alignSelf: 'stretch',
-    paddingHorizontal: 24,
-    paddingTop: 18,
-    paddingBottom: 36,
-    gap: 28
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 28,
+    gap: 20
   },
+  hero: { gap: 10 },
   state: {
     gap: 12,
     padding: 20,
@@ -226,17 +213,12 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 44,
     justifyContent: 'center',
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.primarySoft,
     backgroundColor: dashboardTheme.colors.primarySoft,
     ...cardShadow
-  },
-  refreshButtonWeb: {
-    alignSelf: 'flex-end',
-    marginTop: -12,
-    paddingHorizontal: 18
   },
   refreshLabel: {
     color: dashboardTheme.colors.primaryStrong,
@@ -254,17 +236,44 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#ffffff'
   },
+  summaryCard: {
+    gap: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: 22,
+    backgroundColor: dashboardTheme.colors.surface,
+    ...cardShadow
+  },
+  summaryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  summaryHint: { fontSize: 12, fontWeight: '700', color: dashboardTheme.colors.muted },
+  summaryEyebrow: { fontSize: 11, fontWeight: '900', letterSpacing: 1, color: dashboardTheme.colors.critical },
+  summaryTitle: { marginTop: 3, fontSize: 17, fontWeight: '800', color: dashboardTheme.colors.text },
   statGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 14
+    gap: 10
   },
+  summaryTile: {
+    flex: 1,
+    minWidth: 145,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    padding: 12,
+    borderRadius: 15,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  summaryIcon: { width: 30, height: 30, alignItems: 'center', justifyContent: 'center', borderRadius: 15 },
+  summaryTileCopy: { flex: 1, gap: 1 },
+  summaryValue: { fontSize: 21, fontWeight: '900', color: dashboardTheme.colors.text },
+  summaryLabel: { fontSize: 11, fontWeight: '700', color: dashboardTheme.colors.muted },
   monitoringCard: {
-    gap: 16,
-    padding: 22,
+    gap: 12,
+    padding: 16,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.primarySoft,
-    borderRadius: 24,
+    borderRadius: 20,
     backgroundColor: '#f1f6ff',
     ...cardShadow
   },
@@ -275,11 +284,13 @@ const styles = StyleSheet.create({
   },
   monitoringEyebrow: {
     flex: 1,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '800',
     letterSpacing: 1,
     color: dashboardTheme.colors.text
   },
+  monitoringTitleBlock: { flex: 1, gap: 3 },
+  monitoringSubtext: { fontSize: 12, lineHeight: 17, color: dashboardTheme.colors.muted },
   monitoringAction: {
     minHeight: 40,
     flexDirection: 'row',
@@ -301,10 +312,10 @@ const styles = StyleSheet.create({
   },
   monitoringInner: {
     gap: 16,
-    padding: 18,
+    padding: 12,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.primarySoft,
-    borderRadius: 18,
+    borderRadius: 16,
     backgroundColor: dashboardTheme.colors.surface
   },
   monitoringStats: {
@@ -314,9 +325,9 @@ const styles = StyleSheet.create({
   },
   monitoringStat: {
     flex: 1,
-    minWidth: 140,
+    minWidth: 100,
     gap: 5,
-    padding: 16,
+    padding: 12,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: 16,
@@ -335,32 +346,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: dashboardTheme.colors.text
   },
-  monitoringNote: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: 10,
-    paddingTop: 2
-  },
-  monitoringNoteBar: {
-    width: 3,
-    borderRadius: 3,
-    backgroundColor: dashboardTheme.colors.primary
-  },
   monitoringDescription: {
-    flex: 1,
+    paddingHorizontal: 2,
     fontSize: 13,
     lineHeight: 20,
     color: dashboardTheme.colors.muted
-  },
-  actionGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16
-  },
-  actionGridCompact: {
-    flexDirection: 'column',
-    flexWrap: 'nowrap',
-    gap: 14
   },
   list: {
     gap: 14,

@@ -46,6 +46,13 @@ export class MongooseCommunityReportClusterRepository implements CommunityReport
     return clusters.map(toSafeCommunityReportCluster);
   }
 
+  async findAllClusters() {
+    const clusters = await CommunityReportClusterModel.find({})
+      .sort({ lastReportedAt: -1 })
+      .exec();
+    return clusters.map(toSafeCommunityReportCluster);
+  }
+
   async updateSummary(clusterId: string, input: UpdateCommunityReportClusterSummaryInput) {
     const cluster = await CommunityReportClusterModel.findByIdAndUpdate(
       clusterId,
@@ -59,4 +66,3 @@ export class MongooseCommunityReportClusterRepository implements CommunityReport
     await CommunityReportClusterModel.findByIdAndDelete(clusterId).exec();
   }
 }
-

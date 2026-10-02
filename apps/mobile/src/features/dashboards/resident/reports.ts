@@ -23,17 +23,21 @@ export const residentReportTabs: ReadonlyArray<{
 ];
 
 export function filterResidentReports(reports: SafeReport[], filter: ResidentReportFilterKey) {
+  const sortNewestFirst = (items: SafeReport[]) => [...items].sort((left, right) =>
+    new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  );
+
   switch (filter) {
     case 'all':
-      return reports;
+      return sortNewestFirst(reports);
     case 'pending':
-      return reports.filter((report) => report.status === 'PENDING');
+      return sortNewestFirst(reports.filter((report) => report.status === 'PENDING'));
     case 'verified':
-      return reports.filter((report) => report.status === 'VERIFIED');
+      return sortNewestFirst(reports.filter((report) => report.status === 'VERIFIED'));
     case 'rejected':
-      return reports.filter((report) => report.status === 'REJECTED');
+      return sortNewestFirst(reports.filter((report) => report.status === 'REJECTED'));
     case 'cancelled':
-      return reports.filter((report) => report.status === 'CANCELLED');
+      return sortNewestFirst(reports.filter((report) => report.status === 'CANCELLED'));
   }
 }
 

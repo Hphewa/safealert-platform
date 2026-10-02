@@ -4,6 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { REPORT_REJECTION_REASON_MAX_LENGTH, REPORT_VERIFICATION_NOTE_MAX_LENGTH } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { OfficerFieldConfirmations } from '../components/OfficerFieldConfirmations';
 import { ApiClientError } from '@/services/api/client';
 
@@ -301,7 +302,7 @@ export function OfficerReportReviewScreen() {
           <Pressable
             accessibilityLabel="Go back"
             accessibilityRole="button"
-            onPress={() => router.back()}
+            onPress={() => goBackSafely(router, '/officer/reports')}
             style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
           >
             <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -329,7 +330,7 @@ export function OfficerReportReviewScreen() {
             <View style={styles.noticeActions}>
               <Pressable
                 accessibilityRole="button"
-                onPress={() => router.back()}
+                onPress={() => goBackSafely(router, '/officer/reports')}
                 style={({ pressed }) => [styles.cancelButton, pressed && styles.pressed]}
               >
                 <Text style={styles.cancelButtonText}>Back</Text>
@@ -354,7 +355,7 @@ export function OfficerReportReviewScreen() {
         <Pressable
           accessibilityLabel="Go back"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => goBackSafely(router, '/officer/reports')}
           style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />

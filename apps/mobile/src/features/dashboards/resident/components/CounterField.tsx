@@ -80,6 +80,7 @@ export function CounterField({
 
 const styles = StyleSheet.create({
   card: {
+    minWidth: 0,
     gap: 12,
     padding: 14,
     borderWidth: 1,
@@ -101,18 +102,20 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.muted
   },
   controls: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12
+    gap: 8
   },
   button: {
-    width: 42,
-    height: 42,
+    width: 38,
+    height: 38,
+    flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: dashboardTheme.colors.primary,
-    borderRadius: 21,
+    borderRadius: 19,
     backgroundColor: dashboardTheme.colors.primarySoft
   },
   buttonDisabled: {
@@ -128,10 +131,11 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.muted
   },
   valueWrap: {
-    minWidth: 54,
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 4,
     paddingVertical: 8,
     borderRadius: dashboardTheme.radius.sm,
     backgroundColor: dashboardTheme.colors.surfaceMuted

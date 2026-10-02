@@ -11,6 +11,7 @@ import {
   type UnableToConfirmReason
 } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { ApiClientError } from '@/services/api/client';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
@@ -148,7 +149,7 @@ export function VolunteerConfirmationScreen() {
 
   return <DashboardScreen bottomNavItems={volunteerBottomNavItems} contentContainerStyle={styles.page}>
     <View style={styles.headerRow}>
-      <Pressable accessibilityRole="button" disabled={submitting} onPress={() => router.back()} style={styles.iconButton}>
+      <Pressable accessibilityRole="button" disabled={submitting} onPress={() => goBackSafely(router, '/volunteer')} style={styles.iconButton}>
         <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
       </Pressable>
       <Text accessibilityRole="header" style={styles.pageTitle}>Field Confirmation</Text>

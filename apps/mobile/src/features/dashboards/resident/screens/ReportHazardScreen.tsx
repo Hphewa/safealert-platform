@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { goBackSafely } from '@/features/navigation/safeBack';
 
 import photoEvidenceIcon from '../../../../../assets/evidence/photo-evidence.png';
 import voiceEvidenceIcon from '../../../../../assets/evidence/voice-evidence.png';
@@ -345,7 +346,7 @@ export function ReportHazardScreen() {
         <Pressable
           accessibilityLabel="Go back"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => goBackSafely(router, '/resident')}
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />

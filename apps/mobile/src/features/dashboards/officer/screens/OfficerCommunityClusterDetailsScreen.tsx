@@ -4,6 +4,7 @@ import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { ApiClientError } from '@/services/api/client';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
@@ -89,7 +90,7 @@ export function OfficerCommunityClusterDetailsScreen() {
     <View style={styles.screen}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
-          <Pressable accessibilityLabel="Go back" accessibilityRole="button" onPress={() => router.back()} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
+          <Pressable accessibilityLabel="Go back" accessibilityRole="button" onPress={() => goBackSafely(router, '/officer/community-clusters')} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}>
             <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
           </Pressable>
           <Text style={styles.headerTitle}>Community Incident</Text>

@@ -14,8 +14,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
+import { DashboardTopBar } from '../../shared/components/DashboardTopBar';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
@@ -25,7 +27,6 @@ import { listQueuedReports, type OfflineReportQueueItem } from '../offlineReport
 import {
   filterResidentReports,
   formatResidentReportCount,
-  formatResidentReportLocation,
   formatResidentReportSubmittedAt,
   hazardImageForResident,
   hazardLabelForResident,
@@ -37,6 +38,7 @@ import {
   residentReportStatusHref,
   type ResidentReportFilterKey
 } from '../reports';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 
 type ResidentReportsLoadStatus = 'idle' | 'loading' | 'refreshing' | 'success' | 'error';
 
@@ -130,6 +132,7 @@ export function ResidentReportsScreen() {
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <View style={styles.contentWrap}>
+        <DashboardTopBar />
         <FlatList
           contentContainerStyle={styles.content}
           data={filteredReports}
@@ -159,7 +162,7 @@ export function ResidentReportsScreen() {
                 <Pressable
                   accessibilityLabel="Go back"
                   accessibilityRole="button"
-                  onPress={() => router.back()}
+                  onPress={() => goBackSafely(router, '/resident')}
                   style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
                 >
                   <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -298,7 +301,7 @@ function ResidentReportCard({ report }: { report: SafeReport }) {
           <Text style={styles.reportTitle}>{hazardLabel}</Text>
           <Text style={styles.reportStatusText}>{statusDescription}</Text>
           <Text style={styles.reportMeta}>{formatResidentReportSubmittedAt(report.createdAt)}</Text>
-          <Text style={styles.reportMeta}>Location: {formatResidentReportLocation(report)}</Text>
+          <View style={styles.locationRow}><Text style={styles.reportMeta}>Location: </Text><HumanReadableLocation location={report.location} style={styles.reportMeta} /></View>
           {report.mediaReference || report.voiceEvidence ? (
             <View style={styles.evidenceRow}>
               {report.mediaReference ? <Text style={styles.evidenceText}>Photo evidence</Text> : null}
@@ -447,6 +450,7 @@ function ResidentReportsStateCard({
 }
 
 const styles = StyleSheet.create({
+  locationRow: { flexDirection: 'row', flexWrap: 'wrap' },
   screen: {
     flex: 1,
     backgroundColor: dashboardTheme.colors.background

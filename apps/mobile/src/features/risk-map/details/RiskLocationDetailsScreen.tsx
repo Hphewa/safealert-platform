@@ -3,6 +3,7 @@ import { ActivityIndicator, Image, Modal, Pressable, ScrollView, StyleSheet, Tex
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import type { RiskAssessmentFactors } from '@safealert/contracts';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { DashboardGlyph } from '../../dashboards/shared/components/DashboardGlyph';
 import { HumanReadableLocation } from '../../dashboards/shared/maps/HumanReadableLocation';
 import { formatMapCoordinate, geoJsonPointToMapCoordinates } from '../../dashboards/shared/maps/types';
@@ -28,7 +29,7 @@ export function RiskLocationDetailsScreen() {
 
   return <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
     <View style={styles.header}>
-      <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()} style={styles.backButton}>
+      <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => goBackSafely(router)} style={styles.backButton}>
         <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.text} size={20} />
       </Pressable>
       <Text style={styles.headerTitle}>{title}</Text>

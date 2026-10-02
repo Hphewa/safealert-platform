@@ -3,7 +3,9 @@ import type { GeoJsonPoint } from '@safealert/contracts';
 
 const platform = vi.hoisted(() => ({ OS: 'ios' }));
 const geocoder = vi.hoisted(() => ({ reverse: vi.fn(), permission: vi.fn(), request: vi.fn(), current: vi.fn() }));
+const placeSearch = vi.hoisted(() => ({ reverse: vi.fn() }));
 vi.mock('react-native', () => ({ Platform: platform }));
+vi.mock('./locationSearch', () => ({ reverseGeocodePlace: placeSearch.reverse }));
 vi.mock('expo-location', () => ({
   reverseGeocodeAsync: geocoder.reverse, getForegroundPermissionsAsync: geocoder.permission,
   requestForegroundPermissionsAsync: geocoder.request, getCurrentPositionAsync: geocoder.current
@@ -16,6 +18,7 @@ beforeEach(() => {
   platform.OS = 'ios';
   geocoder.reverse.mockReset().mockResolvedValue([]);
   geocoder.permission.mockResolvedValue({ status: 'granted' });
+  placeSearch.reverse.mockReset().mockResolvedValue(null);
 });
 
 it('uses locality and region returned by the geocoder', async () => {
@@ -70,9 +73,11 @@ it('uses coordinate fallback on Android without permission and never asks for cu
   expect(geocoder.current).not.toHaveBeenCalled();
 });
 
-it('avoids unsupported geocoding on web', async () => {
+it('uses the API place lookup on web instead of the native geocoder', async () => {
   platform.OS = 'web';
+  placeSearch.reverse.mockResolvedValue('Colombo, Sri Lanka');
   const { resolveLocationLabel } = await import('./locationLabel');
-  await expect(resolveLocationLabel(point)).resolves.toBe('6.83018, 79.94201');
+  await expect(resolveLocationLabel(point)).resolves.toBe('Colombo, Sri Lanka');
   expect(geocoder.reverse).not.toHaveBeenCalled();
+  expect(placeSearch.reverse).toHaveBeenCalledWith(6.83018, 79.94201);
 });

@@ -14,19 +14,21 @@ type DashboardScreenProps = {
   bottomNavItems: BottomNavItem[];
   contentContainerStyle?: StyleProp<ViewStyle>;
   refreshControl?: ReactElement<RefreshControlProps>;
+  topBarAction?: ReactNode;
 };
 
 export function DashboardScreen({
   children,
   bottomNavItems,
   contentContainerStyle,
-  refreshControl
+  refreshControl,
+  topBarAction
 }: DashboardScreenProps) {
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <StatusBar style="dark" />
       <View style={styles.contentWrap}>
-        <DashboardTopBar />
+        <DashboardTopBar action={topBarAction} />
         <ScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[styles.content, contentContainerStyle]}

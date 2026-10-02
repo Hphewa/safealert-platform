@@ -6,6 +6,7 @@ import {
   Alert,
   Image,
   Pressable,
+  Platform,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -15,12 +16,15 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
+import { DashboardTopBar } from '../../shared/components/DashboardTopBar';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { LocationPreview } from '../../shared/maps/LocationPreview';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { geoJsonPointToMapCoordinates } from '../../shared/maps/types';
 import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
@@ -31,7 +35,6 @@ import {
   buildResidentReportTimeline,
   canPreviewResidentReportMedia,
   formatResidentReportDateTime,
-  formatResidentReportLocation,
   hazardLabelForResident,
   isResidentReportEditable,
   officialReviewDetailForResident,
@@ -52,11 +55,11 @@ export function ResidentReportDetailsScreen() {
   const [fieldConfirmations, setFieldConfirmations] = useState<ResidentFieldConfirmation[]>([]);
   const [loadStatus, setLoadStatus] = useState<ResidentReportDetailLoadStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [actionStatus, setActionStatus] = useState<'idle' | 'cancelling'>('idle');
+  const [actionStatus, setActionStatus] = useState<'idle' | 'deleting'>('idle');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [canRetryCancel, setCanRetryCancel] = useState(false);
   const inFlightRef = useRef(false);
-  const cancelInFlightRef = useRef(false);
+  const deleteInFlightRef = useRef(false);
   const latestRequestIdRef = useRef(0);
   const reportRef = useRef<SafeReport | null>(null);
 
@@ -133,55 +136,64 @@ export function ResidentReportDetailsScreen() {
   const isInitialLoading = loadStatus === 'loading' && !report;
   const isRefreshing = loadStatus === 'refreshing';
 
-  const cancelReport = useCallback(async () => {
-    if (!reportId || !accessToken || cancelInFlightRef.current) {
+  const deleteReport = useCallback(async () => {
+    if (!reportId || !accessToken || deleteInFlightRef.current) {
       return;
     }
 
-    cancelInFlightRef.current = true;
-    setActionStatus('cancelling');
+    deleteInFlightRef.current = true;
+    setActionStatus('deleting');
     setActionMessage(null);
     setCanRetryCancel(false);
 
     try {
-      const response = await cancelMyPendingReport(reportId, accessToken);
-      setReport(response.report);
-      setActionMessage('Report cancelled. It remains in your submitted report history.');
+      await cancelMyPendingReport(reportId, accessToken);
+      router.replace('/resident/reports');
     } catch (error) {
       if (error instanceof ApiClientError && error.status === 409) {
-        setActionMessage('This report can no longer be cancelled because its status has changed.');
+        setActionMessage('This report can no longer be deleted because its status has changed.');
         setCanRetryCancel(false);
         await loadReport(true);
       } else {
-        setActionMessage('Your report could not be cancelled.');
+        setActionMessage('Your report could not be deleted.');
         setCanRetryCancel(true);
       }
     } finally {
-      cancelInFlightRef.current = false;
+      deleteInFlightRef.current = false;
       setActionStatus('idle');
     }
-  }, [accessToken, loadReport, reportId]);
+  }, [accessToken, loadReport, reportId, router]);
 
   const confirmCancelReport = useCallback(() => {
+    const message = 'This permanently removes the pending report from SafeAlert. This action cannot be undone.';
+
+    if (Platform.OS === 'web') {
+      if (typeof globalThis.confirm === 'function' && globalThis.confirm(`Delete this report?\n\n${message}`)) {
+        void deleteReport();
+      }
+      return;
+    }
+
     Alert.alert(
-      'Cancel this report?',
-      'Your report will no longer be considered active for review. This action cannot be undone.',
+      'Delete this report?',
+      message,
       [
         { text: 'Keep Report', style: 'cancel' },
         {
-          text: 'Cancel Report',
+          text: 'Delete Report',
           style: 'destructive',
           onPress: () => {
-            void cancelReport();
+            void deleteReport();
           }
         }
       ]
     );
-  }, [cancelReport]);
+  }, [deleteReport]);
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <View style={styles.contentWrap}>
+        <DashboardTopBar />
         <ScrollView
           contentContainerStyle={styles.content}
           refreshControl={
@@ -197,7 +209,7 @@ export function ResidentReportDetailsScreen() {
             <Pressable
               accessibilityLabel="Go back"
               accessibilityRole="button"
-              onPress={() => router.back()}
+              onPress={() => goBackSafely(router, '/resident/reports')}
               style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
             >
               <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -237,9 +249,9 @@ export function ResidentReportDetailsScreen() {
               actionMessage={actionMessage}
               canRetryCancel={canRetryCancel}
               fieldConfirmations={fieldConfirmations}
-              isCancelling={actionStatus === 'cancelling'}
+              isCancelling={actionStatus === 'deleting'}
               onCancelReport={confirmCancelReport}
-              onRetryCancel={cancelReport}
+              onRetryCancel={deleteReport}
               onEditReport={() => router.push(residentReportEditHref(report.id))}
               report={report}
               refreshErrorMessage={errorMessage}
@@ -330,12 +342,12 @@ function ReportDetailContent({
               ]}
             >
               <Text style={styles.cancelReportButtonText}>
-                {isCancelling ? 'Cancelling...' : 'Cancel Report'}
+                {isCancelling ? 'Deleting...' : 'Delete Report'}
               </Text>
             </Pressable>
             {canRetryCancel ? (
               <Pressable
-                accessibilityLabel="Try cancelling report again"
+                accessibilityLabel="Try deleting report again"
                 accessibilityRole="button"
                 accessibilityState={{ disabled: isCancelling }}
                 disabled={isCancelling}
@@ -377,7 +389,10 @@ function ReportDetailContent({
         <Text style={styles.panelTitle}>Report Information</Text>
         <DetailRow label="Hazard" value={hazardLabel} />
         <DetailRow label="Severity" value={report.severity} />
-        <DetailRow label="Selected location" value={formatResidentReportLocation(report)} />
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Selected location</Text>
+          <HumanReadableLocation location={report.location} style={styles.detailValue} />
+        </View>
         <DetailRow label="Submitted" value={formatResidentReportDateTime(report.createdAt)} />
         <DetailRow label="Last updated" value={formatResidentReportDateTime(report.updatedAt)} />
         {report.verifiedAt ? <DetailRow label="Verified" value={formatResidentReportDateTime(report.verifiedAt)} /> : null}

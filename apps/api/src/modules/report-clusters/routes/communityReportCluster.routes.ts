@@ -14,6 +14,7 @@ export function createCommunityReportClusterRouter(
 
   router.use(authenticate(config), authorizeRoles('DISASTER_OFFICER'));
   router.get('/officer/pending', controller.listOfficerClusters);
+  router.get('/officer/history', controller.listOfficerClusterHistory);
   router.get('/officer/:clusterId', controller.getOfficerCluster);
 
   return router;

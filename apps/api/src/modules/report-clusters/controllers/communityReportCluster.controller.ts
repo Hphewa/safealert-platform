@@ -8,11 +8,15 @@ export function createCommunityReportClusterController(service: CommunityReportG
     response.json(await service.listOfficerClusters());
   });
 
+  const listOfficerClusterHistory: RequestHandler = asyncHandler(async (_request, response) => {
+    response.json(await service.listOfficerClusterHistory());
+  });
+
   const getOfficerCluster: RequestHandler = asyncHandler(async (request, response) => {
     const clusterId = communityReportClusterObjectIdSchema.parse(request.params.clusterId);
     response.json(await service.getOfficerCluster(clusterId));
   });
 
-  return { listOfficerClusters, getOfficerCluster };
+  return { listOfficerClusters, listOfficerClusterHistory, getOfficerCluster };
 }
 

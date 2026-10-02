@@ -9,6 +9,7 @@ import { ApiClientError } from '@/services/api/client';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { StatusBadge } from '../../shared/components/StatusBadge';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { responderBottomNavItems } from '../mockData';
 import { getCachedResponderRequest, updateCachedResponderRequest } from '../requestDetailsCache';
@@ -40,7 +41,6 @@ import {
 } from '../decisionUi';
 import {
   extractEmergencyCoordinates,
-  formatCoordinate,
   initiateResidentCall,
   initiateViewLocationRoute,
   isValidPhoneNumber
@@ -958,8 +958,12 @@ export function ResponderRequestDetailsScreen() {
 
       {/* LDFEW-267 / LDFEW-363: Clearly display emergency GPS / location information */}
       <DetailsSection title="EMERGENCY LOCATION">
-        <DetailRow label="Latitude" value={formatCoordinate(emergencyCoordinates.latitude)} />
-        <DetailRow label="Longitude" value={formatCoordinate(emergencyCoordinates.longitude)} />
+        {canViewLocation ? (
+          <HumanReadableLocation
+            location={{ type: 'Point', coordinates: [emergencyCoordinates.longitude!, emergencyCoordinates.latitude!] }}
+            style={styles.description}
+          />
+        ) : null}
         {!canViewLocation ? <Text style={styles.description}>Emergency location unavailable</Text> : null}
         <Pressable
           accessibilityLabel="View Location / Route"
