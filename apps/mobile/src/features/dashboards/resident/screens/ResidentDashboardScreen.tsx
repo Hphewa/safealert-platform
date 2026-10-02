@@ -9,6 +9,7 @@ import { ActionCard } from '../../shared/components/ActionCard';
 import { DashboardHeader } from '../../shared/components/DashboardHeader';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
+import { RoleStatusBanner } from '../../shared/components/RoleStatusBanner';
 import { dashboardTheme } from '../../shared/theme';
 import { getFirstName } from '../../shared/utils';
 import { residentBottomNavItems, residentPrimaryActions } from '../mockData';
@@ -89,6 +90,8 @@ export function ResidentDashboardScreen() {
   return (
     <DashboardScreen bottomNavItems={residentBottomNavItems}>
       <DashboardHeader
+        roleLabel="COMMUNITY SAFETY"
+        accentColor={dashboardTheme.colors.primary}
         description="Stay informed. Stay safe."
         subtitle={`Hello, ${firstName}`}
         title="SafeAlert"
@@ -98,6 +101,15 @@ export function ResidentDashboardScreen() {
         onTrailingPress={() => setNotificationsOpen(true)}
         showLogoutButton
       />
+
+      {warnings.length > 0 ? <RoleStatusBanner
+        title={`${warnings.length} active safety warning${warnings.length === 1 ? '' : 's'}`}
+        message="Review the latest warning for your area and follow official guidance."
+        tone={warnings.some((warning) => warning.riskLevel === 'CRITICAL') ? 'critical' : 'warning'}
+        icon="warning-outline"
+        actionLabel="View"
+        onAction={() => setNotificationsOpen(true)}
+      /> : null}
 
       <ActionCard
         href={primaryCard.href}

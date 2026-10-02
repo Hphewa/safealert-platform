@@ -10,6 +10,7 @@ import { DashboardHeader } from '../../shared/components/DashboardHeader';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardSection } from '../../shared/components/DashboardSection';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
+import { RoleStatusBanner } from '../../shared/components/RoleStatusBanner';
 import { ReportListItem } from '../../shared/components/ReportListItem';
 import { StatCard } from '../../shared/components/StatCard';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
@@ -82,7 +83,7 @@ export function OfficerDashboardScreen() {
   );
   return (
     <DashboardScreen bottomNavItems={officerBottomNavItems} contentContainerStyle={styles.content}>
-      <DashboardHeader title="Officer Dashboard" trailingIcon="person-circle-outline" onTrailingPress={() => router.push('/officer/profile')} />
+      <DashboardHeader roleLabel="INCIDENT COMMAND" accentColor={dashboardTheme.colors.critical} title="Officer Dashboard" trailingIcon="person-circle-outline" trailingProfile trailingAccessibilityLabel="Open officer profile" onTrailingPress={() => router.push('/officer/profile')} />
       <Pressable accessibilityRole="button" accessibilityLabel="Refresh officer dashboard" disabled={loading} onPress={() => void reload()} style={[styles.refreshButton, !isCompactLayout && styles.refreshButtonWeb, loading && styles.disabled]}>
         {loading ? <ActivityIndicator color={dashboardTheme.colors.primary} size="small" /> : <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="refresh-outline" size={18} />}
         <Text style={styles.refreshLabel}>{loading ? 'Refreshing dashboard...' : 'Refresh dashboard'}</Text>
@@ -102,6 +103,7 @@ export function OfficerDashboardScreen() {
         </View>
       ) : data ? (
         <>
+          <RoleStatusBanner title="Operational overview" message="Review incoming reports, assess verified incidents, and publish warnings when required." tone="warning" icon="shield-checkmark-outline" />
           <View style={styles.statGrid}>
             <StatCard label="Pending Reports" value={data.pendingReports.reports.length} icon="document-text-outline" tone="info" />
             <StatCard label="Risk Assessments" value={data.assessmentQueue.length} icon="shield-checkmark-outline" tone="high" />

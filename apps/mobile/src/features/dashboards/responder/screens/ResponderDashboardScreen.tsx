@@ -17,6 +17,7 @@ import { clearResponderRequestCache, getCachedAssignedResponderRequests, getCach
 import { projectQueuedUpdates } from '../offline/responderUpdateQueue';
 import { useResponderOffline } from '../offline/useResponderOffline';
 import { ResponderOfflineStatus } from '../offline/ResponderOfflineStatus';
+import { RoleStatusBanner } from '../../shared/components/RoleStatusBanner';
 import { parseResponderRequestTab, responderRequestDetailsHref } from '../requestDetails';
 import {
   emptyQueueDescription,
@@ -178,11 +179,16 @@ export function ResponderDashboardScreen() {
   return (
     <DashboardScreen bottomNavItems={responderBottomNavItems}>
       <DashboardHeader
+        roleLabel="FIELD RESPONSE"
+        accentColor={dashboardTheme.colors.high}
         showLogoutButton
         title="Emergency Requests"
         trailingIcon="refresh-outline"
+        trailingAccessibilityLabel="Refresh emergency requests"
         onTrailingPress={() => void loadQueues()}
       />
+
+      <RoleStatusBanner title="Ready for response" message="Prioritized requests are shown below. Keep your connection status visible before dispatch." tone="warning" icon="flash-outline" />
 
       <View style={styles.statusRow}>
         <View style={styles.onlineBadge}>

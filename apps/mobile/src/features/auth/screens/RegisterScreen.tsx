@@ -52,9 +52,15 @@ export function RegisterScreen() {
 
   return (
     <View style={authStyles.screen}>
+      <View style={authStyles.brandPanel}>
+        <View style={authStyles.brandMark}><Text style={authStyles.brandMarkText}>!</Text></View>
+        <Text style={authStyles.brandName}>SafeAlert</Text>
+        <Text style={authStyles.brandTagline}>Community-powered disaster safety.</Text>
+      </View>
       <View>
+        <Text style={authStyles.eyebrow}>JOIN YOUR COMMUNITY</Text>
         <Text style={authStyles.title}>Create resident account</Text>
-        <Text style={authStyles.subtitle}>Public registration creates Resident accounts only.</Text>
+        <Text style={authStyles.subtitle}>Report hazards, receive warnings, and request help when it matters.</Text>
       </View>
 
       <View style={authStyles.form}>

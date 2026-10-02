@@ -1,11 +1,12 @@
 import type { RiskLevel, RiskMapIncident } from '@safealert/contracts';
+import { dashboardTheme } from '../dashboards/shared/theme';
 
 // Map-specific: existing badges elsewhere intentionally keep their current palette.
 export const riskMapPresentation: Record<RiskLevel, { label: string; color: string }> = {
-  LOW: { label: 'Low', color: '#16a34a' },
-  MODERATE: { label: 'Medium', color: '#eab308' },
-  HIGH: { label: 'High', color: '#f97316' },
-  CRITICAL: { label: 'Critical', color: '#dc2626' }
+  LOW: { label: 'Low', color: dashboardTheme.colors.low },
+  MODERATE: { label: 'Medium', color: dashboardTheme.colors.moderate },
+  HIGH: { label: 'High', color: dashboardTheme.colors.high },
+  CRITICAL: { label: 'Critical', color: dashboardTheme.colors.critical }
 };
 export type RiskMapFilter = 'ALL' | RiskLevel;
 export const riskMapFilters: RiskMapFilter[] = ['ALL', 'CRITICAL', 'HIGH', 'MODERATE', 'LOW'];

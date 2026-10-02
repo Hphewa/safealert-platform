@@ -5,6 +5,10 @@ import { useRouter } from 'expo-router';
 import { MultiMarkerLocationPreview } from '../../dashboards/shared/maps/MultiMarkerLocationPreview';
 import { RiskMapDetailsCard } from '../components/RiskMapDetailsCard';
 import { RiskMapFilters } from '../components/RiskMapFilters';
+import { HazardLegend } from '../../dashboards/shared/components/HazardLegend';
+import { HazardImage } from '../../dashboards/shared/components/HazardImage';
+import { DashboardTopBar } from '../../dashboards/shared/components/DashboardTopBar';
+import { dashboardTheme } from '../../dashboards/shared/theme';
 import { useRiskMap } from '../hooks/useRiskMap';
 import { filterRiskMapIncidents, riskMapHazard, riskMapPresentation, type RiskMapFilter } from '../riskMapPresentation';
 
@@ -18,10 +22,12 @@ export function RiskMapScreen() {
   const locations = useMemo(() => visible.map((incident) => ({ id: incident.incidentId,
     latitude: incident.location.coordinates[1], longitude: incident.location.coordinates[0],
     color: riskMapPresentation[incident.riskLevel].color,
+    hazardType: incident.hazardType,
     label: `${riskMapHazard(incident.hazardType)} · ${riskMapPresentation[incident.riskLevel].label}`
   })), [visible]);
   const selected = visible.find((incident) => incident.incidentId === selectedId);
   return <SafeAreaView style={styles.screen}>
+    <DashboardTopBar />
     <View style={styles.header}>
       <Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.back()}><Text style={styles.action}>‹ Back</Text></Pressable>
       <Text style={styles.title}>Risk Locations</Text>
@@ -29,6 +35,7 @@ export function RiskMapScreen() {
     </View>
     <Text style={styles.caption}>Current assessed risks · {data ? `Updated ${new Date(data.generatedAt).toLocaleTimeString()}` : 'Refreshes when you return'}</Text>
     <RiskMapFilters selected={filter} onSelect={(next) => { setFilter(next); select(null); }} />
+    <HazardLegend />
     {loading ? <View style={styles.state}><ActivityIndicator /><Text>Loading risk locations…</Text></View> : null}
     {error ? <View style={styles.state}><Text style={styles.title}>Risk data unavailable</Text><Text>{error}</Text><Pressable accessibilityRole="button" onPress={() => void refresh()}><Text style={styles.action}>Retry risk data</Text></Pressable></View> : null}
     {data && !visible.length ? <View style={styles.state}>
@@ -43,9 +50,9 @@ export function RiskMapScreen() {
       </View>
       {Platform.OS !== 'web' ? <View style={styles.list}>
         <Text style={styles.caption}>{visible.length} {visible.length === 1 ? 'location' : 'locations'} · Select from map or list</Text>
-        <FlatList data={locations} keyExtractor={(item) => item.id} renderItem={({ item }) => <Pressable accessibilityRole="button" onPress={() => select(item.id)} style={styles.location}>
+        <FlatList data={locations} keyExtractor={(item) => item.id} renderItem={({ item }) => <Pressable accessibilityRole="button" onPress={() => select(item.id)} style={styles.location}><HazardImage hazardType={item.hazardType} size={36} /><View style={styles.locationCopy}>
           <Text><Text style={{ color: item.color }}>● </Text>{item.label} · {item.latitude.toFixed(4)}, {item.longitude.toFixed(4)}</Text>
-        </Pressable>} />
+        </View></Pressable>} />
       </View> : null}
     </> : null}
     <Modal visible={Boolean(selected && data)} transparent animationType="slide" onRequestClose={() => select(null)}>
@@ -56,9 +63,9 @@ export function RiskMapScreen() {
   </SafeAreaView>;
 }
 const styles = StyleSheet.create({
-  screen: { flex: 1, paddingHorizontal: 16, backgroundColor: '#f8fafc' }, header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  title: { fontWeight: '800', fontSize: 19, color: '#111827' }, action: { color: '#2563eb', fontWeight: '700', paddingVertical: 12 }, caption: { color: '#64748b', fontSize: 12, paddingVertical: 4 },
-  state: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 20 }, map: { flex: 1, minHeight: 120 }, fit: { position: 'absolute', right: 12, top: 12, paddingHorizontal: 14, backgroundColor: 'white', borderRadius: 12 },
-  list: { maxHeight: 135, paddingTop: 8 }, location: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#e2e8f0' },
+  screen: { flex: 1, paddingHorizontal: 16, backgroundColor: dashboardTheme.colors.background }, header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  title: { fontWeight: '900', fontSize: 20, color: dashboardTheme.colors.text }, action: { color: dashboardTheme.colors.primaryStrong, fontWeight: '800', paddingVertical: 12 }, caption: { color: dashboardTheme.colors.muted, fontSize: 12, paddingVertical: 4 },
+  state: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 14, padding: 20 }, map: { flex: 1, minHeight: 120, marginTop: 8, overflow: 'hidden', borderRadius: dashboardTheme.radius.md }, fit: { position: 'absolute', right: 12, top: 12, paddingHorizontal: 14, backgroundColor: dashboardTheme.colors.surface, borderRadius: 12 },
+  list: { maxHeight: 135, paddingTop: 8 }, location: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: dashboardTheme.colors.border }, locationCopy: { flex: 1, gap: 2 }, coordinates: { fontSize: 11, color: dashboardTheme.colors.muted },
   modal: { flex: 1, backgroundColor: 'rgba(15,23,42,0.35)' }, modalContent: { flexGrow: 1, justifyContent: 'flex-end', padding: 16 }
 });

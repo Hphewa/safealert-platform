@@ -6,6 +6,7 @@ import { FeaturePlaceholderScreen } from '../../shared/components/FeaturePlaceho
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardHeader } from '../../shared/components/DashboardHeader';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { ProfileImage } from '../../shared/components/ProfileImage';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import type { PlaceholderConfig } from '../../shared/types';
 import { officerBottomNavItems } from '../officerNavigation';
@@ -19,7 +20,7 @@ const officerPlaceholderContent: Record<string, PlaceholderConfig> = {
 
 export function OfficerPlaceholderScreen() {
   const params = useLocalSearchParams<{ screen?: string | string[] }>();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const screenKey = Array.isArray(params.screen) ? params.screen[0] : params.screen;
   const placeholder =
     (screenKey && officerPlaceholderContent[screenKey]) || officerPlaceholderContent.profile;
@@ -28,16 +29,16 @@ export function OfficerPlaceholderScreen() {
     return (
       <DashboardScreen bottomNavItems={officerBottomNavItems}>
         <DashboardHeader
+          roleLabel="INCIDENT COMMAND"
+          accentColor={dashboardTheme.colors.critical}
           description="Manage your officer account and session."
           title="Officer Profile"
         />
         <View style={styles.profileCard}>
-          <View style={styles.profileIcon}>
-            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="person-circle-outline" size={30} />
-          </View>
+          <ProfileImage size={64} />
           <View style={styles.profileCopy}>
-            <Text style={styles.profileTitle}>Officer account</Text>
-            <Text style={styles.profileDescription}>{placeholder.description}</Text>
+            <Text style={styles.profileTitle}>{user?.name ?? 'Officer account'}</Text>
+            <Text style={styles.profileDescription}>{user?.email ?? placeholder.description}</Text>
           </View>
         </View>
         <View style={styles.accountActions}>

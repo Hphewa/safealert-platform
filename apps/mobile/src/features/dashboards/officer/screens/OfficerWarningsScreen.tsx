@@ -8,6 +8,7 @@ import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import { AssessmentLoadState, assessmentLabel, assessmentStyles } from '../components/RiskAssessmentComponents';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
+import { HazardImage } from '../../shared/components/HazardImage';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { officerBottomNavItems } from '../officerNavigation';
@@ -52,19 +53,6 @@ function warningStatusTone(status: WarningCardStatus): BadgeTone {
 function warningTitle(title: string) {
   const normalized = title.toLowerCase();
   return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)} warning`;
-}
-
-function warningIconForHazard(hazardType: string) {
-  switch (hazardType) {
-    case 'FLOOD':
-      return 'water-outline';
-    case 'LANDSLIDE':
-      return 'leaf-outline';
-    case 'BLOCKED_ROAD':
-      return 'trail-sign-outline';
-    default:
-      return 'alert-circle-outline';
-  }
 }
 
 export function OfficerWarningsScreen() {
@@ -273,7 +261,7 @@ export function OfficerWarningsScreen() {
                   />
                   <View style={[styles.warningLayout, isCompactLayout && styles.warningLayoutCompact]}>
                     <View style={styles.warningIcon}>
-                      <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name={warningIconForHazard(row.hazardType)} size={22} />
+                      <HazardImage hazardType={row.hazardType} size={42} />
                     </View>
                     <View style={styles.warningContent}>
                       <View style={styles.warningTitleRow}>

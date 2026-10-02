@@ -14,10 +14,17 @@ export function BottomNavigation({ items }: BottomNavigationProps) {
   const pathname = usePathname();
   const router = useRouter();
   const isOfficerNavigation = items.some((item) => typeof item.href === 'string' && item.href.startsWith('/officer'));
+  const roleAccent = pathname.startsWith('/volunteer')
+    ? dashboardTheme.colors.teal
+    : pathname.startsWith('/officer')
+      ? dashboardTheme.colors.critical
+      : pathname.startsWith('/responder')
+        ? dashboardTheme.colors.high
+        : dashboardTheme.colors.primary;
 
   return (
     <View style={styles.shell}>
-      <View style={styles.bar}>
+      <View style={[styles.bar, { borderTopColor: roleAccent }]}>
         {items.map((item) => {
           const href = typeof item.href === 'string' ? item.href : '';
           const isActive = href === '/officer'
@@ -35,7 +42,7 @@ export function BottomNavigation({ items }: BottomNavigationProps) {
               onPress={() => router.push(item.href)}
               style={({ pressed }) => [
                 styles.item,
-                isActive && styles.itemActive,
+                isActive && [styles.itemActive, { backgroundColor: roleAccent === dashboardTheme.colors.primary ? dashboardTheme.colors.primarySoft : `${roleAccent}18` }],
                 pressed && styles.itemPressed
               ]}
             >
@@ -82,7 +89,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.lg,
+    borderRadius: 18,
+    borderTopWidth: 3,
+    borderTopColor: dashboardTheme.colors.primary,
     backgroundColor: dashboardTheme.colors.surface,
     ...cardShadow
   },

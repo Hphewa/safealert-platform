@@ -42,9 +42,15 @@ export function LoginScreen() {
 
   return (
     <View style={authStyles.screen}>
+      <View style={authStyles.brandPanel}>
+        <View style={authStyles.brandMark}><Text style={authStyles.brandMarkText}>!</Text></View>
+        <Text style={authStyles.brandName}>SafeAlert</Text>
+        <Text style={authStyles.brandTagline}>Know the risk. Act early.</Text>
+      </View>
       <View>
+        <Text style={authStyles.eyebrow}>WELCOME BACK</Text>
         <Text style={authStyles.title}>Sign in</Text>
-        <Text style={authStyles.subtitle}>Use your SafeAlert account to continue.</Text>
+        <Text style={authStyles.subtitle}>Stay connected to hazards, warnings, and help in your community.</Text>
       </View>
 
       <View style={authStyles.form}>

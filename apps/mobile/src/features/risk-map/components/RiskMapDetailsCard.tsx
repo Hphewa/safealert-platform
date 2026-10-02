@@ -3,6 +3,8 @@ import { useRouter } from 'expo-router';
 import type { OfficerRiskMapIncident, ResponderRiskMapIncident, RiskMapIncident, UserRole } from '@safealert/contracts';
 import { riskMapHazard, riskMapPresentation } from '../riskMapPresentation';
 import { HumanReadableLocation } from '../../dashboards/shared/maps/HumanReadableLocation';
+import { cardShadow, dashboardTheme } from '../../dashboards/shared/theme';
+import { HazardImage } from '../../dashboards/shared/components/HazardImage';
 
 export function RiskMapDetailsCard({ incident, role, onClose }: { incident: RiskMapIncident; role: UserRole; onClose: () => void }) {
   const router = useRouter();
@@ -10,7 +12,7 @@ export function RiskMapDetailsCard({ incident, role, onClose }: { incident: Risk
   const operational = role === 'DISASTER_OFFICER' || role === 'EMERGENCY_RESPONDER' ? incident as ResponderRiskMapIncident : null;
   const officer = role === 'DISASTER_OFFICER' ? incident as OfficerRiskMapIncident : null;
   return <View style={styles.card}>
-    <View style={styles.heading}><Text style={styles.title}>{riskMapHazard(incident.hazardType)}</Text>
+    <View style={styles.heading}><View style={styles.titleRow}><HazardImage hazardType={incident.hazardType} size={48} /><Text style={styles.title}>{riskMapHazard(incident.hazardType)}</Text></View>
       <Pressable accessibilityRole="button" accessibilityLabel="Close risk details" onPress={onClose}><Text style={styles.action}>Close</Text></Pressable></View>
     <Text style={styles.risk}><Text style={{ color: risk.color }}>● </Text>{risk.label} risk</Text>
     <HumanReadableLocation location={incident.location} />
@@ -37,7 +39,7 @@ export function RiskMapDetailsCard({ incident, role, onClose }: { incident: Risk
   </View>;
 }
 const styles = StyleSheet.create({
-  card: { backgroundColor: 'white', borderRadius: 18, padding: 18, gap: 10 }, heading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  title: { fontSize: 20, fontWeight: '800', color: '#111827' }, risk: { fontSize: 16, fontWeight: '700' },
-  action: { color: '#2563eb', fontWeight: '700', paddingVertical: 12 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 20 }
+  card: { backgroundColor: dashboardTheme.colors.surface, borderRadius: dashboardTheme.radius.lg, padding: 18, gap: 10, ...cardShadow }, heading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 }, title: { fontSize: 20, fontWeight: '900', color: dashboardTheme.colors.text }, risk: { fontSize: 16, fontWeight: '800', color: dashboardTheme.colors.text },
+  action: { color: dashboardTheme.colors.primaryStrong, fontWeight: '800', paddingVertical: 12 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 20 }
 });

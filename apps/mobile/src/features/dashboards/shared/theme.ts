@@ -1,31 +1,35 @@
 export const dashboardTheme = {
   colors: {
-    background: '#f8fafc',
+    background: '#f4f7fa',
     surface: '#ffffff',
-    surfaceMuted: '#f7fafc',
-    border: '#e2e8f0',
-    text: '#111827',
-    muted: '#64748b',
-    primary: '#2563eb',
-    primarySoft: '#dbeafe',
-    primaryStrong: '#1d4ed8',
-    info: '#2563eb',
-    infoSoft: '#dbeafe',
-    critical: '#dc2626',
-    criticalSoft: '#fee2e2',
-    high: '#f97316',
-    highSoft: '#ffedd5',
-    moderate: '#f97316',
-    moderateSoft: '#ffedd5',
+    surfaceMuted: '#eef3f7',
+    border: '#d9e2ec',
+    text: '#172b4d',
+    muted: '#60758a',
+    primary: '#1473e6',
+    primarySoft: '#e2efff',
+    primaryStrong: '#0b5fc1',
+    info: '#1473e6',
+    infoSoft: '#e2efff',
+    critical: '#d92d20',
+    criticalSoft: '#fee4e2',
+    high: '#f79009',
+    highSoft: '#fff0d6',
+    moderate: '#d9a514',
+    moderateSoft: '#fff7cc',
     low: '#16a34a',
     lowSoft: '#dcfce7',
     success: '#16a34a',
-    successSoft: '#dcfce7'
+    successSoft: '#dcfce7',
+    navy: '#102a43',
+    navySoft: '#dfeaf5',
+    teal: '#0f766e',
+    tealSoft: '#d9f4ef'
   },
   radius: {
-    sm: 14,
-    md: 20,
-    lg: 26
+    sm: 12,
+    md: 18,
+    lg: 24
   }
 } as const;
 

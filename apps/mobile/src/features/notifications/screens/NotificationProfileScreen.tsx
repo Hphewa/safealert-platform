@@ -10,6 +10,7 @@ import { ApiClientError } from '../../../services/api/client';
 import { useNativePushRegistration } from '../useNativePushRegistration';
 import { DashboardHeader } from '../../dashboards/shared/components/DashboardHeader';
 import { DashboardScreen } from '../../dashboards/shared/components/DashboardScreen';
+import { ProfileImage } from '../../dashboards/shared/components/ProfileImage';
 import { cardShadow, dashboardTheme } from '../../dashboards/shared/theme';
 import { residentBottomNavItems } from '../../dashboards/resident/mockData';
 
@@ -98,10 +99,10 @@ export function NotificationProfileScreen() {
 
   return (
     <DashboardScreen bottomNavItems={residentBottomNavItems}>
-      <DashboardHeader title="Resident Profile" description="Manage your contact and location information for safety alerts." />
+      <DashboardHeader roleLabel="COMMUNITY SAFETY" accentColor={dashboardTheme.colors.primary} title="Resident Profile" description="Manage your contact and location information for safety alerts." />
       <View style={styles.profileCard}>
         <View style={styles.identity}>
-          <View style={styles.avatar}><Text style={styles.avatarText}>{(user?.name?.[0] ?? 'R').toUpperCase()}</Text></View>
+          <ProfileImage size={64} />
           <View style={styles.identityText}><Text style={styles.name}>{user?.name ?? 'Resident'}</Text><Text style={styles.email}>{user?.email ?? '—'}</Text></View>
         </View>
         <View style={styles.section}>

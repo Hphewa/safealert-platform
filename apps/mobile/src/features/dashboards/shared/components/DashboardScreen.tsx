@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 
 import { BottomNavigation } from './BottomNavigation';
+import { DashboardTopBar } from './DashboardTopBar';
 import { dashboardTheme } from '../theme';
 import type { BottomNavItem } from '../types';
 
@@ -25,6 +26,7 @@ export function DashboardScreen({
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <StatusBar style="dark" />
       <View style={styles.contentWrap}>
+        <DashboardTopBar />
         <ScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[styles.content, contentContainerStyle]}
@@ -53,9 +55,9 @@ const styles = StyleSheet.create({
     flex: 1
   },
   content: {
-    gap: 20,
+    gap: 18,
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 14,
     paddingBottom: 20
   }
 });

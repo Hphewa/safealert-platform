@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { DashboardHeader } from '../../shared/components/DashboardHeader';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { ProfileImage } from '../../shared/components/ProfileImage';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { responderBottomNavItems } from '../mockData';
 import { useResponderProfileActivity } from '../useResponderProfileActivity';
@@ -60,10 +61,11 @@ export function ResponderProfileScreen() {
 
   return (
     <DashboardScreen bottomNavItems={responderBottomNavItems}>
-      <DashboardHeader title="Responder Profile" description="Your responder account, response activity and synchronization status." />
+      <DashboardHeader roleLabel="FIELD RESPONSE" accentColor={dashboardTheme.colors.high} title="Responder Profile" description="Your responder account, response activity and synchronization status." />
       {isResponder ? (
         <>
         <View style={styles.card}>
+          <View style={styles.profileIdentity}><ProfileImage size={64} /><View><Text style={styles.value}>{user.name?.trim() || 'Responder'}</Text><Text style={styles.description}>Emergency responder</Text></View></View>
           <Text accessibilityRole="header" style={styles.sectionTitle}>RESPONDER ACCOUNT</Text>
           <Text style={styles.label}>Name</Text><Text style={styles.value}>{user.name?.trim() || 'Not available'}</Text>
           <Text style={styles.label}>Email</Text><Text style={styles.value}>{user.email?.trim() || 'Not available'}</Text>
@@ -152,6 +154,7 @@ const styles = StyleSheet.create({
     gap: 8, padding: 20, borderWidth: 1, borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.md, backgroundColor: dashboardTheme.colors.surface, ...cardShadow
   },
+  profileIdentity: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingBottom: 8 },
   label: { fontSize: 14, fontWeight: '700', color: dashboardTheme.colors.muted },
   sectionTitle: { fontSize: 14, fontWeight: '800', color: dashboardTheme.colors.text },
   description: { fontSize: 14, lineHeight: 21, color: dashboardTheme.colors.muted },
