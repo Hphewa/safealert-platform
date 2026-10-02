@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
@@ -28,7 +28,7 @@ export function VolunteerReportCard({ report }: VolunteerReportCardProps) {
 
       <View style={styles.mainRow}>
         <View style={styles.iconWrap}>
-          <DashboardGlyph color={dashboardTheme.colors.info} name={report.icon} size={20} />
+          <Image accessibilityLabel={`${report.hazardType} icon`} source={report.hazardImage} style={styles.hazardImage} />
         </View>
 
         <View style={styles.content}>
@@ -37,6 +37,10 @@ export function VolunteerReportCard({ report }: VolunteerReportCardProps) {
           <View style={styles.metaRow}>
             {report.distanceLabel ? <Text style={styles.metaText}>{report.distanceLabel}</Text> : null}
             <Text style={styles.metaText}>{report.reportedTimeLabel}</Text>
+          </View>
+          <View style={styles.evidenceRow}>
+            <EvidenceItem active={report.hasPhotoEvidence} icon="camera-outline" label="Photo" />
+            <EvidenceItem active={report.hasVoiceEvidence} icon="mic-outline" label="Voice" />
           </View>
           {report.relatedCommunityReportCount ? (
             <Text style={styles.relatedText}>
@@ -55,6 +59,15 @@ export function VolunteerReportCard({ report }: VolunteerReportCardProps) {
         </View>
       </View>
     </Pressable>
+  );
+}
+
+function EvidenceItem({ active, icon, label }: { active: boolean; icon: 'camera-outline' | 'mic-outline'; label: string }) {
+  return (
+    <View style={[styles.evidenceItem, !active && styles.evidenceItemInactive]}>
+      <DashboardGlyph color={active ? dashboardTheme.colors.primaryStrong : dashboardTheme.colors.muted} name={icon} size={14} />
+      <Text style={[styles.evidenceLabel, !active && styles.evidenceLabelInactive]}>{label}</Text>
+    </View>
   );
 }
 
@@ -92,6 +105,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: dashboardTheme.colors.infoSoft
   },
+  hazardImage: {
+    width: 34,
+    height: 34,
+    resizeMode: 'contain'
+  },
   content: {
     flex: 1,
     gap: 4
@@ -113,6 +131,32 @@ const styles = StyleSheet.create({
   },
   metaText: {
     fontSize: 14,
+    color: dashboardTheme.colors.muted
+  },
+  evidenceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 3
+  },
+  evidenceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 7,
+    borderRadius: 8,
+    backgroundColor: dashboardTheme.colors.infoSoft
+  },
+  evidenceItemInactive: {
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  evidenceLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  evidenceLabelInactive: {
     color: dashboardTheme.colors.muted
   },
   relatedText: {
