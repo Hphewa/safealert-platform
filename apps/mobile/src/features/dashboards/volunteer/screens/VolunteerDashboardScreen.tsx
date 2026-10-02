@@ -38,6 +38,7 @@ export function VolunteerDashboardScreen() {
           />
         </View>
       </DashboardSection>
+      <ActionCard title="Risk Locations" subtitle="View current assessed risks in your community" href="/volunteer/risk-map" icon="map-outline" layout="row" />
     </DashboardScreen>
   );
 }

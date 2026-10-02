@@ -46,6 +46,7 @@ export function ResidentDashboardScreen() {
           title={helpCard.title}
         />
       </View>
+      <ActionCard title="View Risk Areas" subtitle="See current assessed risks and warning availability" href="/resident/risk-map" icon="map-outline" layout="row" />
     </DashboardScreen>
   );
 }

@@ -270,6 +270,30 @@ export type GeoJsonPoint = {
   coordinates: [longitude: number, latitude: number];
 };
 
+export type RiskMapIncident = {
+  incidentId: string;
+  hazardType: HazardType;
+  location: GeoJsonPoint;
+  riskLevel: RiskLevel;
+  assessedAt: string;
+  hasPublishedWarning: boolean;
+};
+export type ResponderRiskMapIncident = RiskMapIncident & {
+  incidentStatus: 'ACTIVE';
+  reportCount: number;
+};
+export type OfficerRiskMapIncident = ResponderRiskMapIncident & {
+  assessmentId: string;
+  assessmentStatus: 'ACTIVE';
+  calculatedScore: number;
+};
+export type RiskMapResponse = { generatedAt: string } & (
+  | { role: 'DISASTER_OFFICER'; incidents: OfficerRiskMapIncident[] }
+  | { role: 'EMERGENCY_RESPONDER'; incidents: ResponderRiskMapIncident[] }
+  | { role: 'COMMUNITY_VOLUNTEER'; incidents: RiskMapIncident[] }
+  | { role: 'RESIDENT'; incidents: RiskMapIncident[] }
+);
+
 export const INCIDENT_STATUSES = ['ACTIVE', 'RESOLVED', 'CLOSED'] as const;
 export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
 export const INCIDENT_MAX_REPORTS = 100;

@@ -1,4 +1,6 @@
 import cors from 'cors';
+import { RiskMapService } from './modules/risk-map/services/riskMap.service.js';
+import { createRiskMapRouter } from './modules/risk-map/routes/riskMap.routes.js';
 import type { FieldConfirmationRepository } from './modules/field-confirmations/repositories/fieldConfirmation.repository.js';
 import { MongooseFieldConfirmationRepository } from './modules/field-confirmations/repositories/mongooseFieldConfirmation.repository.js';
 import { FieldConfirmationService } from './modules/field-confirmations/services/fieldConfirmation.service.js';
@@ -163,6 +165,9 @@ export function createApp({
     new FieldConfirmationService(confirmations, reportService), config
   ));
   app.use('/api/v1/risk-assessments', createRiskAssessmentRouter(riskAssessmentService, config));
+  app.use('/api/v1/risk-map', createRiskMapRouter(
+    new RiskMapService(resolvedIncidentRepository, resolvedAssessmentRepository, resolvedWarningRepository), config
+  ));
   app.use('/api/v1/warnings', createWarningRouter(warningService, config));
   app.use('/api/v1/notifications', createNotificationRouter(
     new NotificationProfileService(notificationProfileRepository ?? new MongooseNotificationProfileRepository()), config

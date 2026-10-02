@@ -1,125 +1,61 @@
-import { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { WebView } from 'react-native-webview';
-
 import { dashboardTheme } from '../theme';
-import {
-  LEAFLET_CSS_URL,
-  LEAFLET_JS_URL,
-  MAP_DEFAULT_ZOOM,
-  MAP_HTML_ATTRIBUTION,
-  MAP_MAX_ZOOM,
-  MAP_MIN_ZOOM,
-  MAP_TILE_URL
-} from './mapConfig';
-import { isValidMapCoordinates, type MapCoordinates } from './types';
+import { createMultiMarkerHtml, type MultiMarkerLocationPreviewProps } from './multiMarkerHtml';
+import { parseMultiMarkerMessage } from './multiMarkerMessages';
+import { isValidMapCoordinates } from './types';
+export type { MultiMarkerLocation } from './multiMarkerHtml';
 
-export type MultiMarkerLocation = MapCoordinates & {
-  id: string;
-  label?: string;
-};
-
-type MultiMarkerLocationPreviewProps = {
-  locations: MultiMarkerLocation[];
-  height?: number;
-};
-
-export function MultiMarkerLocationPreview({ locations, height = 260 }: MultiMarkerLocationPreviewProps) {
-  const validLocations = locations.filter(
-    (location): location is MultiMarkerLocation => isValidMapCoordinates(location)
-  );
-  const html = useMemo(() => createMultiMarkerHtml(validLocations), [validLocations]);
-
-  if (!validLocations.length) {
-    return (
-      <View style={[styles.empty, { minHeight: height }]}>
-        <Text style={styles.emptyText}>Reported locations are unavailable.</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={[styles.frame, { height }]}>
-      <WebView
-        accessibilityLabel="Community incident report locations"
-        javaScriptEnabled
-        originWhitelist={['*']}
-        scrollEnabled={false}
-        source={{ html, baseUrl: 'https://safealert.local' }}
-        style={styles.webView}
-      />
-    </View>
-  );
+export function MultiMarkerLocationPreview(props: MultiMarkerLocationPreviewProps) {
+  // A new document gets a new lifecycle and cannot deliver selections to a newer map.
+  const html = createMultiMarkerHtml(props.locations);
+  return <MapDocument key={html} {...props} html={html} />;
 }
 
-function createMultiMarkerHtml(locations: MultiMarkerLocation[]) {
-  const config = JSON.stringify({
-    locations,
-    tileUrl: MAP_TILE_URL,
-    attribution: MAP_HTML_ATTRIBUTION,
-    defaultZoom: MAP_DEFAULT_ZOOM,
-    minZoom: MAP_MIN_ZOOM,
-    maxZoom: MAP_MAX_ZOOM
-  });
-
-  return `<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <link rel="stylesheet" href="${LEAFLET_CSS_URL}" />
-  <style>
-    html, body, #map { width: 100%; height: 100%; margin: 0; padding: 0; overflow: hidden; background: #eef2f7; }
-    .safealert-marker { width: 24px; height: 24px; border-radius: 999px; background: #2563eb; border: 4px solid #fff; box-shadow: 0 8px 18px rgba(15,23,42,.32); box-sizing: border-box; }
-    .leaflet-control-attribution { font-size: 10px; }
-  </style>
-</head>
-<body>
-  <div id="map"></div>
-  <script src="${LEAFLET_JS_URL}"></script>
-  <script>
-    (function () {
-      var config = ${config};
-      var points = config.locations.map(function (item) { return [item.latitude, item.longitude]; });
-      var center = points.reduce(function (sum, point) { return [sum[0] + point[0], sum[1] + point[1]]; }, [0, 0]);
-      center = [center[0] / points.length, center[1] / points.length];
-      var map = L.map('map', { zoomControl: true, attributionControl: true }).setView(center, config.defaultZoom);
-      L.tileLayer(config.tileUrl, { minZoom: config.minZoom, maxZoom: config.maxZoom, attribution: config.attribution }).addTo(map);
-      var icon = L.divIcon({ className: '', html: '<div class="safealert-marker"></div>', iconSize: [24, 24], iconAnchor: [12, 12] });
-      points.forEach(function (point, index) {
-        L.marker(point, { draggable: false, icon: icon, title: config.locations[index].label || 'Report location' }).addTo(map);
-      });
-      if (points.length > 1) map.fitBounds(points, { padding: [28, 28], maxZoom: config.defaultZoom });
-      setTimeout(function () { map.invalidateSize(false); }, 80);
-    })();
-  </script>
-</body>
-</html>`;
+function MapDocument({ locations, height = 260, onMarkerSelect, fitRequest = 0,
+  accessibilityLabel = 'Community incident report locations', html }: MultiMarkerLocationPreviewProps & { html: string }) {
+  const webView = useRef<WebView>(null);
+  const alive = useRef(true);
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [attempt, setAttempt] = useState(0);
+  const validLocations = locations.filter(isValidMapCoordinates);
+  const source = useMemo(() => ({ html, baseUrl: 'https://safealert.local' }), [html]);
+  useEffect(() => {
+    alive.current = true;
+    const timeout = setTimeout(() => setState((current) => current === 'loading' ? 'error' : current), 15000);
+    return () => { alive.current = false; clearTimeout(timeout); };
+  }, [attempt]);
+  useEffect(() => {
+    if (state === 'ready') webView.current?.injectJavaScript('window.safealertFitMarkers && window.safealertFitMarkers(); true;');
+  }, [fitRequest, state]);
+  const fail = () => { if (alive.current) setState('error'); };
+  if (!validLocations.length) return <View style={[styles.frame, { minHeight: height }]}><Text>Reported locations are unavailable.</Text></View>;
+  return <View style={[styles.frame, { height }]}>
+    {state !== 'error' ? <WebView key={attempt} ref={webView} accessibilityLabel={accessibilityLabel}
+      javaScriptEnabled originWhitelist={['https://safealert.local']} scrollEnabled={false}
+      source={source} style={styles.webView} onError={fail} onHttpError={fail}
+      onShouldStartLoadWithRequest={(request) => request.url === 'about:blank' || request.url === 'https://safealert.local/' || request.url === 'https://safealert.local'}
+      onMessage={(event) => {
+        if (!alive.current) return;
+        const message = parseMultiMarkerMessage(event.nativeEvent.data);
+        if (message?.type === 'MAP_READY') setState((current) => current === 'error' ? current : 'ready');
+        else if (message?.type === 'MAP_ERROR' || message?.type === 'TILE_ERROR') fail();
+        else if (message?.type === 'MARKER_SELECTED' && validLocations.some((item) => item.id === message.id)) onMarkerSelect?.(message.id);
+      }} /> : <ScrollView contentContainerStyle={styles.fallback}>
+      <Text style={styles.title}>Map unavailable</Text><Text>Map tiles could not be loaded. Locations are still available below.</Text>
+      <Pressable accessibilityRole="button" onPress={() => { setState('loading'); setAttempt((value) => value + 1); }}><Text style={styles.action}>Retry map</Text></Pressable>
+      {validLocations.map((item) => <Pressable key={item.id} accessibilityRole={onMarkerSelect ? 'button' : undefined} onPress={() => onMarkerSelect?.(item.id)} style={styles.row}>
+        <Text>{item.label ?? 'Report'}: {item.latitude.toFixed(5)}, {item.longitude.toFixed(5)}</Text>
+      </Pressable>)}
+    </ScrollView>}
+    {state === 'loading' ? <View pointerEvents="none" style={styles.loading}><ActivityIndicator /><Text>Loading map…</Text></View> : null}
+  </View>;
 }
-
 const styles = StyleSheet.create({
-  frame: {
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.surfaceMuted
-  },
-  webView: {
-    flex: 1,
-    backgroundColor: dashboardTheme.colors.surfaceMuted
-  },
-  empty: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.surfaceMuted
-  },
-  emptyText: {
-    fontSize: 14,
-    color: dashboardTheme.colors.muted
-  }
+  frame: { overflow: 'hidden', borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.md, backgroundColor: dashboardTheme.colors.surfaceMuted },
+  webView: { flex: 1, backgroundColor: dashboardTheme.colors.surfaceMuted },
+  loading: { position: 'absolute', top: 12, alignSelf: 'center', backgroundColor: 'white', padding: 10, borderRadius: 10, flexDirection: 'row', gap: 8 },
+  fallback: { padding: 16, gap: 12 }, title: { fontWeight: '800', fontSize: 17 },
+  action: { color: dashboardTheme.colors.primary, paddingVertical: 8, fontWeight: '700' }, row: { paddingVertical: 10 }
 });

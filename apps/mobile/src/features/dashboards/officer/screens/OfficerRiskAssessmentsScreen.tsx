@@ -64,7 +64,13 @@ export function OfficerRiskAssessmentsScreen() {
   return <DashboardScreen bottomNavItems={officerBottomNavItems}
     refreshControl={<RefreshControl onRefresh={() => void refresh()} refreshing={isRefreshing} tintColor={dashboardTheme.colors.primary} />}>
     <View style={styles.header}>
-      <Text style={styles.title}>Risk Assessments</Text>
+      <View style={styles.headingRow}>
+        <Text style={styles.title}>Risk Assessments</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel="Open Risk Map" onPress={() => router.push('/officer/risk-map')} style={styles.mapAction}>
+          <DashboardGlyph name="map-outline" color={dashboardTheme.colors.primary} size={16} />
+          <Text style={styles.retryText}>Risk Map</Text>
+        </Pressable>
+      </View>
       {countLabel ? <Text style={styles.count}>{countLabel}</Text> : null}
     </View>
 
@@ -156,6 +162,8 @@ function hazardIcon(value: string) {
 }
 
 const styles = StyleSheet.create({
+  headingRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  mapAction: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 10, backgroundColor: dashboardTheme.colors.primarySoft, borderRadius: 12 },
   header: { gap: 4 },
   title: { fontSize: 26, fontWeight: '800', color: dashboardTheme.colors.text },
   count: { fontSize: 15, fontWeight: '600', color: dashboardTheme.colors.muted },

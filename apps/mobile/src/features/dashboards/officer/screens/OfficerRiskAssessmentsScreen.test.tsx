@@ -64,6 +64,14 @@ beforeEach(() => {
   state.listQueue.mockReset(); state.push.mockReset(); state.resetDraft.mockReset(); state.reload.mockReset(); state.onRefresh = null;
 });
 
+it('keeps the Risk Map action available with an empty assessment queue', () => {
+  state.data = [];
+  expect(renderToStaticMarkup(<OfficerRiskAssessmentsScreen />)).toContain('Risk Map');
+  state.actions.get('Open Risk Map')!();
+  expect(state.push).toHaveBeenCalledWith('/officer/risk-map');
+  expect(state.resetDraft).not.toHaveBeenCalled();
+});
+
 it('shows a loading state while the queue is being fetched', () => {
   state.loading = true;
   expect(renderToStaticMarkup(<OfficerRiskAssessmentsScreen />)).toContain('Loading risk assessments...');

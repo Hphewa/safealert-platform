@@ -12,7 +12,16 @@ export type ActiveIncidentCandidate = {
   distanceMeters: number;
 };
 
+export type IncidentMapCandidate = {
+  id: string;
+  hazardType: HazardType;
+  location: GeoJsonPoint | null;
+  status: 'ACTIVE';
+  reportCount: number;
+};
+
 export interface IncidentRepository {
+  findActiveMapCandidates(): Promise<IncidentMapCandidate[]>;
   create(input: CreateIncidentInput): Promise<SafeIncident>;
   findById(incidentId: string): Promise<SafeIncident | null>;
   findAll(): Promise<SafeIncident[]>;

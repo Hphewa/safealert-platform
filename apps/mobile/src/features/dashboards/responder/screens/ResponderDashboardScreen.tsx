@@ -7,6 +7,7 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
 
 import { DashboardHeader } from '../../shared/components/DashboardHeader';
+import { ActionCard } from '../../shared/components/ActionCard';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { ReportListItem } from '../../shared/components/ReportListItem';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
@@ -134,6 +135,8 @@ export function ResponderDashboardScreen() {
               : 'Ready'}
         </Text>
       </View>
+
+      <ActionCard title="View Risk Map" subtitle="View current assessed incident risks" href="/responder/risk-map" icon="map-outline" layout="row" />
 
       <View style={styles.tabRow}>
         <ResponderTab

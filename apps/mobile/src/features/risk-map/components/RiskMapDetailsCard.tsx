@@ -1,0 +1,33 @@
+import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useRouter } from 'expo-router';
+import type { OfficerRiskMapIncident, ResponderRiskMapIncident, RiskMapIncident, UserRole } from '@safealert/contracts';
+import { riskMapHazard, riskMapPresentation } from '../riskMapPresentation';
+
+export function RiskMapDetailsCard({ incident, role, onClose }: { incident: RiskMapIncident; role: UserRole; onClose: () => void }) {
+  const router = useRouter();
+  const risk = riskMapPresentation[incident.riskLevel];
+  const operational = role === 'DISASTER_OFFICER' || role === 'EMERGENCY_RESPONDER' ? incident as ResponderRiskMapIncident : null;
+  const officer = role === 'DISASTER_OFFICER' ? incident as OfficerRiskMapIncident : null;
+  return <View style={styles.card}>
+    <View style={styles.heading}><Text style={styles.title}>{riskMapHazard(incident.hazardType)}</Text>
+      <Pressable accessibilityRole="button" accessibilityLabel="Close risk details" onPress={onClose}><Text style={styles.action}>Close</Text></Pressable></View>
+    <Text style={styles.risk}><Text style={{ color: risk.color }}>● </Text>{risk.label} risk</Text>
+    <Text>Location: {incident.location.coordinates[1].toFixed(5)}, {incident.location.coordinates[0].toFixed(5)}</Text>
+    <Text>Assessed: {new Date(incident.assessedAt).toLocaleString()}</Text>
+    <Text>{incident.hasPublishedWarning ? 'Published warning available' : 'No published warning for this assessment'}</Text>
+    {operational ? <Text>Incident: {operational.incidentStatus} · {operational.reportCount} reports</Text> : null}
+    {officer ? <>
+      <Text>Assessment: {officer.assessmentStatus} · Score: {officer.calculatedScore}</Text>
+      <View style={styles.actions}>
+        <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: officer.assessmentId } })}><Text style={styles.action}>View Assessment</Text></Pressable>
+        <Pressable accessibilityRole="button" onPress={() => router.push({ pathname: '/officer/monitoring/[incidentId]', params: { incidentId: incident.incidentId } })}><Text style={styles.action}>Open Monitoring</Text></Pressable>
+      </View>
+    </> : null}
+    {role === 'RESIDENT' && incident.hasPublishedWarning ? <Pressable accessibilityRole="button" onPress={() => router.push('/resident/warnings')}><Text style={styles.action}>View published warnings</Text></Pressable> : null}
+  </View>;
+}
+const styles = StyleSheet.create({
+  card: { backgroundColor: 'white', borderRadius: 18, padding: 18, gap: 10 }, heading: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  title: { fontSize: 20, fontWeight: '800', color: '#111827' }, risk: { fontSize: 16, fontWeight: '700' },
+  action: { color: '#2563eb', fontWeight: '700', paddingVertical: 12 }, actions: { flexDirection: 'row', flexWrap: 'wrap', gap: 20 }
+});
