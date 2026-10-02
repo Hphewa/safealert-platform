@@ -11,6 +11,7 @@ import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { formatCoordinate } from '../../shared/currentLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { createResidentResponseRequest } from '../api/responseRequestApi';
+import { saveEmergencyRequestWithOfflineSupport } from '../offlineEmergencyRequestQueue';
 import {
   accessConditionLabels,
   emergencyAssistanceTypeLabels,
@@ -19,19 +20,19 @@ import {
 import { residentBottomNavItems } from '../mockData';
 
 type SubmitState = {
-  status: 'idle' | 'submitting' | 'error';
+  status: 'idle' | 'submitting' | 'queued' | 'error';
   reason?: 'validation' | 'auth' | 'network' | 'server';
   message: string | null;
 };
 
 export function ReviewEmergencyRequestScreen() {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const { draft, resetDraft, setSubmittedResponseRequest, validation } = useEmergencyAssistanceDraft();
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
   const submitInFlightRef = useRef(false);
   const isSubmitting = submitState.status === 'submitting';
-  const canSubmit = validation.isValid && !isSubmitting;
+  const canSubmit = validation.isValid && !isSubmitting && submitState.status !== 'queued';
   const vulnerablePeopleDetails = getRelevantVulnerablePeople(draft.vulnerablePeople);
 
   const editRequest = () => {
@@ -58,6 +59,10 @@ export function ReviewEmergencyRequestScreen() {
         reason: 'auth',
         message: 'Your session has expired. Please log in again before submitting.'
       });
+      return;
+    }
+    if (!user?.id) {
+      setSubmitState({ status: 'error', reason: 'auth', message: 'Your session has expired. Please log in again before submitting.' });
       return;
     }
 
@@ -88,11 +93,17 @@ export function ReviewEmergencyRequestScreen() {
     setSubmitState({ status: 'submitting', message: null });
 
     try {
-      const response = await createResidentResponseRequest(payload, accessToken);
-      setSubmittedResponseRequest(response.responseRequest);
-      resetDraft();
+      const result = await saveEmergencyRequestWithOfflineSupport({ userId: user.id, accessToken, payload,
+        // Preserve the existing online call shape. The queued retry adds its idempotency key.
+        saveOnline: () => createResidentResponseRequest(payload, accessToken) });
+      if (result.saved === 'local') {
+        setSubmitState({ status: 'queued', message: 'Your emergency request is saved on this device and will be submitted automatically when your connection returns.' });
+      } else {
+        setSubmittedResponseRequest(result.response.responseRequest);
+        resetDraft();
+        router.replace('/resident/emergency-request-submitted');
+      }
       submitInFlightRef.current = false;
-      router.replace('/resident/emergency-request-submitted');
     } catch (error) {
       submitInFlightRef.current = false;
       setSubmitState({
@@ -209,6 +220,13 @@ export function ReviewEmergencyRequestScreen() {
               {message}
             </Text>
           ))}
+        </View>
+      ) : null}
+
+      {submitState.status === 'queued' ? (
+        <View style={styles.validationPanel}>
+          <Text style={styles.primaryValue}>{submitState.message}</Text>
+          <Text style={styles.errorHelperText}>Keep SafeAlert open or return later. The request will be sent once the connection is restored.</Text>
         </View>
       ) : null}
 

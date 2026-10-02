@@ -59,6 +59,30 @@ async function createContext() {
 afterEach(() => vi.restoreAllMocks());
 
 describe('resident emergency request retrieval', () => {
+  it('replays the same idempotent create without creating a duplicate request', async () => {
+    const { app, resident, responseRequestRepository } = await createContext();
+    const payload = {
+      assistanceType: 'FLOOD_ASSISTANCE',
+      location: { type: 'Point', coordinates: [79.8612, 6.9271] },
+      affectedPeople: 2,
+      medicalNeeds: false,
+      injuredPeople: 0,
+      vulnerablePeople: { children: 0, elderlyPeople: 0, personsWithDisabilities: 0, pregnantPersons: 0 },
+      roadAccessibility: 'LIMITED',
+      contact: { name: 'Resident A', phoneNumber: '0775551234' },
+      description: 'Flood water entered the home.'
+    };
+    const first = await request(app).post(basePath).auth(resident.token, { type: 'bearer' })
+      .set('Idempotency-Key', 'resident-help-operation-1').send(payload);
+    const replay = await request(app).post(basePath).auth(resident.token, { type: 'bearer' })
+      .set('Idempotency-Key', 'resident-help-operation-1').send(payload);
+
+    expect(first.status).toBe(201);
+    expect(replay.status).toBe(201);
+    expect(replay.body).toEqual(first.body);
+    await expect(responseRequestRepository.findResponseRequestsByResidentId(resident.id)).resolves.toHaveLength(2);
+  });
+
   it('returns only the authenticated resident requests, newest first, across every lifecycle status', async () => {
     const { app, resident, ownRequest, responseRequestRepository } = await createContext();
     const expected = RESPONSE_STATUSES.map((status, index) => storedRequest(resident.id, {

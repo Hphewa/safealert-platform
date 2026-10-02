@@ -27,6 +27,7 @@ import {
 import { isCalculationPreviewValid, type RiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraftState';
 import { useRiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraft';
 import { useAssessmentDraftExitGuard } from '../hooks/useAssessmentDraftExitGuard';
+import { isOfficerAssessmentOnline, saveOfficerAssessmentWithOfflineSupport } from '../offline/officerAssessmentQueue';
 
 type WizardStep = 'situation' | 'impact' | 'environment' | 'review' | 'recommendation' | 'decision';
 const wizardSteps: WizardStep[] = ['situation', 'impact', 'environment', 'review', 'recommendation', 'decision'];
@@ -42,7 +43,7 @@ export function InitialAssessmentWizardScreen() {
   const step = rawStep as WizardStep;
   const routeStepIsValid = wizardSteps.includes(step);
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const { draft, isDirty, discardAssessmentDraft, updateSingleFactor, setCalculationPreview, setFinalRisk, setDecisionReason, resetAssessmentDraft } = useRiskAssessmentDraft();
   const allowNextRemoval = useAssessmentDraftExitGuard(isDirty, discardAssessmentDraft);
   const [attempted, setAttempted] = useState(false);
@@ -153,15 +154,25 @@ export function InitialAssessmentWizardScreen() {
     const current = generation.current;
     inFlight.current = true; setBusy(true); setError(null);
     try {
-      const latest = await loadIncidentOverview(incidentId, accessToken);
-      if (generation.current !== current) return;
-      if (latest.incident.id !== incidentId || !latest.canStartInitialAssessment) {
-        if (latest.assessment) setActiveAssessmentId(latest.assessment.id);
-        throw new Error(latest.assessment
-          ? 'An active assessment already exists for this incident. Open it to review the latest decision.'
-          : 'This incident is no longer eligible for an initial assessment. Refresh its status before saving.');
+      if (await isOfficerAssessmentOnline()) {
+        const latest = await loadIncidentOverview(incidentId, accessToken);
+        if (generation.current !== current) return;
+        if (latest.incident.id !== incidentId || !latest.canStartInitialAssessment) {
+          if (latest.assessment) setActiveAssessmentId(latest.assessment.id);
+          throw new Error(latest.assessment
+            ? 'An active assessment already exists for this incident. Open it to review the latest decision.'
+            : 'This incident is no longer eligible for an initial assessment. Refresh its status before saving.');
+        }
       }
-      const result = await createRiskAssessment(request, accessToken);
+      if (!user?.id) throw new Error('Your Officer session is unavailable. Please log in again.');
+      const saveResult = await saveOfficerAssessmentWithOfflineSupport({ userId: user.id, accessToken,
+        payload: { mode: 'INITIAL', request }, saveOnline: () => createRiskAssessment(request, accessToken) });
+      if (saveResult.saved === 'local') {
+        resetAssessmentDraft(); allowNextRemoval();
+        router.replace('/officer/assessments');
+        return;
+      }
+      const result = saveResult.response;
       if (generation.current === current) {
         resetAssessmentDraft();
         allowNextRemoval();

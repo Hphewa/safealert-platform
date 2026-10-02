@@ -5,7 +5,7 @@ export const residentBottomNavItems: BottomNavItem[] = [
   { label: 'Report', href: '/resident/report-hazard?mode=new', icon: 'warning-outline' },
   { label: 'Reports', href: '/resident/reports', icon: 'document-text-outline' },
   { label: 'Help', href: '/resident/help', icon: 'help-buoy-outline' },
-  { label: 'Profile', href: '/resident/notification-profile', icon: 'person-outline' }
+  { label: 'Profile', href: '/resident/notification-profile', icon: 'person-circle-outline' }
 ];
 
 export const residentPrimaryActions: QuickAction[] = [

@@ -14,6 +14,11 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return toSafeResponseRequest(responseRequest);
   }
 
+  async findResponseRequestByClientOperationId(residentId: string, clientOperationId: string) {
+    const responseRequest = await ResponseRequestModel.findOne({ residentId, clientOperationId }).exec();
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
   async updateResidentResponseRequest(responseRequestId: string, residentId: string, input: UpdateResponseRequestRequest) {
     const fields = residentEditableFields(input);
     // residentId is the authenticated actor passed separately from editable input.

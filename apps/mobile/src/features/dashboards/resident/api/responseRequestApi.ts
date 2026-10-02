@@ -87,11 +87,13 @@ export async function listMyResponseRequests(accessToken: string) {
 
 export function createResidentResponseRequest(
   input: CreateResponseRequestRequest,
-  accessToken: string
+  accessToken: string,
+  clientOperationId?: string
 ) {
   return apiRequest<CreateResponseRequestResponse>('/response-requests', {
     method: 'POST',
     accessToken,
+    ...(clientOperationId ? { idempotencyKey: clientOperationId } : {}),
     body: input
   });
 }

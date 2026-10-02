@@ -8,6 +8,7 @@ import type {
 export type CreateResponseRequestInput = CreateResponseRequestRequest & {
   residentId: string;
   status: 'NEW';
+  clientOperationId?: string;
 };
 
 // Explicitly select editable fields even for internal callers: never spread a
@@ -49,6 +50,7 @@ export const responseProgressTimestampFields: Partial<Record<
 
 export interface ResponseRequestRepository {
   createResponseRequest(input: CreateResponseRequestInput): Promise<SafeResponseRequest>;
+  findResponseRequestByClientOperationId(residentId: string, clientOperationId: string): Promise<SafeResponseRequest | null>;
   updateResidentResponseRequest(
     responseRequestId: string,
     residentId: string,

@@ -4,6 +4,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { useAuth } from '../src/features/auth/hooks/useAuth';
 import { routeForRole } from '../src/features/auth/utils/roleRoutes';
+import { BrandLogo } from '../src/features/auth/components/BrandLogo';
 
 export default function HomeScreen() {
   const { status, user } = useAuth();
@@ -25,7 +26,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.heroGlow} />
-      <View style={styles.brandMark}><Text style={styles.brandMarkText}>!</Text></View>
+      <BrandLogo size={78} />
       <Text style={styles.title}>SafeAlert</Text>
       <Text style={styles.subtitle}>Know the risk. Act early.</Text>
       <Text style={styles.body}>Community-powered disaster safety for reporting hazards, receiving warnings, and getting help when it matters.</Text>
@@ -49,8 +50,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#102a43'
   },
   heroGlow: { position: 'absolute', top: -80, right: -90, width: 280, height: 280, borderRadius: 140, backgroundColor: '#17466d', opacity: 0.65 },
-  brandMark: { width: 78, height: 78, alignItems: 'center', justifyContent: 'center', borderRadius: 26, backgroundColor: '#d92d20' },
-  brandMarkText: { fontSize: 44, fontWeight: '900', color: '#ffffff' },
   title: {
     marginTop: 4,
     fontSize: 42,

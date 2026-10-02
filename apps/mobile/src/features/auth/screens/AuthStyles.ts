@@ -14,15 +14,6 @@ export const authStyles = StyleSheet.create({
     borderRadius: 24,
     backgroundColor: '#102a43'
   },
-  brandMark: {
-    width: 48,
-    height: 48,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    backgroundColor: '#d92d20'
-  },
-  brandMarkText: { fontSize: 25, fontWeight: '900', color: '#ffffff' },
   brandName: { fontSize: 25, fontWeight: '900', color: '#ffffff' },
   brandTagline: { fontSize: 14, lineHeight: 20, color: '#d9e2ec' },
   eyebrow: { fontSize: 12, fontWeight: '800', letterSpacing: 1.2, color: '#0b5fc1' },

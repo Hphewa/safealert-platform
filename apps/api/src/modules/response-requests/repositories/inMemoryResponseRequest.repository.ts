@@ -10,6 +10,7 @@ import type {
 
 export class InMemoryResponseRequestRepository implements ResponseRequestRepository {
   private readonly responseRequests = new Map<string, SafeResponseRequest>();
+  private readonly clientOperationIds = new Map<string, string>();
 
   async createResponseRequest(input: CreateResponseRequestInput): Promise<SafeResponseRequest> {
     const now = new Date().toISOString();
@@ -36,7 +37,13 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     }
 
     this.responseRequests.set(responseRequest.id, responseRequest);
+    if (input.clientOperationId) this.clientOperationIds.set(`${input.residentId}:${input.clientOperationId}`, responseRequest.id);
     return responseRequest;
+  }
+
+  async findResponseRequestByClientOperationId(residentId: string, clientOperationId: string) {
+    const id = this.clientOperationIds.get(`${residentId}:${clientOperationId}`);
+    return id ? this.responseRequests.get(id) ?? null : null;
   }
 
   async updateResidentResponseRequest(responseRequestId: string, residentId: string, input: UpdateResponseRequestRequest) {

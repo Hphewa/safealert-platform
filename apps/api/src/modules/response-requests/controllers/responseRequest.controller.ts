@@ -38,7 +38,10 @@ export function createResponseRequestController(responseRequestService: Response
         ? { specialRequirements: parsedInput.specialRequirements }
         : {})
     };
-    const result = await responseRequestService.createResidentResponseRequest(request.auth.id, input);
+    const clientOperationId = request.get('Idempotency-Key')?.trim();
+    const result = await responseRequestService.createResidentResponseRequest(
+      request.auth.id, input, clientOperationId || undefined
+    );
 
     response.status(201).json(result);
   });

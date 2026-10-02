@@ -4,7 +4,7 @@ export const volunteerBottomNavItems: BottomNavItem[] = [
   { label: 'Home', href: '/volunteer', icon: 'home-outline' },
   { label: 'Reports', href: '/volunteer/nearby', icon: 'locate-outline' },
   { label: 'Confirmations', href: '/volunteer/confirmations', icon: 'checkmark-done-outline' },
-  { label: 'Profile', href: '/volunteer/profile', icon: 'person-outline' }
+  { label: 'Profile', href: '/volunteer/profile', icon: 'person-circle-outline' }
 ];
 
 export const volunteerPlaceholderContent: Record<string, PlaceholderConfig> = {

@@ -27,8 +27,13 @@ export class ResponseRequestService {
 
   async createResidentResponseRequest(
     residentId: string,
-    input: CreateResponseRequestRequest
+    input: CreateResponseRequestRequest,
+    clientOperationId?: string
   ): Promise<CreateResponseRequestResponse> {
+    if (clientOperationId) {
+      const existing = await this.repository.findResponseRequestByClientOperationId(residentId, clientOperationId);
+      if (existing) return { responseRequest: existing };
+    }
     const responseRequest = await this.repository.createResponseRequest({
       residentId,
       assistanceType: input.assistanceType,
@@ -41,7 +46,8 @@ export class ResponseRequestService {
       contact: input.contact,
       description: input.description,
       ...(input.specialRequirements ? { specialRequirements: input.specialRequirements } : {}),
-      status: 'NEW'
+      status: 'NEW',
+      ...(clientOperationId ? { clientOperationId } : {})
     });
 
     return { responseRequest };

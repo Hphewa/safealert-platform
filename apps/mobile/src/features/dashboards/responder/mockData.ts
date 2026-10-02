@@ -9,7 +9,7 @@ export const responderBottomNavItems: BottomNavItem[] = [
   { label: 'Active', href: '/responder/active', icon: 'flash-outline' },
   { label: 'Map', href: '/responder/map', icon: 'map-outline' },
   { label: 'History', href: '/responder/history', icon: 'time-outline' },
-  { label: 'Profile', href: '/responder/profile', icon: 'person-outline' }
+  { label: 'Profile', href: '/responder/profile', icon: 'person-circle-outline' }
 ];
 
 export const responderRequests: ResponderRequestPreview[] = [

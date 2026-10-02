@@ -16,6 +16,7 @@ import { RiskDecisionScreen } from './RiskDecisionScreen';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { formatOperationalTime } from '../../shared/formatOperationalTime';
 import { useAssessmentDraftExitGuard } from '../hooks/useAssessmentDraftExitGuard';
+import { isOfficerAssessmentOnline, saveOfficerAssessmentWithOfflineSupport } from '../offline/officerAssessmentQueue';
 
 type Step = 'reason' | 'situation' | 'impact' | 'environment' | 'review' | 'comparison' | 'decision';
 const steps: Step[] = ['reason', 'situation', 'impact', 'environment', 'review', 'comparison', 'decision'];
@@ -31,7 +32,7 @@ export function ReassessmentWizardScreen() {
   const step = rawStep as Step;
   const validStep = steps.includes(step);
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const { draft, isDirty, discardAssessmentDraft, initializeReassessment, updateSingleFactor, setReassessmentReason, setCalculationPreview,
     setFinalRisk, setDecisionReason, resetAssessmentDraft } = useRiskAssessmentDraft();
   const allowNextRemoval = useAssessmentDraftExitGuard(isDirty, discardAssessmentDraft);
@@ -86,9 +87,11 @@ export function ReassessmentWizardScreen() {
     if (busy || inFlight.current || !assessmentId || !accessToken || !assessment || !matchingDraft || !factorSnapshot || reasonError) return;
     const requestGeneration = generation.current; inFlight.current = true; setBusy(true); setError(null);
     try {
-      const latest = await getRiskAssessment(assessmentId, accessToken);
-      if (requestGeneration !== generation.current) return;
-      if (latest.assessment?.id !== assessmentId || latest.assessment.status !== 'ACTIVE') throw new Error('This assessment is no longer active. Refresh to view the latest status.');
+      if (await isOfficerAssessmentOnline()) {
+        const latest = await getRiskAssessment(assessmentId, accessToken);
+        if (requestGeneration !== generation.current) return;
+        if (latest.assessment?.id !== assessmentId || latest.assessment.status !== 'ACTIVE') throw new Error('This assessment is no longer active. Refresh to view the latest status.');
+      }
       const result = await calculateRiskAssessment({ incidentId: assessment.incidentId, ...factorSnapshot }, accessToken);
       if (requestGeneration !== generation.current) return;
       setCalculationPreview(factorSnapshot, result); setFinalRisk(result.systemSuggestedRisk); setDecisionReason(''); go('comparison');
@@ -107,8 +110,15 @@ export function ReassessmentWizardScreen() {
       const latest = await getRiskAssessment(assessmentId, accessToken);
       if (requestGeneration !== generation.current) return;
       if (latest.assessment?.id !== assessmentId || latest.assessment.status !== 'ACTIVE') throw new Error('This assessment is no longer active. Refresh to view the latest status.');
-      await reassessRiskAssessment(assessmentId, request, accessToken);
-      if (requestGeneration === generation.current) { resetAssessmentDraft(); allowNextRemoval(); goMonitoring(); }
+      if (!user?.id) throw new Error('Your Officer session is unavailable. Please log in again.');
+      const saveResult = await saveOfficerAssessmentWithOfflineSupport({ userId: user.id, accessToken,
+        payload: { mode: 'REASSESSMENT', assessmentId, incidentId: assessment.incidentId, request },
+        saveOnline: () => reassessRiskAssessment(assessmentId, request, accessToken) });
+      if (requestGeneration === generation.current) {
+        resetAssessmentDraft(); allowNextRemoval();
+        if (saveResult.saved === 'local') router.replace('/officer/monitoring');
+        else goMonitoring();
+      }
     } catch (failure) { if (requestGeneration === generation.current) setError(assessmentErrorMessage(failure)); }
     finally { if (requestGeneration === generation.current) { inFlight.current = false; setBusy(false); } }
   };

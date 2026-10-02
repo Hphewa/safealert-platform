@@ -108,6 +108,11 @@ const responseRequestSchema = new mongoose.Schema(
       ref: 'User',
       index: true
     },
+    clientOperationId: {
+      type: String,
+      trim: true,
+      maxlength: 160
+    },
     // Optional until a responder accepts or is assigned the request.
     assignedResponderId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -232,6 +237,7 @@ const responseRequestSchema = new mongoose.Schema(
 );
 
 responseRequestSchema.index({ location: '2dsphere' });
+responseRequestSchema.index({ residentId: 1, clientOperationId: 1 }, { unique: true, sparse: true });
 
 export type ResponseRequestDocument = InferSchemaType<typeof responseRequestSchema> & {
   _id: { toString(): string };

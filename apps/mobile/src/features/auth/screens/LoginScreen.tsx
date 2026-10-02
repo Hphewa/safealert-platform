@@ -6,6 +6,7 @@ import { ApiClientError } from '../../../services/api/client';
 import { useAuth } from '../hooks/useAuth';
 import { routeForRole } from '../utils/roleRoutes';
 import { authStyles } from './AuthStyles';
+import { BrandLogo } from '../components/BrandLogo';
 
 export function LoginScreen() {
   const router = useRouter();
@@ -43,7 +44,7 @@ export function LoginScreen() {
   return (
     <View style={authStyles.screen}>
       <View style={authStyles.brandPanel}>
-        <View style={authStyles.brandMark}><Text style={authStyles.brandMarkText}>!</Text></View>
+        <BrandLogo size={48} />
         <Text style={authStyles.brandName}>SafeAlert</Text>
         <Text style={authStyles.brandTagline}>Know the risk. Act early.</Text>
       </View>
