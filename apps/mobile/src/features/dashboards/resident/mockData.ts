@@ -2,7 +2,7 @@ import type { BottomNavItem, QuickAction } from '../shared/types';
 
 export const residentBottomNavItems: BottomNavItem[] = [
   { label: 'Home', href: '/resident', icon: 'home-outline' },
-  { label: 'Report', href: '/resident/report-hazard', icon: 'warning-outline' },
+  { label: 'Report', href: '/resident/report-hazard?mode=new', icon: 'warning-outline' },
   { label: 'Reports', href: '/resident/reports', icon: 'document-text-outline' },
   { label: 'Help', href: '/resident/help', icon: 'help-buoy-outline' },
   { label: 'Profile', href: '/resident/notification-profile', icon: 'person-outline' }

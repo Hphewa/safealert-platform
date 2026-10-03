@@ -1,7 +1,7 @@
 ﻿import { useCallback, useEffect } from 'react';
 import { useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 
 import photoEvidenceIcon from '../../../../../assets/evidence/photo-evidence.png';
@@ -71,10 +71,15 @@ const severityOptions: Array<{
 
 export function ReportHazardScreen() {
   const router = useRouter();
-  const { draft, setDraft, validation } = useReportHazardDraft();
+  const { draft, resetDraft, setDraft, validation } = useReportHazardDraft();
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [reviewAttempted, setReviewAttempted] = useState(false);
   const [placeName, setPlaceName] = useState<string | null>(null);
   const canReviewReport = validation.isValid;
+
+  useEffect(() => {
+    if (mode === 'new') resetDraft();
+  }, [mode, resetDraft]);
 
   const captureCurrentLocation = useCallback(async () => {
     setDraft((current) => ({

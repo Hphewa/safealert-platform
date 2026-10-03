@@ -12,6 +12,7 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { dashboardTheme } from '../../shared/theme';
 import { getFirstName } from '../../shared/utils';
 import { residentBottomNavItems, residentPrimaryActions } from '../mockData';
+import { useReportHazardDraft } from '../reportDraft';
 import { listResidentWarnings } from '../../../warnings/api/residentWarningApi';
 
 function publishedLabel(publishedAt?: string) {
@@ -38,6 +39,7 @@ function warningTone(riskLevel: ResidentWarning['riskLevel']) {
 export function ResidentDashboardScreen() {
   const { accessToken, user } = useAuth();
   const router = useRouter();
+  const { hasDraft, resetDraft } = useReportHazardDraft();
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [warnings, setWarnings] = useState<ResidentWarning[]>([]);
   const [notificationsLoading, setNotificationsLoading] = useState(true);
@@ -103,8 +105,22 @@ export function ResidentDashboardScreen() {
         layout="row"
         subtitle={primaryCard.subtitle}
         title={primaryCard.title}
+        onPress={() => {
+          resetDraft();
+          router.push('/resident/report-hazard?mode=new');
+        }}
         variant="primary"
       />
+
+      {hasDraft ? (
+        <ActionCard
+          href="/resident/report-hazard"
+          icon="document-text-outline"
+          layout="row"
+          subtitle="Resume the report you started earlier"
+          title="Continue Draft"
+        />
+      ) : null}
 
       <View style={styles.twoColumnGrid}>
         <ActionCard

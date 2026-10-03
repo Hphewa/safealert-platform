@@ -2,8 +2,10 @@ import type { SafeReport } from '@safealert/contracts';
 import {
   createContext,
   useContext,
+  useCallback,
   useMemo,
   useEffect,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -113,6 +115,7 @@ type ReportHazardDraftContextValue = {
   setDraft: Dispatch<SetStateAction<ReportHazardDraft>>;
   resetDraft: () => void;
   validation: ReportHazardValidationResult;
+  hasDraft: boolean;
   submittedReport: SafeReport | null;
   setSubmittedReport: Dispatch<SetStateAction<SafeReport | null>>;
 };
@@ -158,19 +161,37 @@ const initialReportHazardDraft: ReportHazardDraft = {
   description: ''
 };
 
+export function isEmptyReportDraft(draft: ReportHazardDraft) {
+  return !hasReportHazardDraft(draft);
+}
+
+export function hasReportHazardDraft(draft: ReportHazardDraft) {
+  return Boolean(
+    draft.hazardType ||
+      draft.otherHazardType?.trim() ||
+      draft.severity ||
+      draft.description.trim() ||
+      draft.photoEvidence.status !== 'EMPTY' ||
+      draft.voiceEvidence.status !== 'EMPTY'
+  );
+}
+
 export function ReportHazardDraftProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [draft, setDraft] = useState<ReportHazardDraft>(initialReportHazardDraft);
   const [submittedReport, setSubmittedReport] = useState<SafeReport | null>(null);
   const [storageReady, setStorageReady] = useState(false);
+  const draftLoadRequest = useRef(0);
   const validation = useMemo(() => validateReportHazardDraft(draft), [draft]);
-  const resetDraft = () => {
+  const resetDraft = useCallback(() => {
+    draftLoadRequest.current += 1;
     setDraft(initialReportHazardDraft);
     if (user?.id) void clearPersistedReportDraft(user.id);
-  };
+  }, [user?.id]);
 
   useEffect(() => {
     let active = true;
+    const loadRequest = ++draftLoadRequest.current;
     setStorageReady(false);
 
     if (!user?.id) {
@@ -183,7 +204,7 @@ export function ReportHazardDraftProvider({ children }: { children: ReactNode })
 
     void readPersistedReportDraft(user.id)
       .then((storedDraft) => {
-        if (active && storedDraft) setDraft(storedDraft);
+        if (active && loadRequest === draftLoadRequest.current && storedDraft) setDraft(storedDraft);
       })
       .finally(() => {
         if (active) setStorageReady(true);
@@ -199,16 +220,18 @@ export function ReportHazardDraftProvider({ children }: { children: ReactNode })
       void writePersistedReportDraft(user.id, draft);
     }
   }, [draft, storageReady, user?.id]);
+  const hasDraft = storageReady && hasReportHazardDraft(draft);
   const value = useMemo(
     () => ({
       draft,
       setDraft,
       resetDraft,
       validation,
+      hasDraft,
       submittedReport,
       setSubmittedReport
     }),
-    [draft, submittedReport, validation]
+    [draft, hasDraft, resetDraft, submittedReport, validation]
   );
 
   return (

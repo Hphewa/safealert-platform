@@ -148,7 +148,7 @@ export function ResidentReportsScreen() {
                 errorMessage={errorMessage}
                 hasAnyReports={reports.length > 0}
                 loadStatus={loadStatus}
-                onReportHazard={() => router.push('/resident/report-hazard')}
+                onReportHazard={() => router.push('/resident/report-hazard?mode=new')}
                 onRetry={() => void loadReports(true)}
               />
             )

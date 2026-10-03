@@ -150,7 +150,7 @@ describe('ResidentReportsScreen', () => {
     const reportHazard = screenButtons(render()).find((button) => screenText(button.children).trim() === 'Report Hazard');
     expect(reportHazard).toBeDefined();
     reportHazard?.onPress();
-    expect(navigation.push).toHaveBeenCalledWith('/resident/report-hazard');
+    expect(navigation.push).toHaveBeenCalledWith('/resident/report-hazard?mode=new');
   });
 
   it('shows an empty filtered state when another status filter has no matches', async () => {

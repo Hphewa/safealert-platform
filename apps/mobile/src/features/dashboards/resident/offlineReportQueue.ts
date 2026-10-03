@@ -21,6 +21,15 @@ function queueKey(userId: string) {
   return `${queueKeyPrefix}${userId}`;
 }
 
+function isEmptyReportDraft(draft: ReportHazardDraft) {
+  return !draft.hazardType &&
+    !draft.otherHazardType?.trim() &&
+    draft.photoEvidence.status === 'EMPTY' &&
+    draft.voiceEvidence.status === 'EMPTY' &&
+    !draft.severity &&
+    !draft.description.trim();
+}
+
 function draftKey(userId: string) {
   return `${draftKeyPrefix}${userId}`;
 }
@@ -104,12 +113,3 @@ export async function removeQueuedReport(userId: string, id: string) {
   await AsyncStorage.setItem(queueKey(userId), JSON.stringify(items.filter((item) => item.id !== id)));
 }
 
-function isEmptyReportDraft(draft: ReportHazardDraft) {
-  return !draft.hazardType &&
-    !draft.otherHazardType?.trim() &&
-    draft.location.status === 'REQUESTING_PERMISSION' &&
-    draft.photoEvidence.status === 'EMPTY' &&
-    draft.voiceEvidence.status === 'EMPTY' &&
-    !draft.severity &&
-    !draft.description.trim();
-}

@@ -13,6 +13,7 @@ type ActionCardProps = {
   icon: DashboardIconName;
   layout?: 'row' | 'column';
   variant?: 'default' | 'primary';
+  onPress?: () => void;
 };
 
 export function ActionCard({
@@ -21,7 +22,8 @@ export function ActionCard({
   href,
   icon,
   layout = 'column',
-  variant = 'default'
+  variant = 'default',
+  onPress
 }: ActionCardProps) {
   const router = useRouter();
   const isRow = layout === 'row';
@@ -30,7 +32,7 @@ export function ActionCard({
   return (
     <Pressable
       accessibilityRole="button"
-      onPress={() => router.push(href)}
+      onPress={onPress ?? (() => router.push(href))}
       style={({ pressed }) => [
         styles.card,
         isRow ? styles.cardRow : styles.cardColumn,
