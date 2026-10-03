@@ -21,3 +21,8 @@ export function updateCachedResponderRequest(responseRequest: SafeResponseReques
 export function getCachedResponderRequest(requestId: string) {
   return responseRequestCache.get(requestId) ?? null;
 }
+
+export function getCachedAssignedResponderRequests(responderId: string) {
+  // Offline navigation may reuse only this responder's previously loaded assignments.
+  return [...responseRequestCache.values()].filter((request) => request.assignedResponderId === responderId);
+}

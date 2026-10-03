@@ -1,5 +1,7 @@
 import {
   EMERGENCY_ASSISTANCE_TYPES,
+  EMERGENCY_CONTACT_PHONE_PATTERN,
+  EMERGENCY_CONTACT_PHONE_MESSAGE,
   RESPONSE_STATUSES,
   ROAD_ACCESSIBILITIES,
   type SafeResponseRequest
@@ -82,9 +84,9 @@ const contactSchema = new mongoose.Schema(
     phoneNumber: {
       type: String,
       required: true,
-      trim: true,
-      minlength: 7,
-      maxlength: 32
+      match: [EMERGENCY_CONTACT_PHONE_PATTERN, EMERGENCY_CONTACT_PHONE_MESSAGE],
+      minlength: 10,
+      maxlength: 10
     },
     email: {
       type: String,
@@ -140,6 +142,34 @@ const responseRequestSchema = new mongoose.Schema(
     },
     cancelledAt: {
       type: Date
+    },
+    // LDFEW-266: Operational field notes recorded by the assigned Emergency Responder
+    fieldNotes: {
+      type: String,
+      trim: true,
+      maxlength: 2000
+    },
+    // LDFEW-266: Server timestamp recorded when field notes are persisted
+    fieldUpdatedAt: {
+      type: Date
+    },
+    // LDFEW-266: Summary of assistance delivered upon request completion
+    assistanceProvided: {
+      type: String,
+      trim: true,
+      maxlength: 1000
+    },
+    // LDFEW-266: Overall outcome and resolution summary
+    completionSummary: {
+      type: String,
+      trim: true,
+      maxlength: 1000
+    },
+    // LDFEW-266: Optional responder-specific operational remarks
+    responderRemarks: {
+      type: String,
+      trim: true,
+      maxlength: 1000
     },
     assistanceType: {
       type: String,
@@ -271,12 +301,43 @@ export function toSafeResponseRequest(responseRequest: ResponseRequestDocument):
     safeResponseRequest.inProgressAt = responseRequest.inProgressAt.toISOString();
   }
 
+  // LDFEW-266 / LDFEW-354: completedAt is generated exclusively on the server upon COMPLETED transition
+  // and normalized to ISO 8601 string to preserve a trusted audit trail across client platforms.
   if (responseRequest.completedAt) {
-    safeResponseRequest.completedAt = responseRequest.completedAt.toISOString();
+    safeResponseRequest.completedAt = responseRequest.completedAt instanceof Date
+      ? responseRequest.completedAt.toISOString()
+      : new Date(responseRequest.completedAt).toISOString();
   }
 
   if (responseRequest.cancelledAt) {
-    safeResponseRequest.cancelledAt = responseRequest.cancelledAt.toISOString();
+    safeResponseRequest.cancelledAt = responseRequest.cancelledAt instanceof Date
+      ? responseRequest.cancelledAt.toISOString()
+      : new Date(responseRequest.cancelledAt).toISOString();
+  }
+
+  // LDFEW-266: Map responder field notes and completion fields safely for clients
+  if (responseRequest.fieldNotes) {
+    safeResponseRequest.fieldNotes = responseRequest.fieldNotes;
+  }
+
+  // LDFEW-266 / LDFEW-354: fieldUpdatedAt is generated on the server when field notes are persisted
+  // and normalized to ISO 8601 string to guarantee trusted, platform-independent timestamps.
+  if (responseRequest.fieldUpdatedAt) {
+    safeResponseRequest.fieldUpdatedAt = responseRequest.fieldUpdatedAt instanceof Date
+      ? responseRequest.fieldUpdatedAt.toISOString()
+      : new Date(responseRequest.fieldUpdatedAt).toISOString();
+  }
+
+  if (responseRequest.assistanceProvided) {
+    safeResponseRequest.assistanceProvided = responseRequest.assistanceProvided;
+  }
+
+  if (responseRequest.completionSummary) {
+    safeResponseRequest.completionSummary = responseRequest.completionSummary;
+  }
+
+  if (responseRequest.responderRemarks) {
+    safeResponseRequest.responderRemarks = responseRequest.responderRemarks;
   }
 
   if (responseRequest.specialRequirements) {

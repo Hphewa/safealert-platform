@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import MyEmergencyRequestsRoute from '../../../../../app/resident/my-emergency-requests';
 import ResidentEmergencyRequestDetailsRoute from '../../../../../app/resident/emergency-request/[requestId]';
+import ResidentEmergencyRequestEditRoute from '../../../../../app/resident/emergency-request/[requestId]/edit';
 import ResidentLayout from '../../../../../app/resident/_layout';
 import { RoleRouteLayout } from '../../../auth/screens/RoleRouteLayout';
 import { cancelResidentResponseRequest, getMyResponseRequestById, listMyResponseRequests } from '../api/responseRequestApi';
@@ -19,6 +20,8 @@ import { EmergencyAssistanceScreen } from './EmergencyAssistanceScreen';
 import { EmergencyRequestSubmittedScreen } from './EmergencyRequestSubmittedScreen';
 import { MyEmergencyRequestsScreen } from './MyEmergencyRequestsScreen';
 import { ResidentEmergencyRequestDetailsScreen } from './ResidentEmergencyRequestDetailsScreen';
+import { ResidentEmergencyRequestEditScreen } from './ResidentEmergencyRequestEditScreen';
+import { residentEmergencyRequestEditHref } from '../emergencyRequestNavigation';
 
 // Follow the existing mobile tests: exercise focus/blur and refresh callbacks without a native runtime.
 const lifecycle = vi.hoisted(() => ({
@@ -774,6 +777,176 @@ describe('Resident Emergency Request Details', () => {
     resolve?.({ responseRequest: detailedRequest });
     await Promise.resolve();
     expect(screenText(renderDetails())).not.toContain(detailedRequest.description);
+  });
+});
+
+describe('Resident Edit Request entry (LDFEW-341)', () => {
+  function renderEditShell() {
+    lifecycle.cursor = 0;
+    return ResidentEmergencyRequestEditScreen();
+  }
+
+  function editAction(node: React.ReactNode): React.ReactElement<{
+    children?: React.ReactNode; accessibilityLabel?: string;
+    accessibilityRole?: string; accessibilityState?: { disabled?: boolean }; disabled?: boolean;
+  }> | undefined {
+    if (Array.isArray(node)) return node.map(editAction).find(Boolean);
+    if (!React.isValidElement<{ children?: React.ReactNode; accessibilityLabel?: string }>(node)) return undefined;
+    return node.props.accessibilityLabel === 'Edit Request' ? node : editAction(node.props.children);
+  }
+
+  async function loadNewDetails() {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...detailedRequest, status: 'NEW' } });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(editAction(renderDetails())).toBeDefined());
+  }
+
+  it.each([request.id, '507f1f77bcf86cd799439012'])('shows both actions and navigates with only the selected ID: %s', async (id) => {
+    lifecycle.params = { requestId: id };
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...detailedRequest, id, status: 'NEW' } });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(editAction(renderDetails())).toBeDefined());
+    const screen = renderDetails();
+    expect(editAction(screen)?.props).toMatchObject({
+      accessibilityRole: 'button', accessibilityLabel: 'Edit Request',
+      disabled: false, accessibilityState: { disabled: false }
+    });
+    for (const text of ['Status:  Submitted', 'Cancel Request', detailedRequest.description,
+      detailedRequest.contact.phoneNumber, 'Injured people 2', detailedRequest.specialRequirements!]) {
+      expect(screenText(screen)).toContain(text);
+    }
+    expect(press(screen, 'Edit Request')).toBe(true);
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith({
+      pathname: '/resident/emergency-request/[requestId]/edit', params: { requestId: id }
+    });
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+    expect(cancellationDialog(screen)).toBeNull();
+  });
+
+  it.each([
+    ['ASSIGNED', 'an Emergency Responder has already accepted it.'],
+    ['DISPATCHED', 'an Emergency Responder has already accepted it.'],
+    ['ARRIVED', 'an Emergency Responder has already accepted it.'],
+    ['IN_PROGRESS', 'an Emergency Responder has already accepted it.'],
+    ['COMPLETED', 'Completed requests cannot be edited.'],
+    ['CANCELLED', 'Cancelled requests cannot be edited.']
+  ] as const)('hides editing and explains why for %s', async (status, message) => {
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...request, status } });
+    renderDetails();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain(message));
+    expect(press(renderDetails(), 'Edit Request')).toBe(false);
+    expect(press(renderDetails(), 'Cancel Request')).toBe(false);
+    expect(screenText(renderDetails())).not.toContain(status);
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it.each(['', 'invalid', '507f1f77bcf86cd799439012'])(
+    'does not navigate with a malformed or mismatched returned ID: %s', async (id) => {
+      vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...request, id } });
+      renderDetails();
+      lifecycle.effect();
+      await vi.waitFor(() => expect(screenText(renderDetails())).toContain(request.description));
+      expect(press(renderDetails(), 'Edit Request')).toBe(false);
+      expect(navigation.push).not.toHaveBeenCalled();
+    }
+  );
+
+  it('has no edit action during loading, after a failed refresh, or after assignment is refreshed', async () => {
+    expect(press(renderDetails(), 'Edit Request')).toBe(false);
+    await loadNewDetails();
+    vi.mocked(getMyResponseRequestById).mockRejectedValueOnce(new Error('Private backend details'));
+    press(renderDetails(), 'Refresh emergency request details');
+    expect(press(renderDetails(), 'Edit Request')).toBe(false);
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Unable to load request details'));
+    expect(press(renderDetails(), 'Edit Request')).toBe(false);
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...request, status: 'ASSIGNED' } });
+    press(renderDetails(), 'Retry');
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('already accepted it.'));
+    expect(press(renderDetails(), 'Edit Request')).toBe(false);
+    expect(navigation.push).not.toHaveBeenCalled();
+    expect(screenText(renderDetails())).not.toContain('Private');
+  });
+
+  it('hides the edit action when the selected request or authenticated session changes', async () => {
+    await loadNewDetails();
+    lifecycle.params = { requestId: '507f1f77bcf86cd799439012' };
+    expect(press(renderDetails(), 'Edit Request')).toBe(false);
+    lifecycle.params = { requestId: request.id };
+    auth.accessToken = null;
+    expect(press(renderDetails(), 'Edit Request')).toBe(false);
+    expect(navigation.push).not.toHaveBeenCalled();
+  });
+
+  it('blocks edit navigation during cancellation confirmation and submission without changing cancellation', async () => {
+    await loadNewDetails();
+    press(renderDetails(), 'Cancel Request');
+    expect(editAction(renderDetails())?.props).toMatchObject({ disabled: true, accessibilityState: { disabled: true } });
+    press(renderDetails(), 'Edit Request');
+    expect(navigation.push).not.toHaveBeenCalled();
+    cancellationDialog(renderDetails())!.onKeepRequest();
+    expect(editAction(renderDetails())?.props.disabled).toBe(false);
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+
+    let finish: ((value: { responseRequest: SafeResponseRequest }) => void) | undefined;
+    vi.mocked(cancelResidentResponseRequest).mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    press(renderDetails(), 'Cancel Request');
+    cancellationDialog(renderDetails())!.onConfirm();
+    expect(editAction(renderDetails())?.props.disabled).toBe(true);
+    press(renderDetails(), 'Edit Request');
+    expect(navigation.push).not.toHaveBeenCalled();
+    finish?.({ responseRequest: { ...request, status: 'CANCELLED' } });
+    await vi.waitFor(() => expect(screenText(renderDetails())).toContain('Emergency request cancelled successfully.'));
+    expect(editAction(renderDetails())).toBeUndefined();
+    expect(cancelResidentResponseRequest).toHaveBeenCalledExactlyOnceWith(request.id, 'resident-token');
+  });
+
+  it('loads the existing request and renders the pre-filled edit form with a return path without mutation', async () => {
+    expect(ResidentEmergencyRequestEditRoute().type).toBe(ResidentEmergencyRequestEditScreen);
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: request });
+    expect(screenText(renderEditShell())).toContain('Loading your emergency request');
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderEditShell())).toContain('Edit Emergency Assistance Request'));
+    expect(getMyResponseRequestById).toHaveBeenCalledExactlyOnceWith(request.id, 'resident-token');
+    expect(screenText(renderEditShell())).toContain('Medical Assistance');
+    expect(screenText(renderEditShell())).toContain('Saved emergency location');
+    expect(screenText(renderEditShell())).toContain('Affected people');
+    expect(screenText(renderEditShell())).toContain('Resident');
+    expect(screenText(renderEditShell())).not.toContain('Editing is coming soon');
+    expect(press(renderEditShell(), 'Confirm Changes')).toBe(false);
+    expect(cancelResidentResponseRequest).not.toHaveBeenCalled();
+    press(renderEditShell(), 'Back to Request Details');
+    expect(navigation.back).toHaveBeenCalledOnce();
+    navigation.canGoBack.mockReturnValue(false);
+    press(renderEditShell(), 'Back to Request Details');
+    expect(navigation.replace).toHaveBeenCalledExactlyOnceWith({
+      pathname: '/resident/emergency-request/[requestId]', params: { requestId: request.id }
+    });
+  });
+
+  it('reads the latest status when acceptance occurs between Details and the edit shell', async () => {
+    await loadNewDetails();
+    press(renderDetails(), 'Edit Request');
+    lifecycle.slots = [];
+    vi.mocked(getMyResponseRequestById).mockResolvedValue({ responseRequest: { ...request, status: 'ASSIGNED' } });
+    renderEditShell();
+    lifecycle.effect();
+    await vi.waitFor(() => expect(screenText(renderEditShell())).toContain('already accepted it.'));
+    expect(screenText(renderEditShell())).not.toContain('Editing is coming soon');
+    expect(getMyResponseRequestById).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([undefined, '', '../requests', [request.id]])('rejects an invalid edit route identifier: %j', (requestId) => {
+    lifecycle.params = { requestId };
+    expect(residentEmergencyRequestEditHref(requestId)).toBeNull();
+    expect(screenText(renderEditShell())).toContain('Select a valid request');
+    lifecycle.effect();
+    expect(getMyResponseRequestById).not.toHaveBeenCalled();
+    navigation.canGoBack.mockReturnValue(false);
+    press(renderEditShell(), 'Back to Request Details');
+    expect(navigation.replace).toHaveBeenCalledWith('/resident/my-emergency-requests');
   });
 });
 

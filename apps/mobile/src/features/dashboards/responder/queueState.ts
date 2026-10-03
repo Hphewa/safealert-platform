@@ -23,6 +23,16 @@ export function getResponderQueueCounts(queueState: ResponderQueueState) {
   };
 }
 
+export function getOwnedResponderAssignments(
+  requests: readonly SafeResponseRequest[],
+  responderId: string,
+  completed = false
+) {
+  // This is a defensive UI filter. The API independently scopes both lists by assignment.
+  return requests.filter((request) => request.assignedResponderId === responderId &&
+    (completed ? request.status === 'COMPLETED' : isActiveAssignedResponseStatus(request.status)));
+}
+
 export function getVisibleResponderRequests(
   queueState: ResponderQueueState,
   activeTab: RequestTab

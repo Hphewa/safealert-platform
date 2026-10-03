@@ -1,4 +1,4 @@
-import { RESPONSE_PROGRESS_SEQUENCE, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_EDITABLE_STATUS, RESPONSE_PROGRESS_SEQUENCE, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
 
 import { accessConditionLabels, emergencyAssistanceTypeLabels } from './emergencyAssistanceDraft';
 import { formatResidentReportDateTime } from './reports';
@@ -16,6 +16,16 @@ const residentRequestStatusLabels: Record<ResponseStatus, string> = {
 
 // Residents also see submission (NEW); subsequent stages reuse the responder's persisted lifecycle.
 const residentProgressSequence: readonly ResponseStatus[] = ['NEW', ...RESPONSE_PROGRESS_SEQUENCE];
+
+export function residentEmergencyRequestEditUnavailableMessage(status: unknown): string | null {
+  if (status === RESPONSE_EDITABLE_STATUS) return null;
+  if (RESPONSE_ACTIVE_ASSIGNED_STATUSES.some((activeStatus) => activeStatus === status)) {
+    return 'This request can no longer be edited because an Emergency Responder has already accepted it.';
+  }
+  if (status === 'COMPLETED') return 'Completed requests cannot be edited.';
+  if (status === 'CANCELLED') return 'Cancelled requests cannot be edited.';
+  return 'Editing is unavailable. Refresh this request to check its latest status.';
+}
 
 export type ResidentEmergencyRequestProgressStage = {
   status: ResponseStatus;
@@ -64,6 +74,20 @@ export function presentResidentEmergencyRequestDetails(request: SafeResponseRequ
         { label: 'Assistance', value: summary.assistanceType },
         { label: 'Submitted', value: summary.submittedAt }
       ] },
+      // LDFEW-266 / LDFEW-357: Present response outcome and completion details to the resident.
+      // Internal responder remarks and operational field notes are strictly excluded.
+      ...(request.status === 'COMPLETED'
+        ? [
+            {
+              title: 'Completion Details',
+              fields: [
+                { label: 'Completed at', value: formatResidentReportDateTime(request.completedAt) },
+                { label: 'Assistance provided', value: detailText(request.assistanceProvided) },
+                { label: 'Completion summary', value: detailText(request.completionSummary) }
+              ]
+            }
+          ]
+        : []),
       { title: 'People Needing Help', fields: [
         { label: 'People needing assistance', value: detailCount(request.affectedPeople) },
         { label: 'Injured people', value: detailCount(request.injuredPeople) }
@@ -99,7 +123,12 @@ export function presentResidentEmergencyRequestDetails(request: SafeResponseRequ
 }
 
 function detailText(value: unknown): string {
-  return typeof value === 'string' && value.trim() ? value.trim() : 'Not provided';
+  if (typeof value !== 'string') return 'Not provided';
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === 'undefined' || trimmed === 'null' || trimmed === 'NaN') {
+    return 'Not provided';
+  }
+  return trimmed;
 }
 
 function detailCount(value: unknown): string {

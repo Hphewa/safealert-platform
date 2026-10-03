@@ -1,4 +1,5 @@
 import type { SafeResponseRequest } from '@safealert/contracts';
+import { EMERGENCY_CONTACT_PHONE_MESSAGE, getEmergencyVulnerableCountError, isValidEmergencyContactPhoneNumber } from '@safealert/contracts';
 import {
   createContext,
   useContext,
@@ -200,7 +201,6 @@ export function validateEmergencyAssistanceDraft(
   const errors: EmergencyAssistanceValidationErrors = {};
   const trimmedContactName = draft.contactDetails.name.trim();
   const trimmedContactEmail = draft.contactDetails.email?.trim() ?? '';
-  const trimmedContactPhoneNumber = draft.contactDetails.phoneNumber.trim();
   const trimmedDescription = draft.emergencyDescription.trim();
   const trimmedSpecialRequirements = draft.specialRequirements.trim();
   const hasValidDetectedCoordinates =
@@ -213,10 +213,7 @@ export function validateEmergencyAssistanceDraft(
     draft.location.latitude <= 90 &&
     draft.location.longitude >= -180 &&
     draft.location.longitude <= 180;
-  const vulnerableCounts = Object.values(draft.vulnerablePeople);
-  const hasInvalidVulnerableCount = vulnerableCounts.some(
-    (count) => !Number.isInteger(count) || count < 0
-  );
+  const vulnerableCountError = getEmergencyVulnerableCountError(draft.affectedPeopleCount, draft.vulnerablePeople);
 
   if (!draft.assistanceType) {
     errors.assistanceType = 'Select an assistance type.';
@@ -241,8 +238,8 @@ export function validateEmergencyAssistanceDraft(
     errors.injuredCount = 'Injured people cannot exceed the total affected people.';
   }
 
-  if (hasInvalidVulnerableCount) {
-    errors.vulnerablePeople = 'Vulnerable-person counts cannot be negative.';
+  if (vulnerableCountError) {
+    errors.vulnerablePeople = vulnerableCountError;
   }
 
   if (!draft.accessCondition) {
@@ -251,12 +248,17 @@ export function validateEmergencyAssistanceDraft(
 
   if (!trimmedContactName || !trimmedContactEmail) {
     errors.contactDetails = 'Your account contact information is required.';
-  } else if (!trimmedContactPhoneNumber) {
-    errors.contactDetails = 'Enter a contact phone number.';
+  } else if (trimmedContactName.length < 2) {
+    errors.contactDetails = 'Contact name must be at least 2 characters.';
+  } else if (!isValidEmergencyContactPhoneNumber(draft.contactDetails.phoneNumber)) {
+    errors.contactDetails = EMERGENCY_CONTACT_PHONE_MESSAGE;
   }
 
+  // Description validation: enforce required text and 3-character minimum matching backend persistence schema
   if (!trimmedDescription) {
     errors.emergencyDescription = 'Describe the emergency.';
+  } else if (trimmedDescription.length < 3) {
+    errors.emergencyDescription = 'Description must be at least 3 characters.';
   } else if (trimmedDescription.length > emergencyDescriptionMaxLength) {
     errors.emergencyDescription = `Keep the description under ${emergencyDescriptionMaxLength} characters.`;
   }

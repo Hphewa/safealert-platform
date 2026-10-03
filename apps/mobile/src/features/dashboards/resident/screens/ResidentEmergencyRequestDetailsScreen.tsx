@@ -1,4 +1,5 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { RESPONSE_EDITABLE_STATUS } from '@safealert/contracts';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
@@ -7,18 +8,46 @@ import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { EmergencyRequestProgressTracker } from '../components/EmergencyRequestProgressTracker';
 import { EmergencyRequestCancellationDialog } from '../components/EmergencyRequestCancellationDialog';
 import { EmergencyRequestStatePanel } from '../components/EmergencyRequestStatePanel';
-import { presentResidentEmergencyRequestDetails } from '../emergencyRequestPresentation';
+import { presentResidentEmergencyRequestDetails, residentEmergencyRequestEditUnavailableMessage } from '../emergencyRequestPresentation';
+import { parseResidentEmergencyRequestId, residentEmergencyRequestEditHref } from '../emergencyRequestNavigation';
 import { residentBottomNavItems } from '../mockData';
 import { useMyEmergencyRequestDetails } from '../useMyEmergencyRequestDetails';
 
-export function ResidentEmergencyRequestDetailsScreen() {
+export type ResidentEmergencyRequestDetailsScreenProps = {
+  requestId?: string;
+};
+
+export function ResidentEmergencyRequestDetailsScreen(props?: ResidentEmergencyRequestDetailsScreenProps) {
   const router = useRouter();
-  const { requestId } = useLocalSearchParams<{ requestId?: string | string[] }>();
+  const searchParams = useLocalSearchParams<{
+    requestId?: string | string[];
+    refreshed?: string;
+    updated?: string;
+  }>();
+  const requestId = props?.requestId ?? searchParams.requestId;
   const {
     request, error, refetch, isRefreshing, canRefetch, canCancelRequest, cancellationFeedback,
     isConfirmationOpen, isCancelling, openCancellationConfirmation, keepRequest, confirmCancellation
-  } = useMyEmergencyRequestDetails(requestId);
+  } = useMyEmergencyRequestDetails(requestId, searchParams.refreshed);
+
+  // Show clear, accessible success feedback when returning after an emergency request update.
+  // Reuses the established feedback banner pattern for smooth and predictable mobile UX.
+  const updateFeedback = searchParams.updated === 'true'
+    ? { kind: 'success' as const, message: 'Request updated successfully.' }
+    : undefined;
+  const activeFeedback = updateFeedback ?? cancellationFeedback;
   const details = request ? presentResidentEmergencyRequestDetails(request) : null;
+  // NEW-only visibility is a UX guard; the backend rechecks ownership and status
+  // before persisting any future edit. Never navigate using a mismatched record.
+  const editHref = request?.status === RESPONSE_EDITABLE_STATUS && !error && !isRefreshing
+    && parseResidentEmergencyRequestId(request.id) === parseResidentEmergencyRequestId(requestId)
+    ? residentEmergencyRequestEditHref(request.id) : null;
+  const editDisabled = isConfirmationOpen || isCancelling;
+  const editUnavailableMessage = request ? residentEmergencyRequestEditUnavailableMessage(request.status) : null;
+
+  const editRequest = () => {
+    if (editHref && !editDisabled) router.push(editHref);
+  };
 
   const goBack = () => {
     // A direct link may have no previous screen in the Resident stack.
@@ -66,14 +95,29 @@ export function ResidentEmergencyRequestDetailsScreen() {
               ))}
             </View>
           ))}
-          {cancellationFeedback ? (
+          {activeFeedback ? (
             <Text
               accessible
               accessibilityLiveRegion="polite"
-              style={[styles.feedback, cancellationFeedback.kind === 'success' ? styles.successFeedback : styles.errorFeedback]}
+              style={[styles.feedback, activeFeedback.kind === 'success' ? styles.successFeedback : styles.errorFeedback]}
             >
-              {cancellationFeedback.message}
+              {activeFeedback.message}
             </Text>
+          ) : null}
+          {editHref ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Edit Request"
+              accessibilityHint="Opens editing for this emergency request."
+              accessibilityState={{ disabled: editDisabled }}
+              disabled={editDisabled}
+              onPress={editRequest}
+              style={({ pressed }) => [styles.editButton, editDisabled && styles.disabledButton, pressed && !editDisabled && styles.pressed]}
+            >
+              <Text style={styles.editButtonText}>Edit Request</Text>
+            </Pressable>
+          ) : editUnavailableMessage ? (
+            <Text accessibilityLiveRegion="polite" style={styles.editExplanation}>{editUnavailableMessage}</Text>
           ) : null}
           {canCancelRequest ? (
             <View style={styles.cancelAction}>
@@ -94,7 +138,7 @@ export function ResidentEmergencyRequestDetailsScreen() {
       ) : (
         <EmergencyRequestStatePanel
           title={error ? 'Unable to load request details' : 'Loading your emergency request details...'}
-          message={cancellationFeedback?.message ?? error ?? undefined}
+          message={activeFeedback?.message ?? error ?? undefined}
           loading={isRefreshing}
           onRetry={error && canRefetch ? () => void refetch() : undefined}
         />
@@ -111,6 +155,14 @@ export function ResidentEmergencyRequestDetailsScreen() {
 }
 
 const styles = StyleSheet.create({
+  editButton: {
+    minHeight: 48, alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 12, paddingHorizontal: 16,
+    borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.primary
+  },
+  editButtonText: { fontSize: 16, lineHeight: 24, fontWeight: '800', color: dashboardTheme.colors.surface },
+  editExplanation: { fontSize: 16, lineHeight: 24, color: dashboardTheme.colors.muted },
+  disabledButton: { opacity: 0.5 },
   feedback: { padding: 16, borderRadius: dashboardTheme.radius.sm, fontSize: 16, lineHeight: 24, fontWeight: '700' },
   successFeedback: { backgroundColor: dashboardTheme.colors.successSoft, color: dashboardTheme.colors.text },
   errorFeedback: { backgroundColor: dashboardTheme.colors.criticalSoft, color: dashboardTheme.colors.text },

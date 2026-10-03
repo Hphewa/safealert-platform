@@ -75,7 +75,7 @@ const validResponseRequestPayload = {
   roadAccessibility: 'LIMITED',
   contact: {
     name: 'Resident User',
-    phoneNumber: '+94-77-555-1234',
+    phoneNumber: '0775551234',
     email: 'resident.contact@example.com'
   },
   description: 'Two people are injured and flood water is rising around the house.',
@@ -105,7 +105,7 @@ function createStoredResponseRequest(
     roadAccessibility: 'LIMITED',
     contact: {
       name: 'Resident User',
-      phoneNumber: '+94-77-555-1234'
+      phoneNumber: '0775551234'
     },
     description: 'Assistance is needed at the reported location.',
     status: 'NEW',
@@ -167,8 +167,11 @@ describe('response request progress API', () => {
     let confirmed = storedRequest;
     for (const status of ['ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS', 'COMPLETED'] as const) {
       if (status !== 'ASSIGNED') {
+        const progressPayload = status === 'COMPLETED'
+          ? { status, assistanceProvided: 'Provided first aid and evacuation', completionSummary: 'Resident safely transported' }
+          : { status };
         const updated = await request(app).patch(progressPath)
-          .set('Authorization', `Bearer ${token}`).send({ status });
+          .set('Authorization', `Bearer ${token}`).send(progressPayload);
         expect(updated.status).toBe(200);
         confirmed = updated.body;
       }
@@ -226,16 +229,20 @@ describe('response request progress API', () => {
       for (const [index, [status, timestampField]] of stages.entries()) {
         const occurredAt = new Date(startedAt + (index + 1) * 60_000);
         vi.setSystemTime(occurredAt);
+        const completionPayload = status === 'COMPLETED'
+          ? { assistanceProvided: 'First aid and food delivered', completionSummary: 'Resident stabilized' }
+          : {};
         const response = await request(app)
           .patch(progressPath)
           .set('Authorization', `Bearer ${token}`)
-          .send({ status });
+          .send({ status, ...completionPayload });
 
         expected = {
           ...expected,
           status,
           [timestampField]: occurredAt.toISOString(),
-          updatedAt: occurredAt.toISOString()
+          updatedAt: occurredAt.toISOString(),
+          ...(status === 'COMPLETED' ? completionPayload : {})
         };
         expect(response.status).toBe(200);
         expect(response.body).toEqual(expected);

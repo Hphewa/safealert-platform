@@ -60,7 +60,14 @@ export function EmergencyRequestSubmittedScreen() {
           />
           <SubmittedDetail
             label="Coordinates"
-            value={`${submittedResponseRequest.location.coordinates[1].toFixed(6)}, ${submittedResponseRequest.location.coordinates[0].toFixed(6)}`}
+            value={
+              Array.isArray(submittedResponseRequest.location?.coordinates) &&
+              submittedResponseRequest.location.coordinates.length === 2 &&
+              Number.isFinite(submittedResponseRequest.location.coordinates[1]) &&
+              Number.isFinite(submittedResponseRequest.location.coordinates[0])
+                ? `${submittedResponseRequest.location.coordinates[1].toFixed(6)}, ${submittedResponseRequest.location.coordinates[0].toFixed(6)}`
+                : 'Not provided'
+            }
           />
         </View>
       ) : (

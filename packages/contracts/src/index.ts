@@ -581,6 +581,8 @@ export type ResponseStatus = (typeof RESPONSE_STATUSES)[number];
 // Cancellation branches before assignment; it is not another responder progress stage.
 export const RESPONSE_CANCELLABLE_STATUS = 'NEW' satisfies ResponseStatus;
 
+export const RESPONSE_EDITABLE_STATUS = 'NEW' satisfies ResponseStatus;
+
 export const RESPONSE_PROGRESS_ACTIONS = {
   ASSIGNED: 'Start Dispatch',
   DISPATCHED: 'Mark as Arrived',
@@ -699,6 +701,42 @@ export type VulnerablePeopleCounts = {
   pregnantPersons: number;
 };
 
+export const EMERGENCY_VULNERABLE_COUNT_KEYS = [
+  'children', 'elderlyPeople', 'personsWithDisabilities', 'pregnantPersons'
+] as const satisfies readonly (keyof VulnerablePeopleCounts)[];
+
+export const EMERGENCY_CONTACT_PHONE_PATTERN = /^[0-9]{10}$/;
+export const EMERGENCY_CONTACT_PHONE_MESSAGE = 'Enter a valid 10-digit contact phone number.';
+
+export function sanitizeEmergencyContactPhoneInput(value: string): string {
+  // Cap digits after sanitizing: a raw character limit would truncate mixed-content pastes too early.
+  // This is input UX only; API validation must still reject unmodified invalid payloads.
+  return value.replace(/[^0-9]/g, '').slice(0, 10);
+}
+
+export function isValidEmergencyContactPhoneNumber(value: unknown): value is string {
+  // Validate the original value: trimming or stripping symbols would accept invalid input.
+  return typeof value === 'string' && EMERGENCY_CONTACT_PHONE_PATTERN.test(value);
+}
+
+export function getEmergencyVulnerableCountError(
+  affectedPeople: number,
+  counts: VulnerablePeopleCounts
+): string | undefined {
+  const values = EMERGENCY_VULNERABLE_COUNT_KEYS.map((key) => counts?.[key]);
+  if (values.some((value) => typeof value === 'number' && value < 0)) {
+    return 'Vulnerable-person counts cannot be negative.';
+  }
+  if (values.some((value) => !Number.isInteger(value))) {
+    return 'Vulnerable-person counts must be whole numbers.';
+  }
+  // Categories can overlap; validate each count independently, never their sum.
+  if (values.some((value) => value > affectedPeople)) {
+    return `Each vulnerable-person count must be at most ${affectedPeople}, the number of people needing assistance.`;
+  }
+  return undefined;
+}
+
 export type ResponseRequestContact = {
   name: string;
   phoneNumber: string;
@@ -731,6 +769,13 @@ export type SafeResponseRequest = {
   inProgressAt?: string;
   completedAt?: string;
   cancelledAt?: string;
+  // LDFEW-266: Operational field notes and server timestamp recorded during active response
+  fieldNotes?: string;
+  fieldUpdatedAt?: string;
+  // LDFEW-266: Completion details recorded when transitioning request to COMPLETED
+  assistanceProvided?: string;
+  completionSummary?: string;
+  responderRemarks?: string;
   assistanceType: EmergencyAssistanceType;
   location: GeoJsonPoint;
   affectedPeople: number;
@@ -746,7 +791,27 @@ export type SafeResponseRequest = {
   updatedAt: string;
 };
 
+// LDFEW-266: Payload for recording responder field updates
+export type RecordFieldUpdateRequest = {
+  fieldNotes: string;
+};
+
+// LDFEW-266: Payload for documenting completion details upon completing a request
+export type CompleteResponseRequestInput = {
+  assistanceProvided: string;
+  completionSummary: string;
+  responderRemarks?: string;
+};
+
 export type CreateResponseRequestResponse = {
+  responseRequest: SafeResponseRequest;
+};
+
+// Editing replaces the complete Resident-entered information, not the lifecycle.
+// Omitted optional contact email/special requirements are cleared on update.
+export type UpdateResponseRequestRequest = CreateResponseRequestRequest;
+
+export type UpdateResponseRequestResponse = {
   responseRequest: SafeResponseRequest;
 };
 

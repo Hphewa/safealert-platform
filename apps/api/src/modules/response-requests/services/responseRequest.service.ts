@@ -5,10 +5,13 @@ import type {
   GetResidentResponseRequestResponse,
   GetResidentResponseRequestsResponse,
   ResponseStatus,
+  SafeResponseRequest,
   SafeUser,
+  UpdateResponseRequestRequest,
+  UpdateResponseRequestResponse,
   UserRole
 } from '@safealert/contracts';
-import { isValidResponseProgressTransition, RESPONSE_CANCELLABLE_STATUS } from '@safealert/contracts';
+import { isValidResponseProgressTransition, RESPONSE_CANCELLABLE_STATUS, RESPONSE_EDITABLE_STATUS } from '@safealert/contracts';
 import mongoose from 'mongoose';
 
 import { ApiError } from '../../../shared/apiError.js';
@@ -74,6 +77,45 @@ export class ResponseRequestService {
       throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
     }
 
+    return { responseRequest };
+  }
+
+  async updateResidentResponseRequest(
+    responseRequestId: string,
+    actor: Pick<SafeUser, 'id' | 'role'> | null | undefined,
+    input: UpdateResponseRequestRequest
+  ): Promise<UpdateResponseRequestResponse> {
+    if (!actor) {
+      throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    }
+    if (actor.role !== 'RESIDENT') {
+      throw new ApiError(403, 'FORBIDDEN', 'Only Residents can edit emergency requests.');
+    }
+    this.requireResidentIdentity(actor.id);
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    const requestId = responseRequestId.toLowerCase();
+    // Scope by the verified actor before checking lifecycle: another Resident's
+    // request must look absent, without disclosing its existence or status.
+    const current = await this.repository.findResponseRequestById(requestId, actor.id);
+    if (!current) {
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+    // Responders must be able to rely on accepted emergency details. Only NEW
+    // is editable; this early check cannot replace the repository's write-time check.
+    if (current.status !== RESPONSE_EDITABLE_STATUS) {
+      throw new ApiError(409, 'INVALID_EDIT_STATUS', 'This request can no longer be edited because its status has changed.');
+    }
+
+    const responseRequest = await this.repository.updateResidentResponseRequest(requestId, actor.id, input);
+    if (!responseRequest) {
+      // The owner-scoped read succeeded, but acceptance/cancellation may now have
+      // won. Return a conflict without guessing the new status or retrying the edit;
+      // the authenticated tracking endpoint can safely retrieve the latest state.
+      throw new ApiError(409, 'REQUEST_EDIT_CONFLICT', 'This request changed before it could be updated. Refresh it to see its latest status.');
+    }
     return { responseRequest };
   }
 
@@ -167,6 +209,13 @@ export class ResponseRequestService {
     return this.repository.findAssignedResponseRequests(responderId.trim());
   }
 
+  async listCompletedResponseRequests(responderId: string) {
+    if (typeof responderId !== 'string' || !responderId.trim()) {
+      throw new ApiError(400, 'INVALID_RESPONDER_ID', 'A responder id is required.');
+    }
+    return this.repository.findCompletedResponseRequests(responderId.trim());
+  }
+
   async acceptResponseRequest(
     responseRequestId: string,
     actor: ResponderActionActor | null | undefined
@@ -211,10 +260,91 @@ export class ResponseRequestService {
     return responseRequest;
   }
 
+  // LDFEW-266 / LDFEW-350: Assigned Emergency Responder records operational field notes
+  async recordFieldUpdate(
+    responseRequestId: string,
+    actor: ResponderActionActor | null | undefined,
+    fieldNotes: string
+  ) {
+    // Derive responder identity from the authenticated session (actor.id) and verify the EMERGENCY_RESPONDER role
+    // so a client cannot submit another responder's ID in request headers or body.
+    const responderId = this.validateResponderActionInput(responseRequestId, actor);
+
+    // Validate request ID format before repository lookup to prevent query injection or Mongoose cast errors
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    // Input validation: require non-empty notes and enforce boundary limits (3 to 2000 chars)
+    if (typeof fieldNotes !== 'string' || !fieldNotes.trim()) {
+      throw new ApiError(400, 'INVALID_FIELD_UPDATE', 'Field update notes are required.');
+    }
+
+    const trimmedNotes = fieldNotes.trim();
+    if (trimmedNotes.length < 3 || trimmedNotes.length > 2000) {
+      throw new ApiError(400, 'INVALID_FIELD_UPDATE', 'Field update notes must be between 3 and 2000 characters.');
+    }
+
+    const requestId = responseRequestId.toLowerCase();
+    const responseRequest = await this.repository.findResponseRequestForProgress(requestId);
+
+    if (!responseRequest) {
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+
+    // Lifecycle restrictions: field updates are only permissible during active response operations
+    // (ASSIGNED, DISPATCHED, ARRIVED, IN_PROGRESS). Unassigned NEW requests have no responder assigned.
+    if (responseRequest.status === 'NEW') {
+      throw new ApiError(409, 'INVALID_REQUEST_STATUS', 'Cannot record field updates on an unassigned request.');
+    }
+
+    // Assigned-responder authorization: enforce that the authenticated responder is the exact responder
+    // currently assigned to this request. Unrelated responders are forbidden with 403 REQUEST_NOT_ASSIGNED.
+    if (responseRequest.assignedResponderId !== responderId) {
+      throw new ApiError(
+        403,
+        'REQUEST_NOT_ASSIGNED',
+        'Only the responder assigned to this request can record field updates.'
+      );
+    }
+
+    // Terminal/inactive lifecycle states cannot receive field notes
+    if (responseRequest.status === 'CANCELLED') {
+      throw new ApiError(409, 'INVALID_REQUEST_STATUS', 'Cannot record field updates on a cancelled request.');
+    }
+
+    if (responseRequest.status === 'COMPLETED') {
+      throw new ApiError(409, 'INVALID_REQUEST_STATUS', 'Cannot record field updates on a completed request.');
+    }
+
+    // Persistence safeguard: perform atomic conditional update with server-generated fieldUpdatedAt timestamp.
+    // If the record was modified concurrently, return a clean conflict error.
+    const updatedRequest = await this.repository.updateResponseRequestFieldUpdate(
+      requestId,
+      responderId,
+      trimmedNotes
+    );
+
+    if (!updatedRequest) {
+      throw new ApiError(
+        409,
+        'REQUEST_UPDATE_CONFLICT',
+        'This request changed before the field update could be saved. Refresh it and try again.'
+      );
+    }
+
+    return updatedRequest;
+  }
+
   async updateResponseRequestProgress(
     responseRequestId: string,
     actor: ResponderActionActor | null | undefined,
-    nextStatus: ResponseStatus
+    nextStatus: ResponseStatus,
+    completionDetails?: {
+      assistanceProvided?: string;
+      completionSummary?: string;
+      responderRemarks?: string;
+    }
   ) {
     const responderId = this.validateResponderActionInput(responseRequestId, actor);
 
@@ -246,11 +376,58 @@ export class ResponseRequestService {
       );
     }
 
+    // LDFEW-266 / LDFEW-353: Ensure required completion details are validated before transitioning to COMPLETED
+    if (nextStatus === 'COMPLETED') {
+      if (!completionDetails || (!completionDetails.assistanceProvided && !completionDetails.completionSummary)) {
+        throw new ApiError(
+          400,
+          'COMPLETION_DETAILS_REQUIRED',
+          'Completion details (assistance provided and completion summary) are required to complete this request.'
+        );
+      }
+
+      const trimmedAssistance = completionDetails.assistanceProvided?.trim();
+      const trimmedSummary = completionDetails.completionSummary?.trim();
+
+      if (!trimmedAssistance || trimmedAssistance.length < 3 || trimmedAssistance.length > 1000) {
+        throw new ApiError(
+          400,
+          'INVALID_COMPLETION_DETAILS',
+          'Assistance provided is required and must be between 3 and 1000 characters.'
+        );
+      }
+
+      if (!trimmedSummary || trimmedSummary.length < 3 || trimmedSummary.length > 1000) {
+        throw new ApiError(
+          400,
+          'INVALID_COMPLETION_DETAILS',
+          'Completion summary is required and must be between 3 and 1000 characters.'
+        );
+      }
+
+      if (completionDetails.responderRemarks && completionDetails.responderRemarks.trim().length > 1000) {
+        throw new ApiError(
+          400,
+          'INVALID_COMPLETION_DETAILS',
+          'Responder remarks must be at most 1000 characters.'
+        );
+      }
+    }
+
+    const validatedCompletionDetails = nextStatus === 'COMPLETED' && completionDetails?.assistanceProvided && completionDetails?.completionSummary
+      ? {
+          assistanceProvided: completionDetails.assistanceProvided.trim(),
+          completionSummary: completionDetails.completionSummary.trim(),
+          ...(completionDetails.responderRemarks?.trim() ? { responderRemarks: completionDetails.responderRemarks.trim() } : {})
+        }
+      : undefined;
+
     const updatedRequest = await this.repository.updateResponseRequestProgress(
       requestId,
       responderId,
       responseRequest.status,
-      nextStatus
+      nextStatus,
+      validatedCompletionDetails
     );
 
     if (!updatedRequest) {
@@ -262,6 +439,40 @@ export class ResponseRequestService {
     }
 
     return updatedRequest;
+  }
+
+  // LDFEW-266 / LDFEW-355: Responder fetches request details by ID to view previously saved updates
+  async getResponderResponseRequestById(
+    responseRequestId: string,
+    actor: ResponderActionActor | null | undefined
+  ): Promise<SafeResponseRequest> {
+    const responderId = this.validateResponderActionInput(responseRequestId, actor);
+
+    if (!mongoose.isObjectIdOrHexString(responseRequestId)) {
+      throw new ApiError(400, 'INVALID_REQUEST_ID', 'A valid response request id is required.');
+    }
+
+    const requestId = responseRequestId.toLowerCase();
+    const responseRequest = await this.repository.findResponseRequestForProgress(requestId);
+
+    if (!responseRequest) {
+      throw new ApiError(404, 'REQUEST_NOT_FOUND', 'Emergency request not found.');
+    }
+
+    const isAssigned = responseRequest.assignedResponderId === responderId;
+    const isEligiblePending =
+      responseRequest.status === 'NEW' &&
+      !(responseRequest.declinedByResponderIds ?? []).includes(responderId);
+
+    if (!isAssigned && !isEligiblePending) {
+      throw new ApiError(
+        403,
+        'REQUEST_NOT_ASSIGNED',
+        'You are not authorized to view this emergency request.'
+      );
+    }
+
+    return responseRequest;
   }
 
   private validateResponderActionInput(

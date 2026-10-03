@@ -341,7 +341,8 @@ function getRelevantVulnerablePeople(vulnerablePeople: {
 
 function submitErrorStateFor(error: unknown): Pick<SubmitState, 'reason' | 'message'> {
   if (error instanceof ApiClientError) {
-    if (error.status === 0) {
+    // Recognize both zero-status (typical fetch offline/drop) and NETWORK_ERROR client codes
+    if (error.status === 0 || error.code === 'NETWORK_ERROR') {
       return {
         reason: 'network',
         message:
