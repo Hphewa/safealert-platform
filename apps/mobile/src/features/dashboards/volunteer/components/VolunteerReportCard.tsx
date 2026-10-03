@@ -3,6 +3,8 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
+import { StatusBadge } from '../../shared/components/StatusBadge';
+import { badgeToneForReportStatus } from '../../shared/utils';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import type { VolunteerCommunityReport } from '../reports';
 
@@ -16,13 +18,16 @@ export function VolunteerReportCard({ report }: VolunteerReportCardProps) {
   return (
     <Pressable
       accessibilityHint="Open the full volunteer report details view."
-      accessibilityLabel={`${report.severity} severity ${report.hazardType} at ${report.locationLabel}`}
+      accessibilityLabel={`${report.status} ${report.severity} severity ${report.hazardType} at ${report.locationLabel}`}
       accessibilityRole="button"
       onPress={() => router.push(report.href)}
       style={({ pressed }) => [styles.card, pressed && styles.pressed]}
     >
       <View style={styles.headerRow}>
-        <PriorityBadge priority={report.severity} />
+        <View style={styles.badgeRow}>
+          <StatusBadge label={report.status} tone={badgeToneForReportStatus(report.status)} />
+          <PriorityBadge priority={report.severity} />
+        </View>
         <Text style={styles.timeText}>{report.reportedTimeLabel}</Text>
       </View>
 
@@ -86,6 +91,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8
   },
   timeText: {
     fontSize: 13,
