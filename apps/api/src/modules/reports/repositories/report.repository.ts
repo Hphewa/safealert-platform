@@ -43,12 +43,19 @@ export type CancelPendingResidentReportInput = {
   cancelledAt: Date;
 };
 
+export type VerifiedReportImageEvidence = {
+  id: string;
+  imageReference: string;
+  createdAt: string;
+};
+
 export interface ReportRepository {
   createReport(input: CreateReportInput): Promise<SafeReport>;
   findReportById(reportId: string): Promise<SafeReport | null>;
   findReportsByResidentId(residentId: string): Promise<SafeReport[]>;
   findReportByIdAndResidentId(reportId: string, residentId: string): Promise<SafeReport | null>;
   findReportsByIds(reportIds: string[]): Promise<SafeReport[]>;
+  findVerifiedImageEvidenceByIds(reportIds: string[]): Promise<VerifiedReportImageEvidence[]>;
   findReportsByCommunityReportClusterId(communityReportClusterId: string): Promise<SafeReport[]>;
   findVerifiedSummariesByIds(reportIds: string[]): Promise<MonitoringReportSummary[]>;
 

@@ -32,6 +32,12 @@ describe('Risk Map payload and presentation', () => {
     expect(filterRiskMapIncidents(data().incidents, 'MODERATE')).toHaveLength(1);
     expect(filterRiskMapIncidents(data().incidents, 'HIGH')).toEqual([]);
   });
+  it.each([
+    ['LOW', 'Low', '#16a34a'], ['MODERATE', 'Medium', '#eab308'],
+    ['HIGH', 'High', '#f97316'], ['CRITICAL', 'Critical', '#dc2626']
+  ] as const)('presents %s as %s with its map color', (level, label, color) => {
+    expect(riskMapPresentation[level]).toEqual({ label, color });
+  });
 });
 
 describe('Risk Map freshness resource', () => {

@@ -22,6 +22,7 @@ vi.mock('../hooks/useRiskMap', () => ({ useRiskMap: () => state }));
 vi.mock('../../dashboards/shared/maps/MultiMarkerLocationPreview', () => ({ MultiMarkerLocationPreview: ({ locations, onMarkerSelect }: { locations: typeof state.markers; onMarkerSelect: (id: string) => void }) => {
   state.markers = locations; state.markerSelect = onMarkerSelect; return <div>Map</div>;
 } }));
+vi.mock('../../dashboards/shared/maps/HumanReadableLocation', () => ({ HumanReadableLocation: () => <span>Test location</span> }));
 import { RiskMapScreen } from './RiskMapScreen';
 import { RiskMapDetailsCard } from '../components/RiskMapDetailsCard';
 const incident: OfficerRiskMapIncident = { incidentId: 'incident-1', hazardType: 'FLOOD', location: { type: 'Point', coordinates: [79.86, 6.92] }, riskLevel: 'MODERATE', assessedAt: '2026-10-01T12:00:00Z', hasPublishedWarning: true, incidentStatus: 'ACTIVE', reportCount: 4, assessmentId: 'assessment-2', assessmentStatus: 'ACTIVE', calculatedScore: 18 };
@@ -52,7 +53,10 @@ it.each(['RESIDENT', 'COMMUNITY_VOLUNTEER', 'EMERGENCY_RESPONDER'] as UserRole[]
   expect(markup).not.toContain('View Assessment'); expect(markup).not.toContain('Open Monitoring'); expect(markup).not.toContain('Score:');
   expect(markup.includes('4 reports')).toBe(role === 'EMERGENCY_RESPONDER');
   expect(markup.includes('View published warnings')).toBe(role === 'RESIDENT');
-  if (role === 'RESIDENT') { state.actions.get('View published warnings')!(); expect(state.push).toHaveBeenCalledWith('/resident/warnings'); }
+  expect(markup).toContain(role === 'RESIDENT' ? 'View Risk Area Details' : 'View Risk Details');
+  state.actions.get(role === 'RESIDENT' ? 'View Risk Area Details' : 'View Risk Details')!();
+  expect(state.push).toHaveBeenCalledWith({ pathname: role === 'RESIDENT' ? '/resident/risk-locations/[incidentId]' : role === 'COMMUNITY_VOLUNTEER' ? '/volunteer/risk-locations/[incidentId]' : '/responder/risk-locations/[incidentId]', params: { incidentId: incident.incidentId } });
+  if (role === 'RESIDENT') { state.actions.get('View published warnings')!(); expect(state.push).toHaveBeenLastCalledWith('/resident/warnings'); }
 });
 it('never leaves a details card for a removed or unvalidated incident', () => {
   state.selectedId = 'incident-1'; state.data = { role: 'RESIDENT', generatedAt: incident.assessedAt, incidents: [] };

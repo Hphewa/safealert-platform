@@ -10,6 +10,7 @@ import type {
   ReviewReportInput,
   UpdatePendingResidentReportInput
 } from './report.repository.js';
+import { isSafeReportImageReference } from './reportImageEvidence.js';
 import { haversineDistanceKm } from '../../../shared/geo.js';
 
 export class InMemoryReportRepository implements ReportRepository {
@@ -60,6 +61,15 @@ export class InMemoryReportRepository implements ReportRepository {
   async findReportsByIds(ids: string[]) {
     const selectedIds = new Set(ids.map((id) => id.toLowerCase()));
     return [...this.reports.values()].filter((report) => selectedIds.has(report.id.toLowerCase()));
+  }
+
+  async findVerifiedImageEvidenceByIds(ids: string[]) {
+    if (ids.length === 0) return [];
+    const selectedIds = new Set(ids.map(id => id.toLowerCase()));
+    return [...this.reports.values()].flatMap(report => report.status === 'VERIFIED' && selectedIds.has(report.id.toLowerCase())
+      && isSafeReportImageReference(report.mediaReference)
+      ? [{ id: report.id, imageReference: report.mediaReference, createdAt: report.createdAt }]
+      : []);
   }
 
 

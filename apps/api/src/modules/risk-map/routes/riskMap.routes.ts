@@ -8,6 +8,8 @@ import type { RiskMapService } from '../services/riskMap.service.js';
 export function createRiskMapRouter(service: RiskMapService, config: ApiConfig) {
   const router = Router();
   router.use(authenticate(config), authorizeRoles('DISASTER_OFFICER', 'EMERGENCY_RESPONDER', 'COMMUNITY_VOLUNTEER', 'RESIDENT'));
-  router.get('/', createRiskMapController(service).list);
+  const controller = createRiskMapController(service);
+  router.get('/', controller.list);
+  router.get('/:incidentId', controller.details);
   return router;
 }

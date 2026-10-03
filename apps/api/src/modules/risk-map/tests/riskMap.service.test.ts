@@ -4,7 +4,7 @@ import { assessment, incident, incidentId, officerId, repositories, addWarning }
 
 function setup() {
   const repos = repositories();
-  return { ...repos, service: new RiskMapService(repos.incidents, repos.assessments, repos.warnings) };
+  return { ...repos, service: new RiskMapService(repos.incidents, repos.assessments, repos.warnings, repos.reports) };
 }
 describe('Risk Map current incident read model', () => {
   it('uses the final decision and stored incident point, once for four reports', async () => {
@@ -81,5 +81,50 @@ describe('Risk Map current incident read model', () => {
     expect(lifecycle).toHaveBeenCalledTimes(1);
     expect(warningRead).toHaveBeenCalledTimes(1);
     expect((await service.list('RESIDENT')).incidents).toEqual(first.incidents);
+  });
+
+  it('returns current role-safe factors and verified grouped images only', async () => {
+    const { assessments, incidents, reports, warnings, service } = setup();
+    const current = await assessments.create(assessment({ finalRiskLevel: 'CRITICAL', peopleAffected: 27, vulnerablePeople: 6 }));
+    const point = { type: 'Point' as const, coordinates: [79.86, 6.92] as [number, number] };
+    const image = '/api/v1/media/report-evidence/2026-10-01-123e4567-e89b-12d3-a456-426614174000.jpg';
+    const base = { id: '333333333333333333333331', residentId: '444444444444444444444444', hazardType: 'FLOOD' as const,
+      description: 'Private resident description', severity: 'LOW' as const, location: point, createdAt: '2026-10-01T10:00:00.000Z', updatedAt: '2026-10-01T10:00:00.000Z',
+      status: 'VERIFIED' as const, mediaReference: image, verifiedById: officerId, verifiedAt: '2026-10-01T10:05:00.000Z' };
+    reports.seedReport(base);
+    reports.seedReport({ ...base, id: '333333333333333333333332' });
+    reports.seedReport({ ...base, id: '333333333333333333333333', mediaReference: '/api/v1/media/report-evidence/2026-10-01-123e4567-e89b-12d3-a456-426614174000.mp4' });
+    reports.seedReport({ ...base, id: '333333333333333333333334', status: 'PENDING', mediaReference: '/api/v1/media/report-evidence/2026-10-01-123e4567-e89b-12d3-a456-426614174001.png' });
+    reports.seedReport({ ...base, id: '333333333333333333333335', mediaReference: 'file:///private/internal.jpg' });
+    incidents.seedIncident(incident({ id: 'aaaaaaaaaaaaaaaaaaaaaaaa', reportIds: ['333333333333333333333336'] }));
+    reports.seedReport({ ...base, id: '333333333333333333333336', mediaReference: '/api/v1/media/report-evidence/2026-10-01-123e4567-e89b-12d3-a456-426614174002.png' });
+    await addWarning(warnings, current.id, 'PUBLISHED');
+    const detail = await service.getRiskLocationDetails(incidentId, 'EMERGENCY_RESPONDER');
+    expect(detail).toMatchObject({ riskLevel: 'CRITICAL', assessedAt: current.assessedAt, hasPublishedWarning: true,
+      riskFactors: { peopleAffected: 27, vulnerablePeople: 6, hazardSeverity: 'HIGH' }, reportCount: 4,
+      evidence: [{ type: 'IMAGE', imageUrl: image, createdAt: base.createdAt }] });
+    expect(detail.evidence).toHaveLength(1);
+    expect(JSON.stringify(detail)).not.toMatch(/residentId|verifiedById|description|Private|file:\/\//);
+    const volunteer = await service.getRiskLocationDetails(incidentId, 'COMMUNITY_VOLUNTEER');
+    expect(volunteer.riskFactors).toMatchObject({ peopleAffected: 27, roadAccessibility: 'ACCESSIBLE' });
+    expect(volunteer.riskFactors).not.toHaveProperty('vulnerablePeople');
+    expect(volunteer).not.toHaveProperty('assessmentId');
+    const resident = await service.getRiskLocationDetails(incidentId, 'RESIDENT');
+    expect(resident.riskFactors).toEqual({ roadAccessibility: 'ACCESSIBLE', infrastructureImpact: 'LOW', waterLevelTrend: 'RISING', weatherCondition: 'HEAVY_RAIN' });
+    expect(resident).not.toHaveProperty('reportCount');
+    expect(resident).not.toHaveProperty('calculatedScore');
+  });
+
+  it.each(['none', 'CLOSED', 'VOID'] as const)('does not return details for %s current assessment state', async state => {
+    const { assessments, service } = setup();
+    if (state !== 'none') await assessments.create(assessment({ status: state }));
+    await expect(service.getRiskLocationDetails(incidentId, 'RESIDENT')).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it.each(['RESOLVED', 'CLOSED'] as const)('does not return detail for %s incident', async status => {
+    const { incidents, assessments, service } = setup();
+    incidents.seedIncident(incident({ status }));
+    await assessments.create(assessment());
+    await expect(service.getRiskLocationDetails(incidentId, 'RESIDENT')).rejects.toMatchObject({ statusCode: 404 });
   });
 });

@@ -9,6 +9,7 @@ import type {
   ReviewReportInput,
   UpdatePendingResidentReportInput
 } from './report.repository.js';
+import { isSafeReportImageReference } from './reportImageEvidence.js';
 
 export class MongooseReportRepository implements ReportRepository {
   async createReport(input: CreateReportInput) {
@@ -38,6 +39,15 @@ export class MongooseReportRepository implements ReportRepository {
     if (reportIds.length === 0) return [];
     const reports = await ReportModel.find({ _id: { $in: reportIds } }).exec();
     return reports.map(toSafeReport);
+  }
+
+  async findVerifiedImageEvidenceByIds(reportIds: string[]) {
+    if (reportIds.length === 0) return [];
+    const reports = await ReportModel.find({ _id: { $in: reportIds }, status: 'VERIFIED' })
+      .select('_id mediaReference createdAt').exec();
+    return reports.flatMap(report => isSafeReportImageReference(report.mediaReference)
+      ? [{ id: report._id.toString(), imageReference: report.mediaReference, createdAt: report.createdAt.toISOString() }]
+      : []);
   }
 
 

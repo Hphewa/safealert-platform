@@ -166,7 +166,7 @@ export function createApp({
   ));
   app.use('/api/v1/risk-assessments', createRiskAssessmentRouter(riskAssessmentService, config));
   app.use('/api/v1/risk-map', createRiskMapRouter(
-    new RiskMapService(resolvedIncidentRepository, resolvedAssessmentRepository, resolvedWarningRepository), config
+    new RiskMapService(resolvedIncidentRepository, resolvedAssessmentRepository, resolvedWarningRepository, resolvedReportRepository), config
   ));
   app.use('/api/v1/warnings', createWarningRouter(warningService, config));
   app.use('/api/v1/notifications', createNotificationRouter(

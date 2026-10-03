@@ -20,7 +20,8 @@ async function context() {
   const reports = new InMemoryReportRepository();
   reports.seedReport({ id: '333333333333333333333331', residentId: '444444444444444444444444', hazardType: 'FLOOD',
     location: { type: 'Point', coordinates: [79.86, 6.92] }, description: 'Private report evidence', severity: 'LOW',
-    status: 'VERIFIED', createdAt: current.assessedAt, updatedAt: current.assessedAt });
+    mediaReference: '/api/v1/media/report-evidence/2026-10-01-123e4567-e89b-12d3-a456-426614174000.png',
+    status: 'VERIFIED', createdAt: current.assessedAt, updatedAt: current.assessedAt, verifiedById: officerId, verifiedAt: current.assessedAt });
   return { ...repos, current, app: createApp({ config: loadConfig(), incidentRepository: repos.incidents,
     riskAssessmentRepository: repos.assessments, warningRepository: repos.warnings, reportRepository: reports }) };
 }
@@ -47,6 +48,35 @@ describe('Risk Map HTTP authorization and serialization', () => {
     const { app } = await context();
     expect((await request(app).get(base).auth(token('ADMIN'), { type: 'bearer' })).status).toBe(403);
   });
+
+  it.each(USER_ROLES)('returns %s detail with a role-specific allowlist and verified images', async role => {
+    const { app } = await context();
+    const response = await request(app).get(`${base}/${incidentId}`).auth(token(role), { type: 'bearer' });
+    expect(response.status).toBe(200);
+    expect(response.body.role).toBe(role);
+    expect(response.headers['cache-control']).toContain('no-store');
+    const detail = response.body.detail;
+    expect(detail).toMatchObject({ incidentId, riskLevel: 'HIGH', hasPublishedWarning: true,
+      riskFactors: { roadAccessibility: 'ACCESSIBLE' },
+      evidence: [{ type: 'IMAGE', imageUrl: '/api/v1/media/report-evidence/2026-10-01-123e4567-e89b-12d3-a456-426614174000.png' }] });
+    if (role === 'DISASTER_OFFICER') expect(detail).toMatchObject({ assessmentId: expect.any(String), riskFactors: { hazardSeverity: 'HIGH', peopleAffected: 8 } });
+    if (role === 'EMERGENCY_RESPONDER') expect(detail).toMatchObject({ incidentStatus: 'ACTIVE', reportCount: 4, riskFactors: { hazardSeverity: 'HIGH', peopleAffected: 8 } });
+    if (role === 'COMMUNITY_VOLUNTEER') {
+      expect(detail).not.toHaveProperty('reportCount'); expect(detail.riskFactors).not.toHaveProperty('vulnerablePeople');
+    }
+    if (role === 'RESIDENT') {
+      expect(Object.keys(detail).sort()).toEqual(['assessedAt', 'evidence', 'hasPublishedWarning', 'hazardType', 'incidentId', 'location', 'riskFactors', 'riskLevel'].sort());
+      expect(detail.riskFactors).not.toHaveProperty('peopleAffected');
+    }
+    expect(response.text).not.toMatch(/residentId|verifiedById|officerId|decisionReason|description|Private|Targeted|publishedById|rejectionReason/);
+  });
+
+  it('rejects malformed and unavailable risk location IDs without leaking resources', async () => {
+    const { app } = await context();
+    const auth = token('RESIDENT');
+    expect((await request(app).get(`${base}/not-an-id`).auth(auth, { type: 'bearer' })).status).toBe(400);
+    expect((await request(app).get(`${base}/999999999999999999999999`).auth(auth, { type: 'bearer' })).status).toBe(404);
+  });
   it.each(['role=DISASTER_OFFICER', 'riskLevel=HIGH', 'includeDeleted=true'])('rejects unsupported query: %s', async query => {
     const { app } = await context();
     expect((await request(app).get(`${base}?${query}`).auth(token('RESIDENT'), { type: 'bearer' })).status).toBe(400);
@@ -66,10 +96,14 @@ describe('Risk Map HTTP authorization and serialization', () => {
     expect(reassess.status).toBe(201);
     const mapped = await request(app).get(base).auth(token('RESIDENT'), { type: 'bearer' });
     expect(mapped.body.incidents).toEqual([expect.objectContaining({ incidentId, riskLevel: 'CRITICAL', hasPublishedWarning: false })]);
+    const currentDetail = (await request(app).get(`${base}/${incidentId}`).auth(token('RESIDENT'), { type: 'bearer' })).body.detail;
+    expect(currentDetail).toMatchObject({ riskLevel: 'CRITICAL', riskFactors: { waterLevelTrend: 'RISING' } });
+    expect(currentDetail.riskFactors).not.toHaveProperty('peopleAffected');
     const close = await request(app).patch(`/api/v1/risk-assessments/${reassess.body.assessment.id}/close`)
       .auth(token('DISASTER_OFFICER'), { type: 'bearer' }).send({ closureReason: 'MONITORING_COMPLETED' });
     expect(close.status).toBe(200);
     expect((await request(app).get(base).auth(token('RESIDENT'), { type: 'bearer' })).body.incidents).toEqual([]);
+    expect((await request(app).get(`${base}/${incidentId}`).auth(token('RESIDENT'), { type: 'bearer' })).status).toBe(404);
     expect((await incidents.findById(incidentId))?.status).toBe('ACTIVE');
   });
 });

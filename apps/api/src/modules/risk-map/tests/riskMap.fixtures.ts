@@ -2,6 +2,7 @@ import type { SafeIncident } from '@safealert/contracts';
 import { InMemoryIncidentRepository } from '../../incidents/repositories/inMemoryIncident.repository.js';
 import { InMemoryRiskAssessmentRepository } from '../../risk-assessments/repositories/inMemoryRiskAssessment.repository.js';
 import { InMemoryWarningRepository } from '../../warnings/repositories/inMemoryWarning.repository.js';
+import { InMemoryReportRepository } from '../../reports/repositories/inMemoryReport.repository.js';
 import type { CreateRiskAssessmentInput } from '../../risk-assessments/repositories/riskAssessment.repository.js';
 
 export const incidentId = '111111111111111111111111';
@@ -21,7 +22,7 @@ export function assessment(overrides: Partial<CreateRiskAssessmentInput> = {}): 
 export function repositories() {
   const incidents = new InMemoryIncidentRepository();
   incidents.seedIncident(incident());
-  return { incidents, assessments: new InMemoryRiskAssessmentRepository(), warnings: new InMemoryWarningRepository() };
+  return { incidents, assessments: new InMemoryRiskAssessmentRepository(), warnings: new InMemoryWarningRepository(), reports: new InMemoryReportRepository() };
 }
 export async function addWarning(warnings: InMemoryWarningRepository, assessmentId: string, status: 'DRAFT' | 'PUBLISHED') {
   return warnings.create({ assessmentId, status, hazardReportId: '333333333333333333333331', createdById: officerId,

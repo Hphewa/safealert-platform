@@ -294,6 +294,46 @@ export type RiskMapResponse = { generatedAt: string } & (
   | { role: 'RESIDENT'; incidents: RiskMapIncident[] }
 );
 
+export type RiskLocationEvidenceImage = {
+  type: 'IMAGE';
+  imageUrl: string;
+  createdAt: string;
+};
+export type ResponderRiskLocationDetails = {
+  incidentId: string;
+  hazardType: HazardType;
+  location: GeoJsonPoint;
+  riskLevel: RiskLevel;
+  assessedAt: string;
+  hasPublishedWarning: boolean;
+  incidentStatus: 'ACTIVE';
+  reportCount: number;
+  riskFactors: RiskAssessmentFactors;
+  evidence: RiskLocationEvidenceImage[];
+};
+export type VolunteerRiskLocationRiskFactors = Pick<RiskAssessmentFactors,
+  'hazardSeverity' | 'peopleAffected' | 'roadAccessibility' | 'infrastructureImpact' | 'waterLevelTrend' | 'weatherCondition'
+>;
+export type VolunteerRiskLocationDetails = Omit<ResponderRiskLocationDetails, 'incidentStatus' | 'reportCount' | 'riskFactors'> & {
+  riskFactors: VolunteerRiskLocationRiskFactors;
+};
+export type ResidentRiskLocationRiskFactors = Pick<RiskAssessmentFactors,
+  'roadAccessibility' | 'infrastructureImpact' | 'waterLevelTrend' | 'weatherCondition'
+>;
+export type ResidentRiskLocationDetails = Omit<VolunteerRiskLocationDetails, 'riskFactors'> & {
+  riskFactors: ResidentRiskLocationRiskFactors;
+};
+export type OfficerRiskLocationDetails = ResponderRiskLocationDetails & {
+  assessmentId: string;
+  calculatedScore: number;
+};
+export type RiskLocationDetailsResponse = { generatedAt: string } & (
+  | { role: 'DISASTER_OFFICER'; detail: OfficerRiskLocationDetails }
+  | { role: 'EMERGENCY_RESPONDER'; detail: ResponderRiskLocationDetails }
+  | { role: 'COMMUNITY_VOLUNTEER'; detail: VolunteerRiskLocationDetails }
+  | { role: 'RESIDENT'; detail: ResidentRiskLocationDetails }
+);
+
 export const INCIDENT_STATUSES = ['ACTIVE', 'RESOLVED', 'CLOSED'] as const;
 export type IncidentStatus = (typeof INCIDENT_STATUSES)[number];
 export const INCIDENT_MAX_REPORTS = 100;

@@ -12,5 +12,14 @@ export function createRiskMapController(service: RiskMapService) {
     response.set('Cache-Control', 'private, no-store');
     response.json(await service.list(request.auth.role));
   });
-  return { list };
+  const details: RequestHandler = asyncHandler(async (request, response) => {
+    if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
+    if (!/^[a-f\d]{24}$/i.test(request.params.incidentId ?? '')) {
+      throw new ApiError(400, 'INVALID_INCIDENT_ID', 'A valid incident id is required.');
+    }
+    const detail = await service.getRiskLocationDetails(request.params.incidentId!, request.auth.role);
+    response.set('Cache-Control', 'private, no-store');
+    response.json({ role: request.auth.role, generatedAt: new Date().toISOString(), detail });
+  });
+  return { list, details };
 }
