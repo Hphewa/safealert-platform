@@ -59,6 +59,7 @@ import type { CommunityReportClusterRepository } from './modules/report-clusters
 import { MongooseCommunityReportClusterRepository } from './modules/report-clusters/repositories/mongooseCommunityReportCluster.repository.js';
 import { CommunityReportGroupingService } from './modules/report-clusters/services/communityReportGrouping.service.js';
 import { createCommunityReportClusterRouter } from './modules/report-clusters/routes/communityReportCluster.routes.js';
+import { createGeocodingRouter } from './modules/geocoding/routes/geocoding.routes.js';
 
 type CreateAppOptions = {
   config: ApiConfig;
@@ -157,6 +158,8 @@ export function createApp({
       roles: USER_ROLES
     });
   });
+
+  app.use('/api/v1/geocoding', createGeocodingRouter());
 
   app.use('/api/v1/auth', createAuthRouter(authService, config));
   app.use('/api/v1/reports', createReportRouter(reportService, config));

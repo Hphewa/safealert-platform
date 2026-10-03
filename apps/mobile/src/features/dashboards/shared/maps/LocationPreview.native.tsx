@@ -8,6 +8,7 @@ type LocationPreviewProps = {
   coordinates: MapCoordinates | null;
   title?: string;
   height?: number;
+  placeName?: string;
 };
 
 export function LocationPreview({ coordinates, title = 'Reported Location', height = 210 }: LocationPreviewProps) {

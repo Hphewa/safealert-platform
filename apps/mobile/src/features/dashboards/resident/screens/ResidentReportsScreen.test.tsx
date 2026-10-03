@@ -36,6 +36,7 @@ vi.mock('expo-router', () => ({
 }));
 
 vi.mock('react-native', () => ({
+  Platform: { OS: 'web', select: (values: { web?: unknown; default?: unknown }) => values.web ?? values.default },
   ActivityIndicator: 'span',
   FlatList: ({
     data,
@@ -54,6 +55,7 @@ vi.mock('react-native', () => ({
     </div>
   ),
   Pressable: 'button',
+  Image: 'img',
   RefreshControl: 'refresh',
   StyleSheet: { create: (styles: unknown) => styles },
   Text: 'span',

@@ -28,7 +28,6 @@ export function BottomNavigation({ items }: BottomNavigationProps) {
 
           return (
             <Pressable
-              accessibilityLabel={item.label}
               accessibilityRole="button"
               accessibilityLabel={label}
               accessibilityState={{ selected: isActive }}

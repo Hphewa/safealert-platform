@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import {
   RecordingPresets,
   requestRecordingPermissionsAsync,
@@ -86,7 +86,7 @@ export function VoiceNoteRecorder({
 
       if (!permission.granted) {
         setStatus('error');
-        setMessage('Microphone permission is needed to add an optional voice note.');
+        setMessage('Microphone permission is needed.');
         return;
       }
 
@@ -101,7 +101,7 @@ export function VoiceNoteRecorder({
       recordingStartedAtRef.current = Date.now();
       recorder.record({ forDuration: reportVoiceMaxDurationSeconds });
       setStatus('recording');
-      setMessage(`Recording. Maximum ${reportVoiceMaxDurationSeconds} seconds.`);
+      setMessage(null);
     } catch {
       setStatus('error');
       setMessage('We could not start recording. Check microphone access and try again.');
@@ -146,7 +146,7 @@ export function VoiceNoteRecorder({
         uploadedMediaReference: null
       });
       setStatus('idle');
-      setMessage('Voice note ready. It will upload when the report is submitted.');
+      setMessage(null);
     } catch {
       setStatus('error');
       setMessage('We could not save the voice note. Please try recording again.');
@@ -166,30 +166,24 @@ export function VoiceNoteRecorder({
       {isRecording ? (
         <View style={styles.recordingBanner}>
           <View style={styles.recordingDot} />
-          <Text style={styles.recordingText}>
-            Recording {formatVoiceDuration(elapsedSeconds)} / {formatVoiceDuration(reportVoiceMaxDurationSeconds)}
-          </Text>
+          <RecordingWave />
+          <Text style={styles.recordingText}>{formatVoiceDuration(elapsedSeconds)}</Text>
         </View>
       ) : null}
 
       {value ? (
         <VoiceNotePlayer
           durationSeconds={value.durationSeconds}
-          title="Selected voice note"
+          title="Voice recording"
           uri={value.localUri}
         />
       ) : existingVoice?.uri ? (
         <VoiceNotePlayer
           durationSeconds={existingVoice.durationSeconds}
-          title="Current voice note"
+          title="Voice recording"
           uri={existingVoice.uri}
         />
-      ) : (
-        <View style={styles.emptyState}>
-          <DashboardGlyph color={dashboardTheme.colors.muted} name="mic-outline" size={22} />
-          <Text style={styles.emptyText}>No voice note added.</Text>
-        </View>
-      )}
+      ) : null}
 
       {message ? (
         <Text
@@ -233,7 +227,7 @@ export function VoiceNoteRecorder({
               <>
                 <DashboardGlyph color="#ffffff" name="mic-outline" size={17} />
                 <Text style={styles.recordButtonText}>
-                  {value || existingVoice ? 'Replace Voice Note' : 'Record Voice Note'}
+                  {value || existingVoice ? 'Replace recording' : 'Record'}
                 </Text>
               </>
             )}
@@ -265,24 +259,47 @@ export function VoiceNoteRecorder({
   );
 }
 
+function RecordingWave() {
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(progress, { toValue: 1, duration: 650, useNativeDriver: true }),
+        Animated.timing(progress, { toValue: 0, duration: 650, useNativeDriver: true })
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [progress]);
+
+  return (
+    <View accessibilityLabel="Recording in progress" style={styles.wave}>
+      {[0, 1, 2, 3, 4].map((bar) => (
+        <Animated.View
+          key={bar}
+          style={[
+            styles.waveBar,
+            {
+              transform: [
+                {
+                  scaleY: progress.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0.35 + bar * 0.08, 1]
+                  })
+                }
+              ]
+            }
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     gap: 10
-  },
-  emptyState: {
-    minHeight: 88,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.sm,
-    backgroundColor: dashboardTheme.colors.surfaceMuted
-  },
-  emptyText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: dashboardTheme.colors.muted
   },
   recordingBanner: {
     flexDirection: 'row',
@@ -299,10 +316,22 @@ const styles = StyleSheet.create({
     backgroundColor: dashboardTheme.colors.critical
   },
   recordingText: {
-    flex: 1,
     fontSize: 14,
     fontWeight: '800',
     color: dashboardTheme.colors.critical
+  },
+  wave: {
+    flex: 1,
+    height: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3
+  },
+  waveBar: {
+    width: 4,
+    height: 22,
+    borderRadius: 2,
+    backgroundColor: dashboardTheme.colors.critical
   },
   message: {
     fontSize: 13,

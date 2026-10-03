@@ -15,7 +15,6 @@ import { useAssessmentResource } from '../hooks/useAssessmentResource';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { dashboardTheme } from '../../shared/theme';
 import { formatOperationalTime } from '../../shared/formatOperationalTime';
-import { useRiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraft';
 import { RiskFactorContributionDetails } from '../components/RiskFactorContributionDetails';
 import {
   AssessmentButton, AssessmentDetail, AssessmentFactorSummary, AssessmentLoadState, AssessmentOptions, AssessmentPage,
@@ -29,7 +28,6 @@ type AssessmentHistoryState =
 
 export function RiskAssessmentResultScreen() {
   const router = useRouter();
-  const { resetAssessmentDraft } = useRiskAssessmentDraft();
   const { accessToken, user } = useAuth();
   const [historyState, setHistoryState] = useState<AssessmentHistoryState>({ kind: 'loading' });
   const [historyRetry, setHistoryRetry] = useState(0);

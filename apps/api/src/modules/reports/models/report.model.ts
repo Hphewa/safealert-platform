@@ -20,6 +20,12 @@ const reportVerificationSchema = new mongoose.Schema(
     verifiedAt: {
       type: Date,
       required: true
+    },
+    verificationNote: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: 500
     }
   },
   {
@@ -72,6 +78,12 @@ const reportVerificationHistorySchema = new mongoose.Schema(
       required(this: ReportReviewHistoryValidationContext): boolean {
         return this.action === 'VERIFY';
       }
+    },
+    verificationNote: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: 500
     },
     rejectedById: {
       type: mongoose.Schema.Types.ObjectId,
@@ -168,6 +180,11 @@ const reportSchema = new mongoose.Schema(
       ref: 'User',
       index: true
     },
+    clientOperationId: {
+      type: String,
+      trim: true,
+      maxlength: 200
+    },
     communityReportClusterId: {
       type: mongoose.Schema.Types.ObjectId,
       required: false,
@@ -178,6 +195,11 @@ const reportSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: HAZARD_TYPES
+    },
+    otherHazardType: {
+      type: String,
+      trim: true,
+      maxlength: 80
     },
     description: {
       type: String,
@@ -239,6 +261,7 @@ const reportSchema = new mongoose.Schema(
 );
 
 reportSchema.index({ location: '2dsphere' });
+reportSchema.index({ residentId: 1, clientOperationId: 1 }, { unique: true, sparse: true });
 
 export type ReportDocument = InferSchemaType<typeof reportSchema> & {
   _id: { toString(): string };
@@ -249,6 +272,7 @@ export type ReportDocument = InferSchemaType<typeof reportSchema> & {
   verification?: {
     verifiedById: { toString(): string };
     verifiedAt: Date;
+    verificationNote?: string;
   };
   rejection?: {
     rejectedById: { toString(): string };
@@ -262,6 +286,7 @@ export type ReportDocument = InferSchemaType<typeof reportSchema> & {
     action: 'VERIFY' | 'REJECT';
     verifiedById?: { toString(): string };
     verifiedAt?: Date;
+    verificationNote?: string;
     rejectedById?: { toString(): string };
     rejectedAt?: Date;
     rejectionReason?: string;
@@ -280,6 +305,7 @@ export function toSafeReport(report: ReportDocument): SafeReport {
       ? { communityReportClusterId: report.communityReportClusterId.toString() }
       : {}),
     hazardType: report.hazardType,
+    ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
     description: report.description,
     severity: report.severity,
     location: {
@@ -294,6 +320,9 @@ export function toSafeReport(report: ReportDocument): SafeReport {
   if (report.verification) {
     safeReport.verifiedById = report.verification.verifiedById.toString();
     safeReport.verifiedAt = report.verification.verifiedAt.toISOString();
+    if (report.verification.verificationNote) {
+      safeReport.verificationNote = report.verification.verificationNote;
+    }
   }
 
   if (report.rejection) {
@@ -314,7 +343,8 @@ export function toSafeReport(report: ReportDocument): SafeReport {
           {
             action: 'VERIFY',
             verifiedById: entry.verifiedById.toString(),
-            verifiedAt: entry.verifiedAt.toISOString()
+            verifiedAt: entry.verifiedAt.toISOString(),
+            ...(entry.verificationNote ? { verificationNote: entry.verificationNote } : {})
           }
         ];
       }

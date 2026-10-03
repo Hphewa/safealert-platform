@@ -27,7 +27,7 @@ import {
   emptyVerificationChecklistDraft,
   type FieldVerificationChecklistDraft
 } from '../confirmation';
-import { mapCommunityReportToVolunteerReport, type VolunteerCommunityReport } from '../reports';
+import { mapCommunityReportToVolunteerReport, resolveVolunteerReportLocation, type VolunteerCommunityReport } from '../reports';
 
 type ConfirmationMode = 'confirmed' | 'unable';
 type SelectedFieldPhoto = {
@@ -76,7 +76,7 @@ export function VolunteerConfirmationScreen() {
       try {
         if (!reportId || !accessToken) throw new Error('Report or volunteer session is unavailable.');
         const response = await getCommunityReportById(reportId, accessToken);
-        if (current === generation.current) setReport(mapCommunityReportToVolunteerReport(response.report));
+        if (current === generation.current) setReport(await resolveVolunteerReportLocation(mapCommunityReportToVolunteerReport(response.report)));
       } catch (cause) {
         if (current === generation.current) setError(statusChangedMessage(cause));
       } finally {
@@ -162,6 +162,7 @@ export function VolunteerConfirmationScreen() {
         actionLabel="Back to Reports" onActionPress={() => router.replace('/volunteer/nearby')} /> : !report ?
       <VolunteerStateCard title="Report Unavailable" message={error ?? 'This report cannot be reviewed.'} actionLabel="Retry" onActionPress={() => setRetry((value) => value + 1)} /> : <>
       <View style={styles.card}>
+        <Image accessibilityLabel={`${report.hazardType} hazard icon`} source={report.hazardImage} style={styles.hazardImage} />
         <Text style={styles.cardTitle}>{report.hazardType}</Text>
         <Text style={styles.text}>{report.locationLabel}</Text>
         <Text style={styles.text}>{report.reportedDateTimeLabel} - {report.severity} - {report.status}</Text>
@@ -304,6 +305,7 @@ const styles = StyleSheet.create({
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 22, backgroundColor: dashboardTheme.colors.surface },
   pageTitle: { flex: 1, textAlign: 'center', fontSize: 24, fontWeight: '800', color: dashboardTheme.colors.text },
   card: { padding: 20, gap: 14, backgroundColor: dashboardTheme.colors.surface, borderRadius: dashboardTheme.radius.md, borderWidth: 1, borderColor: dashboardTheme.colors.border },
+  hazardImage: { width: 52, height: 52, resizeMode: 'contain' },
   cardTitle: { fontSize: 20, fontWeight: '800', color: dashboardTheme.colors.text },
   text: { color: dashboardTheme.colors.text, fontSize: 15, lineHeight: 23 },
   label: { color: dashboardTheme.colors.text, fontSize: 14, fontWeight: '800' },

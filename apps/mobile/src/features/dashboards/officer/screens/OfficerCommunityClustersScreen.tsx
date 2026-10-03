@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import type { SafeCommunityReportClusterSummary } from '@safealert/contracts';
-import { ActivityIndicator, FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
@@ -12,6 +12,7 @@ import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
 import { listOfficerCommunityReportClusters } from '../api/communityReportClusterApi';
+import { hazardImageForResident } from '../../resident/reports';
 
 type LoadStatus = 'idle' | 'loading' | 'refreshing' | 'success' | 'error';
 
@@ -143,9 +144,14 @@ function ClusterCard({
   return (
     <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.card, pressed && styles.pressed]}>
       <View style={styles.cardHeader}>
-        <View>
+        <View style={styles.cardTitleRow}>
+          <View style={styles.hazardIconWrap}>
+            <Image accessibilityLabel={`${cluster.hazardType} hazard`} source={hazardImageForResident(cluster.hazardType)} style={styles.hazardImage} />
+          </View>
+          <View>
           <Text style={styles.cardEyebrow}>COMMUNITY INCIDENT</Text>
           <Text style={styles.cardTitle}>{cluster.hazardType.replace(/_/g, ' ')}</Text>
+          </View>
         </View>
         <PriorityBadge priority={cluster.highestSeverity} />
       </View>
@@ -154,7 +160,10 @@ function ClusterCard({
         <Metric label="Pending" value={String(cluster.pendingReportCount)} />
         <Metric label="Field checks" value={String(cluster.fieldConfirmationCount)} />
       </View>
-      <Text style={styles.cardBody}>Latest community report: {formatDateTime(cluster.lastReportedAt)}</Text>
+      <View style={styles.cardBodyRow}>
+        <DashboardGlyph color={dashboardTheme.colors.muted} name="time-outline" size={16} />
+        <Text style={styles.cardBody}>Latest report {formatDateTime(cluster.lastReportedAt)}</Text>
+      </View>
       <Text style={styles.cardHint}>Review member reports</Text>
     </Pressable>
   );
@@ -209,9 +218,13 @@ const styles = StyleSheet.create({
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 22, backgroundColor: dashboardTheme.colors.surface },
   card: { gap: 12, padding: 16, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: dashboardTheme.radius.md, backgroundColor: dashboardTheme.colors.surface, ...cardShadow },
   cardHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  cardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  hazardIconWrap: { width: 46, height: 46, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: dashboardTheme.colors.primarySoft },
+  hazardImage: { width: 34, height: 34, resizeMode: 'contain' },
   cardEyebrow: { fontSize: 11, fontWeight: '800', color: dashboardTheme.colors.muted },
   cardTitle: { fontSize: 20, fontWeight: '800', color: dashboardTheme.colors.text },
   cardBody: { fontSize: 14, lineHeight: 20, color: dashboardTheme.colors.muted },
+  cardBodyRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
   cardHint: { fontSize: 14, fontWeight: '800', color: dashboardTheme.colors.primaryStrong },
   metricRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   metric: { flex: 1, minWidth: 92, gap: 3, padding: 12, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.surfaceMuted },
@@ -224,4 +237,3 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 13, color: dashboardTheme.colors.critical },
   pressed: { opacity: 0.82 }
 });
-

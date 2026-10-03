@@ -19,11 +19,12 @@ import { volunteerBottomNavItems } from '../mockData';
 import { VolunteerReportDetailItem } from '../components/VolunteerReportDetailItem';
 import {
   mapCommunityReportToVolunteerReport,
+  resolveVolunteerReportLocation,
   type VolunteerCommunityReport
 } from '../reports';
 
-function volunteerConfirmationHref(reportId: string, mode: 'confirmed' | 'unable') {
-  return `/volunteer/reports/${encodeURIComponent(reportId)}/confirm?mode=${mode}` as const;
+function volunteerConfirmationHref(reportId: string) {
+  return `/volunteer/reports/${encodeURIComponent(reportId)}/confirm?mode=confirmed` as const;
 }
 
 export function VolunteerReportDetailsScreen() {
@@ -48,7 +49,7 @@ export function VolunteerReportDetailsScreen() {
 
     try {
       const response = await getCommunityReportById(reportId, accessToken);
-      setReport(mapCommunityReportToVolunteerReport(response.report));
+      setReport(await resolveVolunteerReportLocation(mapCommunityReportToVolunteerReport(response.report)));
       setIsLoading(false);
     } catch (error) {
       setReport(null);
@@ -144,6 +145,7 @@ export function VolunteerReportDetailsScreen() {
           <PriorityBadge priority={report.severity} />
           <StatusBadge label={report.status} tone={badgeToneForReportStatus(report.status)} />
         </View>
+        <Image accessibilityLabel={`${report.hazardType} hazard icon`} source={report.hazardImage} style={styles.hazardImage} />
         <Text style={styles.heroTitle}>{report.hazardType}</Text>
         <Text style={styles.heroSubtitle}>{report.locationLabel}</Text>
         <Text style={styles.heroSummary}>
@@ -209,29 +211,15 @@ export function VolunteerReportDetailsScreen() {
         <View style={styles.actionCopy}>
           <Text style={styles.actionTitle}>Community Field Check</Text>
           <Text style={styles.actionBody}>
-            Confirm the current situation or flag why you are unable to confirm it for Disaster Officer review.
+            Review the report in the field, add optional evidence, and submit your confirmation for Disaster Officer review.
           </Text>
         </View>
         <Pressable
           accessibilityRole="button"
-          onPress={() => router.push(volunteerConfirmationHref(report.id, 'confirmed'))}
+          onPress={() => router.push(volunteerConfirmationHref(report.id))}
           style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
         >
-          <Text style={styles.primaryButtonText}>Confirm Current Situation</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push(volunteerConfirmationHref(report.id, 'confirmed'))}
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.secondaryButtonText}>Add Field Evidence</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push(volunteerConfirmationHref(report.id, 'unable'))}
-          style={({ pressed }) => [styles.flagButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.flagButtonText}>Unable to Confirm / Flag Issue</Text>
+          <Text style={styles.primaryButtonText}>Start Field Confirmation</Text>
         </Pressable>
       </View>
     </DashboardScreen>
@@ -287,6 +275,12 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     color: dashboardTheme.colors.text
+  },
+  hazardImage: {
+    width: 58,
+    height: 58,
+    resizeMode: 'contain',
+    marginTop: 4
   },
   heroSubtitle: {
     fontSize: 16,
@@ -373,34 +367,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
     color: '#ffffff'
-  },
-  secondaryButton: {
-    minHeight: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.primary,
-    borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.primarySoft
-  },
-  secondaryButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: dashboardTheme.colors.primaryStrong
-  },
-  flagButton: {
-    minHeight: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.moderate,
-    borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.moderateSoft
-  },
-  flagButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#9a3412'
   },
   pressed: {
     opacity: 0.82

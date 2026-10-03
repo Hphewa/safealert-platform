@@ -3,6 +3,7 @@ import { createContext, useCallback, useEffect, useMemo, useState, type ReactNod
 
 import * as authApi from '../api/authApi';
 import { clearSession, readSession, saveSession } from '../storage/tokenStorage';
+import { ApiClientError } from '../../../services/api/client';
 
 type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
 
@@ -31,7 +32,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     await saveSession({
       accessToken: response.accessToken,
       refreshToken: response.refreshToken
-    });
+    }, response.user);
     setUser(response.user);
     setAccessToken(response.accessToken);
     setRefreshToken(response.refreshToken);
@@ -50,8 +51,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
     let mounted = true;
 
     async function restoreSession() {
+      let storedSession: Awaited<ReturnType<typeof readSession>> = null;
       try {
-        const storedSession = await readSession();
+        storedSession = await readSession();
 
         if (!storedSession) {
           if (mounted) {
@@ -63,11 +65,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         const refreshedSession = await authApi.refresh({
           refreshToken: storedSession.refreshToken
         });
+        const currentUser = await authApi.me(refreshedSession.accessToken);
         await saveSession({
           accessToken: refreshedSession.accessToken,
           refreshToken: refreshedSession.refreshToken
-        });
-        const currentUser = await authApi.me(refreshedSession.accessToken);
+        }, currentUser.user);
 
         if (mounted) {
           setUser(currentUser.user);
@@ -75,7 +77,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setRefreshToken(refreshedSession.refreshToken);
           setStatus('authenticated');
         }
-      } catch {
+      } catch (error) {
+        if (error instanceof ApiClientError && error.status === 0 && storedSession?.user && mounted) {
+          setUser(storedSession.user);
+          setAccessToken(storedSession.accessToken);
+          setRefreshToken(storedSession.refreshToken);
+          setStatus('authenticated');
+          return;
+        }
+
         await clearSession();
 
         if (mounted) {

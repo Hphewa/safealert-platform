@@ -50,18 +50,18 @@ export function AdjustReportLocationScreen() {
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
         </Pressable>
-        <Text style={styles.headerTitle}>Adjust Location</Text>
+        <Text style={styles.headerTitle}>Adjust report location</Text>
         <View style={styles.headerSpacer} />
       </View>
 
       <View style={styles.instructionPanel}>
         <View style={styles.panelIcon}>
-          <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="map-outline" size={20} />
+          <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="locate-outline" size={20} />
         </View>
         <View style={styles.panelBody}>
-          <Text style={styles.panelTitle}>Incident position</Text>
+          <Text style={styles.panelTitle}>Report location</Text>
           <Text style={styles.panelText}>
-            Move the pin to the hazard location. Confirming only updates this report draft.
+            Drag the pin to where the hazard is. This updates your report draft.
           </Text>
         </View>
       </View>

@@ -18,7 +18,7 @@ vi.mock('react', async (importOriginal) => {
     return [state.hooks[index], (value: unknown) => { state.hooks[index] = value; }];
   }, useEffect: (effect: () => void) => { state.effects.push(effect); } };
 });
-vi.mock('react-native', () => ({ View: ({ children }: { children?: ReactNode }) => <div>{children}</div>, Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+vi.mock('react-native', () => ({ Platform: { OS: 'web', select: (values: { web?: unknown; default?: unknown }) => values.web ?? values.default }, View: ({ children }: { children?: ReactNode }) => <div>{children}</div>, Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
   StyleSheet: { create: (value: unknown) => value },
   RefreshControl: ({ onRefresh }: { onRefresh: () => void }) => { state.refresh = onRefresh; return <button>Pull to refresh</button>; } }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push, setParams: state.setParams }), useLocalSearchParams: () => state.params, useFocusEffect: vi.fn() }));
@@ -69,14 +69,14 @@ it('loads evidence and routes active assessment lifecycle actions to existing sc
   state.get.mockResolvedValue(detail()); renderDetail();
   await expect(state.loader!()).resolves.toEqual(detail()); state.data = detail();
   const markup = renderDetail();
-  expect(markup).toContain('Road is flooded'); expect(markup).toContain('DRAFT'); expect(markup).toContain('1 verified report was added');
+  expect(markup).toContain('Road is flooded'); expect(markup).toContain('Creating a warning saves a draft'); expect(markup).toContain('1 verified report was added');
   expect(markup).toContain('New information may affect the current risk decision');
   expect(markup).toContain('CURRENT RISK'); expect(markup).toContain('Risk score 18'); expect(markup).toContain('Pannipitiya, Western Province');
   expect(markup).toContain('Incident Activity');
   expect(markup).not.toContain('assessment-1');
   expect(markup).not.toContain('incident-1');
   expect(markup).not.toContain('DELETE ASSESSMENT');
-  expect(markup).not.toContain('CREATE WARNING');
+  expect(markup).toContain('CREATE WARNING');
   state.actions.get('VIEW ASSESSMENT')!();
   expect(state.push).toHaveBeenLastCalledWith({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: 'assessment-1' } });
   state.actions.get('REASSESS RISK')!();
@@ -98,11 +98,11 @@ it('shows the initial-save confirmation notice on monitoring detail', () => {
   vi.useRealTimers();
 });
 
-it('shows closed and no-visible-assessment states without offering lifecycle mutations', () => {
+it('shows closed and no-visible-assessment states without offering lifecycle mutations', async () => {
   state.data = detail({ currentAssessment: null, latestAssessment: { ...active, status: 'CLOSED', closureReason: 'INCIDENT_RESOLVED' }, hasNewVerifiedEvidence: false, newVerifiedReportsSinceAssessment: 0 });
   renderDetail(); await Promise.resolve(); await Promise.resolve();
   let markup = renderDetail();
-  expect(markup).toContain('CLOSED'); expect(markup).toContain('VIEW HISTORY');
+  expect(markup).toContain('CLOSED'); expect(markup).toContain('View latest assessment');
   state.data = detail({ currentAssessment: null, latestAssessment: null, warnings: [], hasNewVerifiedEvidence: false, newVerifiedReportsSinceAssessment: 0 });
   markup = renderDetail();
   expect(markup).toContain('No current risk assessment'); expect(markup).not.toContain('CURRENT RISK'); expect(markup).not.toContain('DELETE ASSESSMENT');

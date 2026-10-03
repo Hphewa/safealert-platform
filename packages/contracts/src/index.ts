@@ -265,7 +265,8 @@ export type ReportReviewAction = (typeof REPORT_REVIEW_ACTIONS)[number];
 
 export const REPORT_REJECTION_REASON_MIN_LENGTH = 10;
 export const REPORT_REJECTION_REASON_MAX_LENGTH = 500;
-export const REPORT_VOICE_MAX_DURATION_SECONDS = 60;
+export const REPORT_VERIFICATION_NOTE_MAX_LENGTH = 500;
+export const REPORT_VOICE_MAX_DURATION_SECONDS = 180;
 export const REPORT_VOICE_MAX_BYTES = 3 * 1024 * 1024;
 export const REPORT_VOICE_MIME_TYPES = ['audio/mp4', 'audio/m4a', 'audio/x-m4a', 'audio/aac', 'audio/webm'] as const;
 
@@ -443,6 +444,7 @@ export type GetOfficerCommunityReportClusterResponse = {
 
 export type CreateReportRequest = {
   hazardType: HazardType;
+  otherHazardType?: string;
   description: string;
   severity: ReportSeverity;
   location: GeoJsonPoint;
@@ -459,6 +461,7 @@ export type SafeReport = {
   residentId: string;
   communityReportClusterId?: string;
   hazardType: HazardType;
+  otherHazardType?: string;
   description: string;
   severity: ReportSeverity;
   location: GeoJsonPoint;
@@ -469,6 +472,7 @@ export type SafeReport = {
   updatedAt: string;
   verifiedById?: string;
   verifiedAt?: string;
+  verificationNote?: string;
   rejectedById?: string;
   rejectedAt?: string;
   rejectionReason?: string;
@@ -481,6 +485,7 @@ export type ReportVerificationEvent = {
   action: ReportVerificationAction;
   verifiedById: string;
   verifiedAt: string;
+  verificationNote?: string;
 };
 
 export type ReportRejectionEvent = {
@@ -495,6 +500,7 @@ export type ReportReviewEvent = ReportVerificationEvent | ReportRejectionEvent;
 export type ReportReviewRequest =
   | {
       action: 'VERIFY';
+      verificationNote?: string | undefined;
     }
   | {
       action: 'REJECT';

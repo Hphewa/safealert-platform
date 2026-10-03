@@ -18,6 +18,7 @@ import { ApiClientError } from '@/services/api/client';
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { dashboardTheme } from '../../shared/theme';
+import { reverseGeocodePlace } from '../../shared/maps/locationSearch';
 import { officerBottomNavItems } from '../officerNavigation';
 import { listPendingOfficerReports } from '../api/officerReportsApi';
 import { OfficerReportGroupCard } from '../components/OfficerReportGroupCard';
@@ -83,9 +84,18 @@ export function OfficerGroupedReportsScreen() {
           return;
         }
 
-        const mappedReports = response.reports.map((report) =>
-          mapSafeReportToOfficerGroupedReportSummary(report)
-        );
+        const mappedReports = await Promise.all(response.reports.map(async (report) => {
+          const summary = mapSafeReportToOfficerGroupedReportSummary(report);
+          const [longitude, latitude] = report.location.coordinates;
+          const placeName = await reverseGeocodePlace(latitude, longitude);
+          const locationLabel = placeName ?? 'Location on map';
+
+          return {
+            ...summary,
+            locationLabel,
+            searchText: `${summary.searchText} ${locationLabel}`.toLowerCase()
+          };
+        }));
 
         setReports(
           mappedReports.filter((report) => !locallyReviewedReportIdsRef.current.has(report.id))

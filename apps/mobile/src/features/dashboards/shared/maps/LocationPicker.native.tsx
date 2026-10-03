@@ -1,13 +1,14 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import {
   captureCurrentLocation,
-  formatCoordinate,
   type CurrentLocationCaptureResult
 } from '../currentLocation';
+import { SearchIcon } from '../components/SearchIcon';
 import { dashboardTheme } from '../theme';
 import { LeafletMapWebView } from './LeafletMapWebView.native';
+import { reverseGeocodePlace, searchLocationPlaces, type LocationSearchResult } from './locationSearch';
 import {
   isValidMapCoordinates,
   type LocationSelectionMetadata,
@@ -31,7 +32,7 @@ export function LocationPicker({
   onConfirm,
   onCancel,
   title = 'Adjust Hazard Location',
-  instructions = 'Drag the pin or tap the map to place it where the hazard is.'
+  instructions = ''
 }: LocationPickerProps) {
   const hasRequestedInitialLocation = useRef(false);
   const [status, setStatus] = useState<PickerStatus>(isValidMapCoordinates(value) ? 'ready' : 'idle');
@@ -40,6 +41,64 @@ export function LocationPicker({
   );
   const [lastMetadata, setLastMetadata] = useState<LocationSelectionMetadata | undefined>();
   const [recenterRequestKey, setRecenterRequestKey] = useState(0);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<LocationSearchResult[]>([]);
+  const [searchStatus, setSearchStatus] = useState<'idle' | 'searching' | 'error'>('idle');
+  const [placeName, setPlaceName] = useState<string | null>(null);
+
+  const selectedLocation = isValidMapCoordinates(value) ? value : null;
+
+  useEffect(() => {
+    if (!selectedLocation) {
+      setPlaceName(null);
+      return;
+    }
+
+    let isCurrent = true;
+    setPlaceName(null);
+    void reverseGeocodePlace(selectedLocation.latitude, selectedLocation.longitude).then((nextPlaceName) => {
+      if (isCurrent) {
+        setPlaceName(nextPlaceName ?? 'Place unavailable');
+      }
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [selectedLocation?.latitude, selectedLocation?.longitude]);
+
+  useEffect(() => {
+    const trimmedQuery = searchQuery.trim();
+
+    if (trimmedQuery.length < 3) {
+      setSearchResults([]);
+      setSearchStatus('idle');
+      return;
+    }
+
+    let isCurrent = true;
+    const timeout = setTimeout(() => {
+      setSearchStatus('searching');
+      void searchLocationPlaces(trimmedQuery)
+        .then((results) => {
+          if (isCurrent) {
+            setSearchResults(results);
+            setSearchStatus('idle');
+          }
+        })
+        .catch(() => {
+          if (isCurrent) {
+            setSearchResults([]);
+            setSearchStatus('error');
+          }
+        });
+    }, 350);
+
+    return () => {
+      isCurrent = false;
+      clearTimeout(timeout);
+    };
+  }, [searchQuery]);
 
   useEffect(() => {
     if (isValidMapCoordinates(value)) {
@@ -110,14 +169,57 @@ export function LocationPicker({
     );
   };
 
-  const selectedLocation = isValidMapCoordinates(value) ? value : null;
   const canConfirm = selectedLocation !== null;
 
   return (
     <View style={styles.container}>
       <View style={styles.copyBlock}>
         <Text style={styles.title}>{title}</Text>
-        <Text style={styles.instructions}>{instructions}</Text>
+        {instructions ? <Text style={styles.instructions}>{instructions}</Text> : null}
+      </View>
+
+      <View style={styles.searchPanel}>
+        <Text style={styles.searchLabel}>Search for a place</Text>
+        <View style={styles.searchInputRow}>
+          <SearchIcon color={dashboardTheme.colors.muted} size={20} />
+          <TextInput
+            accessibilityLabel="Search for a place"
+            autoCorrect={false}
+            onChangeText={setSearchQuery}
+            placeholder="Example: Arewwala, Pannipitiya"
+            placeholderTextColor={dashboardTheme.colors.muted}
+            style={styles.searchInput}
+            value={searchQuery}
+          />
+        </View>
+        {searchStatus === 'searching' ? <Text style={styles.searchMessage}>Searching places...</Text> : null}
+        {searchStatus === 'error' ? (
+          <Text style={styles.errorText}>Place search is unavailable. You can choose on the map.</Text>
+        ) : null}
+        {searchResults.length > 0 ? (
+          <View style={styles.searchResults}>
+            {searchResults.map((result) => (
+              <Pressable
+                accessibilityLabel={`Select ${result.name}`}
+                accessibilityRole="button"
+                key={result.id}
+                onPress={() => {
+                  setSearchQuery(result.name);
+                  setSearchResults([]);
+                  selectCoordinates(
+                    { latitude: result.latitude, longitude: result.longitude },
+                    { source: 'MAP' },
+                    true
+                  );
+                }}
+                style={({ pressed }) => [styles.searchResult, pressed && styles.pressed]}
+              >
+                <Text style={styles.searchResultName}>{result.name}</Text>
+                <Text numberOfLines={1} style={styles.searchResultDescription}>{result.description}</Text>
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
       </View>
 
       {selectedLocation ? (
@@ -137,16 +239,10 @@ export function LocationPicker({
       )}
 
       <View style={styles.summaryPanel}>
-        <Text style={styles.summaryTitle}>Selected hazard location</Text>
-        {selectedLocation ? (
-          <Text style={styles.summaryText}>
-            Latitude: {formatCoordinate(selectedLocation.latitude)}
-            {'\n'}
-            Longitude: {formatCoordinate(selectedLocation.longitude)}
-          </Text>
-        ) : (
-          <Text style={styles.summaryText}>No location selected yet.</Text>
-        )}
+        <Text style={styles.summaryTitle}>Selected location</Text>
+        <Text style={styles.summaryText}>
+          {selectedLocation ? placeName ?? 'Finding place...' : 'No location selected yet.'}
+        </Text>
         {message ? <Text style={[styles.messageText, status === 'error' && styles.errorText]}>{message}</Text> : null}
       </View>
 
@@ -204,6 +300,58 @@ const styles = StyleSheet.create({
   },
   copyBlock: {
     gap: 6
+  },
+  searchPanel: {
+    gap: 8,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  searchLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: 48,
+    fontSize: 15,
+    color: dashboardTheme.colors.text
+  },
+  searchInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  searchMessage: {
+    fontSize: 13,
+    color: dashboardTheme.colors.muted
+  },
+  searchResults: {
+    gap: 6
+  },
+  searchResult: {
+    gap: 2,
+    padding: 10,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  searchResultName: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  searchResultDescription: {
+    fontSize: 12,
+    color: dashboardTheme.colors.muted
   },
   title: {
     fontSize: 22,

@@ -24,13 +24,15 @@ export function createReportController(reportService: ReportService) {
     const parsedInput = createReportSchema.parse(request.body);
     const input: CreateReportRequest = {
       hazardType: parsedInput.hazardType,
+      ...(parsedInput.otherHazardType ? { otherHazardType: parsedInput.otherHazardType } : {}),
       description: parsedInput.description,
       severity: parsedInput.severity,
       location: parsedInput.location,
       ...(parsedInput.mediaReference ? { mediaReference: parsedInput.mediaReference } : {}),
       ...(parsedInput.voiceEvidence ? { voiceEvidence: parsedInput.voiceEvidence } : {})
     };
-    const result = await reportService.createResidentReport(request.auth.id, input);
+    const clientOperationId = request.get('Idempotency-Key')?.trim();
+    const result = await reportService.createResidentReport(request.auth.id, input, clientOperationId || undefined);
 
     response.status(201).json(result);
   });
@@ -89,6 +91,7 @@ export function createReportController(reportService: ReportService) {
     const parsedInput = updateResidentReportSchema.parse(request.body);
     const input: UpdateResidentReportRequest = {
       ...(parsedInput.hazardType ? { hazardType: parsedInput.hazardType } : {}),
+      ...(parsedInput.otherHazardType ? { otherHazardType: parsedInput.otherHazardType } : {}),
       ...(parsedInput.description ? { description: parsedInput.description } : {}),
       ...(parsedInput.severity ? { severity: parsedInput.severity } : {}),
       ...(parsedInput.location ? { location: parsedInput.location } : {}),

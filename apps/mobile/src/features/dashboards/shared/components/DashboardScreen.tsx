@@ -2,6 +2,7 @@ import type { ReactElement, ReactNode } from 'react';
 import type { RefreshControlProps, StyleProp, ViewStyle } from 'react-native';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
 import { BottomNavigation } from './BottomNavigation';
 import { dashboardTheme } from '../theme';
@@ -22,6 +23,7 @@ export function DashboardScreen({
 }: DashboardScreenProps) {
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
+      <StatusBar style="dark" />
       <View style={styles.contentWrap}>
         <ScrollView
           keyboardShouldPersistTaps="handled"

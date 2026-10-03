@@ -21,7 +21,6 @@ import { WarningPage } from '../components/WarningComponents';
 import { WarningDeliveryPanel } from '../components/WarningDeliveryPanel';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
-import { formatOperationalTime } from '../../shared/formatOperationalTime';
 import { warningLifecycleErrorMessage, warningPublishErrorMessage } from '../riskAssessmentForm';
 import { WarningInformationForm } from '../components/WarningInformationForm';
 import { initialWarningForm, validateWarningForm, type WarningForm, type WarningFormErrors } from '../warningForm';

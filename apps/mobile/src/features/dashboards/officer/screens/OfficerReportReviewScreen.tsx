@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
-import { REPORT_REJECTION_REASON_MAX_LENGTH } from '@safealert/contracts';
+import { REPORT_REJECTION_REASON_MAX_LENGTH, REPORT_VERIFICATION_NOTE_MAX_LENGTH } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { OfficerFieldConfirmations } from '../components/OfficerFieldConfirmations';
@@ -12,6 +12,7 @@ import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
+import { reverseGeocodePlace } from '../../shared/maps/locationSearch';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { badgeToneForReportStatus } from '../../shared/utils';
 import { VoiceNotePlayer } from '../../shared/voice/VoiceNotePlayer';
@@ -25,6 +26,7 @@ import {
   type OfficerReportChecklistKey,
   type OfficerReportReviewRecord
 } from '../reports';
+import { hazardImageForResident } from '../../resident/reports';
 
 type OfficerReviewAction = 'idle' | 'verifying' | 'rejecting';
 type OfficerReportLoadStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -67,10 +69,12 @@ export function OfficerReportReviewScreen() {
   const params = useLocalSearchParams<{ reportId?: string | string[] }>();
   const reportId = Array.isArray(params.reportId) ? params.reportId[0] : params.reportId;
   const [report, setReport] = useState<OfficerReportReviewRecord | null>(null);
+  const [locationPlace, setLocationPlace] = useState<string | null>(null);
   const [loadStatus, setLoadStatus] = useState<OfficerReportLoadStatus>('idle');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedAction, setSelectedAction] = useState<OfficerReviewAction>('idle');
   const [rejectionReason, setRejectionReason] = useState('');
+  const [verificationNote, setVerificationNote] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const latestRequestIdRef = useRef(0);
@@ -100,6 +104,7 @@ export function OfficerReportReviewScreen() {
     setReport(null);
     setSelectedAction('idle');
     setRejectionReason('');
+    setVerificationNote('');
     setActionError(null);
     setLoadStatus('loading');
     setLoadError(null);
@@ -127,6 +132,24 @@ export function OfficerReportReviewScreen() {
       );
     }
   }, [accessToken, reportId]);
+
+  useEffect(() => {
+    if (!report) {
+      setLocationPlace(null);
+      return;
+    }
+
+    let active = true;
+    if (!report.locationCoordinates) return;
+
+    void reverseGeocodePlace(report.locationCoordinates.latitude, report.locationCoordinates.longitude).then((place) => {
+      if (active) setLocationPlace(place);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [report]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -176,7 +199,10 @@ export function OfficerReportReviewScreen() {
       const response = await reviewOfficerReport(
         reportId,
         action === 'VERIFY'
-          ? { action: 'VERIFY' }
+          ? {
+              action: 'VERIFY',
+              ...(verificationNote.trim() ? { verificationNote: verificationNote.trim() } : {})
+            }
           : {
               action: 'REJECT',
               rejectionReason: rejectionValidation.normalizedReason
@@ -345,8 +371,16 @@ export function OfficerReportReviewScreen() {
           <PriorityBadge priority={report.severity} />
           <StatusBadge label={report.statusLabel} tone={badgeToneForReportStatus(report.status)} />
         </View>
-        <Text style={styles.heroTitle}>{report.hazardLabel}</Text>
-        <Text style={styles.heroSubtitle}>{report.locationLabel}</Text>
+        <View style={styles.heroTitleRow}>
+          <View style={styles.hazardIconWrap}>
+            <Image accessibilityLabel={`${report.hazardLabel} hazard`} source={hazardImageForResident(report.hazardType)} style={styles.heroHazardImage} />
+          </View>
+          <Text style={styles.heroTitle}>{report.hazardLabel}</Text>
+        </View>
+        <View style={styles.locationRow}>
+          <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="location-outline" size={18} />
+          <Text style={styles.heroSubtitle}>{locationPlace ?? 'Finding reported location…'}</Text>
+        </View>
         <View style={styles.summaryGrid}>
           <DetailMetric label="Time Reported" value={report.reportedTimeLabel} />
           <DetailMetric label="Latest Update" value={report.latestUpdateLabel} />
@@ -476,15 +510,33 @@ export function OfficerReportReviewScreen() {
             ]}
           >
             <DashboardGlyph color="#ffffff" name="checkmark-done-outline" size={16} />
-            <Text style={styles.primaryButtonText}>Mark Verified</Text>
+            <Text style={styles.primaryButtonText}>Mark as verified</Text>
           </Pressable>
 
           {selectedAction === 'verifying' ? (
             <View style={styles.verificationPanel}>
               <View style={styles.confirmationCopy}>
-                <Text style={styles.fieldLabel}>Confirm verification</Text>
+                <View style={styles.fieldLabelRow}>
+                  <Text style={styles.fieldLabel}>Verification note</Text>
+                  <Text style={styles.optionalLabel}>Optional</Text>
+                </View>
                 <Text style={styles.helperText}>
-                  This confirms the report is reliable. Risk assessment remains a separate future step.
+                  Add a short note for the case record, or continue without one.
+                </Text>
+                <TextInput
+                  accessibilityLabel="Verification note"
+                  accessibilityHint="Optional note saved with the verification decision"
+                  maxLength={REPORT_VERIFICATION_NOTE_MAX_LENGTH}
+                  multiline
+                  onChangeText={setVerificationNote}
+                  placeholder="Add context for this verification (optional)"
+                  placeholderTextColor={dashboardTheme.colors.muted}
+                  style={styles.noteInput}
+                  textAlignVertical="top"
+                  value={verificationNote}
+                />
+                <Text style={styles.characterCount}>
+                  {verificationNote.length}/{REPORT_VERIFICATION_NOTE_MAX_LENGTH}
                 </Text>
               </View>
               <View style={styles.confirmationActions}>
@@ -518,7 +570,7 @@ export function OfficerReportReviewScreen() {
                   {isSubmitting ? (
                     <ActivityIndicator color="#ffffff" size="small" />
                   ) : (
-                    <Text style={styles.confirmVerifyButtonText}>Confirm Verification</Text>
+                    <Text style={styles.confirmVerifyButtonText}>Confirm verification</Text>
                   )}
                 </Pressable>
               </View>
@@ -541,7 +593,7 @@ export function OfficerReportReviewScreen() {
             ]}
           >
             <DashboardGlyph color={dashboardTheme.colors.critical} name="alert-circle-outline" size={16} />
-            <Text style={styles.destructiveButtonText}>Reject</Text>
+            <Text style={styles.destructiveButtonText}>Reject report</Text>
           </Pressable>
 
           {selectedAction === 'rejecting' ? (
@@ -555,7 +607,7 @@ export function OfficerReportReviewScreen() {
                 accessibilityHint="Required before this report can be rejected"
                 multiline
                 onChangeText={setRejectionReason}
-                placeholder="Add reason or notes (required for reject)"
+                placeholder="Explain why this report cannot be verified"
                 placeholderTextColor={dashboardTheme.colors.muted}
                 style={[styles.reasonInput, !rejectionValidation.isValid && styles.reasonInputError]}
                 textAlignVertical="top"
@@ -1029,6 +1081,47 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     textTransform: 'uppercase',
     color: dashboardTheme.colors.critical
+  },
+  optionalLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    color: dashboardTheme.colors.muted
+  },
+  noteInput: {
+    minHeight: 84,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface,
+    fontSize: 15,
+    lineHeight: 22,
+    color: dashboardTheme.colors.text
+  },
+  heroTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
+  },
+  hazardIconWrap: {
+    width: 50,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    backgroundColor: dashboardTheme.colors.primarySoft
+  },
+  heroHazardImage: {
+    width: 34,
+    height: 34,
+    resizeMode: 'contain'
+  },
+  locationRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8
   },
   reasonInput: {
     minHeight: 112,

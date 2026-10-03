@@ -49,11 +49,19 @@ export class ReportService {
 
   async createResidentReport(
     residentId: string,
-    input: CreateReportRequest
+    input: CreateReportRequest,
+    clientOperationId?: string
   ): Promise<CreateReportResponse> {
+    if (clientOperationId) {
+      const existing = await this.repository.findReportByClientOperationId(residentId, clientOperationId);
+      if (existing) return { report: existing };
+    }
+
     let report = await this.repository.createReport({
       residentId,
+      ...(clientOperationId ? { clientOperationId } : {}),
       hazardType: input.hazardType,
+      ...(input.otherHazardType ? { otherHazardType: input.otherHazardType } : {}),
       description: input.description,
       severity: input.severity,
       location: input.location,
@@ -196,6 +204,7 @@ export class ReportService {
         id: report.id,
         ...(report.communityReportClusterId ? { communityReportClusterId: report.communityReportClusterId } : {}),
         hazardType: report.hazardType,
+        ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
         description: report.description,
         severity: report.severity,
         location: report.location,

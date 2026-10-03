@@ -1,24 +1,27 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
 
+import photoEvidenceIcon from '../../../../../assets/evidence/photo-evidence.png';
+import voiceEvidenceIcon from '../../../../../assets/evidence/voice-evidence.png';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { LocationPreview } from '../../shared/maps/LocationPreview';
+import { reverseGeocodePlace } from '../../shared/maps/locationSearch';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { VoiceNotePlayer } from '../../shared/voice/VoiceNotePlayer';
 import { createResidentReport } from '../api/reportApi';
 import { uploadReportEvidence } from '../api/mediaApi';
 import { residentBottomNavItems } from '../mockData';
 import {
-  hazardTypeLabels,
   severityLabels,
   useReportHazardDraft,
   type ReportHazardDraft
 } from '../reportDraft';
+import { hazardImageForResident, hazardLabelForResident } from '../reports';
 import {
   beginReportSubmission,
   canSubmitReport,
@@ -26,6 +29,14 @@ import {
   isReportSubmissionActive
 } from '../reportSubmissionGuard';
 import { ReportSubmissionError, submitResidentReportDraft } from '../reportSubmission';
+import {
+  clearPersistedReportDraft,
+  createReportOperationId,
+  enqueueReportSubmission,
+  listQueuedReports,
+  removeQueuedReport
+} from '../offlineReportQueue';
+import { prepareDraftForOffline } from '../offlineEvidence';
 
 type SubmitState = {
   status: 'idle' | 'uploading' | 'submitting' | 'error';
@@ -35,12 +46,54 @@ type SubmitState = {
 
 export function ReviewReportScreen() {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { offlineReportId: offlineReportIdParam, operationId: operationIdParam } = useLocalSearchParams<{
+    offlineReportId?: string;
+    operationId?: string;
+  }>();
+  const { accessToken, user } = useAuth();
   const { draft, resetDraft, setDraft, setSubmittedReport, validation } = useReportHazardDraft();
   const [submitState, setSubmitState] = useState<SubmitState>({ status: 'idle', message: null });
+  const [locationPlace, setLocationPlace] = useState<string | null>(null);
   const submitInFlightRef = useRef(false);
+  const operationIdRef = useRef(
+    typeof operationIdParam === 'string' ? operationIdParam : createReportOperationId()
+  );
+  const offlineReportId = typeof offlineReportIdParam === 'string' ? offlineReportIdParam : null;
   const isSubmitting = isReportSubmissionActive(submitState.status);
   const canSubmit = canSubmitReport({ isValid: validation.isValid, status: submitState.status });
+
+  useEffect(() => {
+    if (!offlineReportId || !user?.id) return;
+
+    let isCurrent = true;
+    void listQueuedReports(user.id).then((items) => {
+      const queuedReport = items.find((item) => item.id === offlineReportId);
+      if (isCurrent && queuedReport) setDraft(queuedReport.draft);
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [offlineReportId, setDraft, user?.id]);
+
+  useEffect(() => {
+    if (draft.location.status !== 'DETECTED') {
+      setLocationPlace(null);
+      return;
+    }
+
+    let isCurrent = true;
+    setLocationPlace(null);
+    void reverseGeocodePlace(draft.location.latitude, draft.location.longitude).then((place) => {
+      if (isCurrent) {
+        setLocationPlace(place ?? 'Location detected');
+      }
+    });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [draft.location.status, draft.location.latitude, draft.location.longitude]);
 
   const editReport = () => {
     router.push('/resident/report-hazard');
@@ -80,6 +133,7 @@ export function ReviewReportScreen() {
       const result = await submitResidentReportDraft({
         draft,
         accessToken,
+        clientOperationId: operationIdRef.current,
         uploadReportEvidence,
         createResidentReport,
         onEvidenceUploaded: (mediaReference) => {
@@ -125,14 +179,28 @@ export function ReviewReportScreen() {
         }
       });
       setSubmittedReport(result.response.report);
+      if (offlineReportId && user?.id) {
+        await removeQueuedReport(user.id, offlineReportId);
+      }
       resetDraft();
       router.replace('/resident/report-submitted');
     } catch (error) {
       clearReportSubmission(submitInFlightRef);
-      setSubmitState({
-        status: 'error',
-        ...submitErrorStateFor(error)
-      });
+      const errorState = submitErrorStateFor(error);
+
+      if (errorState.reason === 'network' && user?.id) {
+          const offlineDraft = await prepareDraftForOffline(draft, operationIdRef.current);
+          await enqueueReportSubmission(user.id, offlineDraft, operationIdRef.current);
+        await clearPersistedReportDraft(user.id);
+        setSubmitState({
+          status: 'error',
+          reason: 'network',
+          message: 'Saved offline. SafeAlert will submit this report when you are connected again.'
+        });
+        return;
+      }
+
+      setSubmitState({ status: 'error', ...errorState });
     }
   };
 
@@ -156,14 +224,22 @@ export function ReviewReportScreen() {
       <View style={styles.summaryPanel}>
         <View style={styles.panelHeader}>
           <View style={styles.panelIcon}>
-            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="warning-outline" size={20} />
+            {draft.hazardType ? (
+              <Image
+                accessibilityLabel="Hazard type icon"
+                source={hazardImageForResident(draft.hazardType)}
+                style={styles.summaryIconImage}
+              />
+            ) : (
+              <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="warning-outline" size={20} />
+            )}
           </View>
-          <Text style={styles.panelTitle}>Hazard</Text>
+          <Text style={styles.panelTitle}>Hazard report</Text>
         </View>
         <View style={styles.detailGrid}>
           <ReviewDetail
             label="Hazard type"
-            value={draft.hazardType ? hazardTypeLabels[draft.hazardType] : 'Not selected'}
+            value={draft.hazardType ? hazardLabelForResident(draft.hazardType, draft.otherHazardType) : 'Not selected'}
           />
           <ReviewDetail
             label="Severity"
@@ -174,54 +250,23 @@ export function ReviewReportScreen() {
 
       <View style={styles.summaryPanel}>
         <View style={styles.panelHeader}>
-          <View style={styles.panelIconMuted}>
-            <DashboardGlyph color={dashboardTheme.colors.info} name="mic-outline" size={20} />
-          </View>
-          <Text style={styles.panelTitle}>Voice Note</Text>
-        </View>
-        {draft.voiceEvidence.status === 'LOCAL_SELECTED' ? (
-          <View style={styles.photoSummary}>
-            <VoiceNotePlayer
-              durationSeconds={draft.voiceEvidence.selected.durationSeconds}
-              title="Selected voice note"
-              uri={draft.voiceEvidence.selected.localUri}
-            />
-            <Text style={styles.helperText}>
-              {draft.voiceEvidence.selected.uploadedMediaReference
-                ? 'Voice note has been uploaded and will be attached to this report.'
-                : 'Voice note selected locally. It will upload before the report is submitted.'}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.emptyPhotoState}>
-            <DashboardGlyph color={dashboardTheme.colors.muted} name="mic-outline" size={22} />
-            <Text style={styles.helperText}>No voice note was added.</Text>
-          </View>
-        )}
-      </View>
-
-      <View style={styles.summaryPanel}>
-        <View style={styles.panelHeader}>
           <View style={styles.panelIcon}>
             <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="locate-outline" size={20} />
           </View>
-          <Text style={styles.panelTitle}>Location</Text>
+          <Text style={styles.panelTitle}>Hazard location</Text>
         </View>
         {draft.location.status === 'DETECTED' ? (
           <View style={styles.locationPreview}>
-            <Text style={styles.locationPreviewTitle}>Hazard location</Text>
+            <Text style={styles.locationPlaceText}>{locationPlace ?? 'Finding location...'}</Text>
             <LocationPreview
               coordinates={{
                 latitude: draft.location.latitude,
                 longitude: draft.location.longitude
               }}
-              height={168}
-              title="Hazard location"
+                height={168}
+              title=""
+              placeName={locationPlace ?? undefined}
             />
-            <Text style={styles.coordinateText}>
-              {formatCoordinate(draft.location.latitude)}, {formatCoordinate(draft.location.longitude)}
-            </Text>
-            <Text style={styles.helperText}>Edit the report if this pin is not where the hazard is.</Text>
           </View>
         ) : (
           <Text style={styles.errorText}>Location is required.</Text>
@@ -229,40 +274,42 @@ export function ReviewReportScreen() {
       </View>
 
       <View style={styles.summaryPanel}>
-        <View style={styles.panelHeader}>
-          <View style={styles.panelIconMuted}>
-            <DashboardGlyph color={dashboardTheme.colors.info} name="camera-outline" size={20} />
+        <Text style={styles.panelTitle}>Evidence</Text>
+        <View style={styles.evidenceSection}>
+          <View style={styles.evidenceHeader}>
+            <Image accessibilityLabel="Photo evidence" source={photoEvidenceIcon} style={styles.evidenceIcon} />
+            <Text style={styles.evidenceTitle}>Photo</Text>
           </View>
-          <Text style={styles.panelTitle}>Photo</Text>
-        </View>
-        {draft.photoEvidence.status === 'LOCAL_SELECTED' ? (
-          <View style={styles.photoSummary}>
+          {draft.photoEvidence.status === 'LOCAL_SELECTED' ? (
             <Image
               accessibilityLabel="Selected hazard evidence preview"
               source={{ uri: draft.photoEvidence.selected.localUri }}
               style={styles.photoPreview}
             />
-            <Text style={styles.helperText}>
-              {draft.photoEvidence.selected.uploadedMediaReference
-                ? 'Photo evidence has been uploaded and will be attached to this report.'
-                : 'Photo selected locally. It will upload before the report is submitted.'}
-            </Text>
+          ) : (
+            <Text style={styles.helperText}>No photo added.</Text>
+          )}
+        </View>
+        <View style={styles.evidenceDivider} />
+        <View style={styles.evidenceSection}>
+          <View style={styles.evidenceHeader}>
+            <Image accessibilityLabel="Voice evidence" source={voiceEvidenceIcon} style={styles.evidenceIcon} />
+            <Text style={styles.evidenceTitle}>Voice</Text>
           </View>
-        ) : (
-          <View style={styles.emptyPhotoState}>
-            <DashboardGlyph color={dashboardTheme.colors.muted} name="camera-outline" size={22} />
-            <Text style={styles.helperText}>No photo was added.</Text>
-          </View>
-        )}
+          {draft.voiceEvidence.status === 'LOCAL_SELECTED' ? (
+            <VoiceNotePlayer
+              durationSeconds={draft.voiceEvidence.selected.durationSeconds}
+              title="Voice recording"
+              uri={draft.voiceEvidence.selected.localUri}
+            />
+          ) : (
+            <Text style={styles.helperText}>No voice recording.</Text>
+          )}
+        </View>
       </View>
 
       <View style={styles.summaryPanel}>
-        <View style={styles.panelHeader}>
-          <View style={styles.panelIconMuted}>
-            <DashboardGlyph color={dashboardTheme.colors.info} name="document-text-outline" size={20} />
-          </View>
-          <Text style={styles.panelTitle}>Description</Text>
-        </View>
+        <Text style={styles.panelTitle}>What can you see?</Text>
         <Text style={styles.descriptionText}>{draft.description.trim() || 'No description entered.'}</Text>
       </View>
 
@@ -492,10 +539,6 @@ function reportCreateFailureMessageFor(error: ApiClientError) {
   return 'SafeAlert could not submit the report right now. Your draft is still here, so you can retry.';
 }
 
-function formatCoordinate(value: number) {
-  return value.toFixed(6);
-}
-
 function evidenceNeedsUpload(draft: ReportHazardDraft) {
   return (
     (draft.photoEvidence.status === 'LOCAL_SELECTED' &&
@@ -571,6 +614,16 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     backgroundColor: dashboardTheme.colors.infoSoft
   },
+  summaryIconImage: {
+    width: 30,
+    height: 30,
+    resizeMode: 'contain'
+  },
+  evidenceIcon: {
+    width: 32,
+    height: 32,
+    resizeMode: 'contain'
+  },
   panelTitle: {
     flex: 1,
     fontSize: 18,
@@ -615,10 +668,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: dashboardTheme.colors.primaryStrong
   },
-  coordinateText: {
-    fontSize: 12,
-    lineHeight: 18,
-    color: dashboardTheme.colors.muted
+  locationPlaceText: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
   },
   helperText: {
     fontSize: 14,
@@ -627,6 +681,23 @@ const styles = StyleSheet.create({
   },
   photoSummary: {
     gap: 10
+  },
+  evidenceSection: {
+    gap: 10
+  },
+  evidenceHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  evidenceTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  evidenceDivider: {
+    height: 1,
+    backgroundColor: dashboardTheme.colors.border
   },
   photoPreview: {
     width: '100%',

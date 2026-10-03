@@ -15,6 +15,7 @@ import { haversineDistanceKm } from '../../../shared/geo.js';
 
 export class InMemoryReportRepository implements ReportRepository {
   private readonly reports = new Map<string, SafeReport>();
+  private readonly clientOperationIds = new Map<string, string>();
 
   async createReport(input: CreateReportInput): Promise<SafeReport> {
     const now = new Date().toISOString();
@@ -22,6 +23,7 @@ export class InMemoryReportRepository implements ReportRepository {
       id: crypto.randomBytes(12).toString('hex'),
       residentId: input.residentId,
       hazardType: input.hazardType,
+      ...(input.otherHazardType ? { otherHazardType: input.otherHazardType } : {}),
       description: input.description,
       severity: input.severity,
       location: input.location,
@@ -39,6 +41,9 @@ export class InMemoryReportRepository implements ReportRepository {
     }
 
     this.reports.set(report.id, report);
+    if (input.clientOperationId) {
+      this.clientOperationIds.set(`${input.residentId}:${input.clientOperationId}`, report.id);
+    }
     return report;
   }
 
@@ -56,6 +61,11 @@ export class InMemoryReportRepository implements ReportRepository {
     const report = this.reports.get(reportId);
 
     return report?.residentId === residentId ? report : null;
+  }
+
+  async findReportByClientOperationId(residentId: string, clientOperationId: string) {
+    const reportId = this.clientOperationIds.get(`${residentId}:${clientOperationId}`);
+    return reportId ? this.reports.get(reportId) ?? null : null;
   }
 
   async findReportsByIds(ids: string[]) {
@@ -113,6 +123,7 @@ export class InMemoryReportRepository implements ReportRepository {
       .map(({ report, distanceKm }) => ({
         id: report.id,
         hazardType: report.hazardType,
+        ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
         description: report.description,
         severity: report.severity,
         location: report.location,
@@ -135,6 +146,7 @@ export class InMemoryReportRepository implements ReportRepository {
     return {
       id: report.id,
       hazardType: report.hazardType,
+      ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
       description: report.description,
       severity: report.severity,
       location: report.location,
@@ -223,12 +235,14 @@ export class InMemoryReportRepository implements ReportRepository {
             updatedAt: reviewedAt,
             verifiedById: input.officerId,
             verifiedAt: reviewedAt,
+            ...(input.verificationNote ? { verificationNote: input.verificationNote } : {}),
             verificationHistory: [
               ...(report.verificationHistory ?? []),
               {
                 action: 'VERIFY',
                 verifiedById: input.officerId,
-                verifiedAt: reviewedAt
+                verifiedAt: reviewedAt,
+                ...(input.verificationNote ? { verificationNote: input.verificationNote } : {})
               }
             ]
           }

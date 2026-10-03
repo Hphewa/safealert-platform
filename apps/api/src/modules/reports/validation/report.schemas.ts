@@ -4,6 +4,7 @@ import {
   REPORT_VOICE_MIME_TYPES,
   REPORT_REJECTION_REASON_MAX_LENGTH,
   REPORT_REJECTION_REASON_MIN_LENGTH,
+  REPORT_VERIFICATION_NOTE_MAX_LENGTH,
   REPORT_SEVERITIES
 } from '@safealert/contracts';
 import { z } from 'zod';
@@ -41,8 +42,9 @@ export const voiceEvidenceSchema = z
   })
   .strict();
 
-export const createReportSchema = z.object({
+const reportFieldsSchema = z.object({
   hazardType: z.enum(HAZARD_TYPES),
+  otherHazardType: z.string().trim().min(2, 'Describe the other hazard.').max(80, 'Keep the hazard name under 80 characters.').optional(),
   description: z
     .string()
     .trim()
@@ -54,7 +56,13 @@ export const createReportSchema = z.object({
   voiceEvidence: voiceEvidenceSchema.optional()
 });
 
-export const updateResidentReportSchema = createReportSchema
+export const createReportSchema = reportFieldsSchema.superRefine((value, context) => {
+  if (value.hazardType === 'OTHER' && !value.otherHazardType) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['otherHazardType'], message: 'Describe the other hazard.' });
+  }
+});
+
+export const updateResidentReportSchema = reportFieldsSchema
   .extend({
     voiceEvidence: z.union([voiceEvidenceSchema, z.null()]).optional()
   })
@@ -127,7 +135,12 @@ export const communityReportQuerySchema = z
 
 export const reportReviewActionSchema = z.discriminatedUnion('action', [
   z.object({
-    action: z.literal('VERIFY')
+    action: z.literal('VERIFY'),
+    verificationNote: z
+      .string()
+      .trim()
+      .max(REPORT_VERIFICATION_NOTE_MAX_LENGTH, 'Verification note must be at most 500 characters.')
+      .optional()
   }),
   z.object({
     action: z.literal('REJECT'),
