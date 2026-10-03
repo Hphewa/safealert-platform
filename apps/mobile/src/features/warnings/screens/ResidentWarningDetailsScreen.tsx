@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import type { TextStyle, ViewStyle } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../auth/hooks/useAuth';
 import { acknowledgeResidentWarning, getResidentWarning } from '../api/residentWarningApi';
 import type { ResidentWarning, WarningAcknowledgementResponse } from '@safealert/contracts';
@@ -268,7 +268,8 @@ function SafetyGuidanceSheet({
 // ---------------------------------------------------------------------------
 
 export function ResidentWarningDetailsScreen() {
-  const { warningId } = useLocalSearchParams<{ warningId: string }>();
+  const params = useLocalSearchParams<{ warningId?: string | string[] }>();
+  const warningId = Array.isArray(params.warningId) ? params.warningId[0] : params.warningId;
   const { accessToken } = useAuth();
   const router = useRouter();
 
@@ -277,16 +278,39 @@ export function ResidentWarningDetailsScreen() {
   const [saving, setSaving] = useState(false);
   const [response, setResponse] = useState<WarningAcknowledgementResponse | null>(null);
   const [isGuidanceOpen, setIsGuidanceOpen] = useState(false);
+  const acknowledgementInFlight = useRef(false);
 
-  useEffect(() => {
-    if (!accessToken || !warningId) return;
-    void getResidentWarning(warningId, accessToken)
-      .then((r) => setWarning(r.warning))
-      .catch(() => setError('This warning is unavailable.'));
-  }, [accessToken, warningId]);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setWarning(null);
+      setError(null);
+      setResponse(null);
+
+      if (!accessToken || !warningId) {
+        setError('This warning is unavailable.');
+        return () => { active = false; };
+      }
+
+      void getResidentWarning(warningId, accessToken)
+        .then((result) => { if (active) setWarning(result.warning); })
+        .catch(() => { if (active) setError('This warning is no longer active or unavailable.'); });
+
+      return () => { active = false; };
+    }, [accessToken, warningId])
+  );
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/resident/warnings');
+  };
 
   const acknowledge = async () => {
-    if (!accessToken || !warning || !response || saving) return;
+    if (!accessToken || !warning || !response || saving || acknowledgementInFlight.current) return;
+    acknowledgementInFlight.current = true;
     setSaving(true);
     try {
       const result = await acknowledgeResidentWarning(warning.id, { response }, accessToken);
@@ -294,6 +318,7 @@ export function ResidentWarningDetailsScreen() {
     } catch {
       setError('Unable to acknowledge this warning.');
     } finally {
+      acknowledgementInFlight.current = false;
       setSaving(false);
     }
   };
@@ -310,7 +335,7 @@ export function ResidentWarningDetailsScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>{error ?? 'Warning unavailable.'}</Text>
-        <Pressable accessibilityRole="button" onPress={() => router.back()}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={goBack}>
           <Text style={styles.back}>Go back</Text>
         </Pressable>
       </View>
@@ -321,13 +346,20 @@ export function ResidentWarningDetailsScreen() {
   const options: Array<[WarningAcknowledgementResponse, string]> = [
     ['SAFE', 'I am Safe'],
     ['EVACUATING', 'I am Evacuating'],
-    ['NEED_ASSISTANCE', 'I Need Assistance'],
   ];
 
   const isCritical = warning.riskLevel === 'CRITICAL';
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        onPress={goBack}
+        style={({ pressed }) => [styles.backIcon, pressed && styles.dimmed]}
+      >
+        <Text style={styles.backIconLabel}>Warning Details</Text>
+      </Pressable>
       {/* ── Risk level badge ── */}
       <Text
         style={[styles.riskBadge, isCritical ? styles.riskCritical : styles.riskHigh]}
@@ -393,6 +425,19 @@ export function ResidentWarningDetailsScreen() {
               <Text style={styles.responseText}>{label}</Text>
             </Pressable>
           ))}
+          <View style={styles.assistancePrompt}>
+            <Text style={styles.assistancePromptText}>
+              Need assistance? Use Help / Emergency Assistance to request rescue or medical support.
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open Emergency Assistance"
+              onPress={() => router.push('/resident/help')}
+              style={({ pressed }) => [styles.assistanceButton, pressed && styles.dimmed]}
+            >
+              <Text style={styles.assistanceButtonText}>Open Emergency Assistance</Text>
+            </Pressable>
+          </View>
           <Pressable
             disabled={saving || !response}
             onPress={() => void acknowledge()}
@@ -405,7 +450,7 @@ export function ResidentWarningDetailsScreen() {
 
       <Pressable
         accessibilityRole="button"
-        onPress={() => router.back()}
+        onPress={goBack}
         style={styles.backPressable}
       >
         <Text style={styles.back}>Back to active warnings</Text>
@@ -772,6 +817,33 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.text,
     fontWeight: '700',
   },
+  assistancePrompt: {
+    gap: 8,
+    marginTop: 2,
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: dashboardTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+  },
+  assistancePromptText: {
+    color: dashboardTheme.colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  assistanceButton: {
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: dashboardTheme.colors.primarySoft,
+  },
+  assistanceButtonText: {
+    color: dashboardTheme.colors.primaryStrong,
+    fontWeight: '800',
+    fontSize: 14,
+  },
   submitButton: {
     minHeight: 50,
     alignItems: 'center',
@@ -793,6 +865,24 @@ const styles = StyleSheet.create({
   backPressable: {
     alignItems: 'center',
     paddingVertical: 4,
+  },
+  backIcon: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 4,
+  },
+  backIconText: {
+    fontSize: 28,
+    lineHeight: 32,
+    color: dashboardTheme.colors.primaryStrong,
+  },
+  backIconLabel: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text,
   },
   back: {
     color: dashboardTheme.colors.primaryStrong,

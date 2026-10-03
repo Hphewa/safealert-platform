@@ -27,8 +27,10 @@ export type RecordWarningDeliveryResult = {
   delivery: SafeWarningNotificationDelivery;
   created: boolean;
 };
+export type UpdateWarningDeliveryInput = DeliveryOutcome & { expectedStatus: 'FAILED' };
 
 export interface WarningDeliveryRepository {
+  findById(id: string): Promise<SafeWarningNotificationDelivery | null>;
   find(
     warningId: string,
     recipientId: string,
@@ -40,6 +42,7 @@ export interface WarningDeliveryRepository {
    * guarantees idempotency, so an existing record is returned untouched.
    */
   createIfAbsent(input: RecordWarningDeliveryInput): Promise<RecordWarningDeliveryResult>;
+  retry(id: string, input: UpdateWarningDeliveryInput): Promise<SafeWarningNotificationDelivery | null>;
 }
 
 export function emptyChannelSummary(): WarningNotificationChannelSummary {

@@ -28,6 +28,7 @@ export function BottomNavigation({ items }: BottomNavigationProps) {
 
           return (
             <Pressable
+              accessibilityLabel={item.label}
               accessibilityRole="button"
               accessibilityLabel={label}
               accessibilityState={{ selected: isActive }}
@@ -77,9 +78,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.lg,
@@ -88,11 +89,13 @@ const styles = StyleSheet.create({
   },
   item: {
     flex: 1,
-    minHeight: 56,
+    minHeight: 58,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    borderRadius: dashboardTheme.radius.sm
+    gap: 3,
+    paddingHorizontal: 2,
+    borderRadius: 12
   },
   itemActive: {
     backgroundColor: dashboardTheme.colors.primarySoft
@@ -101,8 +104,10 @@ const styles = StyleSheet.create({
     opacity: 0.82
   },
   label: {
-    fontSize: 12,
+    width: '100%',
+    fontSize: 10,
     fontWeight: '600',
+    textAlign: 'center',
     color: dashboardTheme.colors.muted
   },
   labelActive: {

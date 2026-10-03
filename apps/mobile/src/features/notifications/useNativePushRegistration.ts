@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import Constants from 'expo-constants';
 import { registerPushToken } from './api/notificationApi';
@@ -7,7 +7,11 @@ import { registerPushToken } from './api/notificationApi';
 // cannot use directly. Never register an APNs or Expo push-service token here.
 export function useNativePushRegistration(accessToken: string | null) {
   const [status, setStatus] = useState('Not registered');
+  const registeredToken = useRef<string | null>(null);
+  const queuedToken = useRef<string | null>(null);
   useEffect(() => {
+    registeredToken.current = null;
+    queuedToken.current = null;
     if (!accessToken) return;
     if (Platform.OS !== 'android' || Constants.appOwnership === 'expo') {
       setStatus('Not registered — native FCM registration requires a configured Android development build.');
@@ -17,12 +21,15 @@ export function useNativePushRegistration(accessToken: string | null) {
     let remove: (() => void) | undefined;
     let queue = Promise.resolve();
     const save = (data: unknown) => {
-      if (!active || typeof data !== 'string' || !data.trim() || /^(ExpoPushToken|ExponentPushToken)\[/.test(data)) return;
+      if (!active || typeof data !== 'string' || !data.trim() || /^(ExpoPushToken|ExponentPushToken)\[/.test(data) || data === registeredToken.current || data === queuedToken.current) return;
+      queuedToken.current = data;
       queue = queue.then(async () => {
-        if (!active) return;
+        if (!active || data === registeredToken.current) return;
         await registerPushToken(data, accessToken);
+        registeredToken.current = data;
         if (active) setStatus('Registered');
-      }).catch(() => { if (active) setStatus('Push registration could not be saved. Check your connection and sign in again.'); });
+      }).catch(() => { if (active) setStatus('Push registration could not be saved. Check your connection and sign in again.'); })
+        .finally(() => { if (queuedToken.current === data) queuedToken.current = null; });
     };
     void (async () => {
       const notifications = await import('expo-notifications');

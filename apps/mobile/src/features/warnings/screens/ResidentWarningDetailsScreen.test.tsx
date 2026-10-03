@@ -14,7 +14,7 @@ const lifecycle = vi.hoisted(() => ({
   effectDeps: [] as string[],
   params: { warningId: 'warning-1' } as Record<string, string | string[] | undefined>,
 }));
-const navigation = vi.hoisted(() => ({ back: vi.fn() }));
+const navigation = vi.hoisted(() => ({ back: vi.fn(), canGoBack: vi.fn(() => true), replace: vi.fn(), push: vi.fn() }));
 const gestures = vi.hoisted(() => ({
   handlers: {} as {
     onMoveShouldSetPanResponder?: (event: unknown, gesture: { dy: number; dx: number }) => boolean;
@@ -25,6 +25,7 @@ const gestures = vi.hoisted(() => ({
 
 vi.mock('react', async (importOriginal) => ({
   ...await importOriginal<typeof React>(),
+  useCallback: (callback: unknown) => callback,
   useEffect: (callback: () => void, deps?: unknown[]) => {
     // Only re-run an effect when its dependencies change, so the real fetch
     // effect is exercised once per mount like it is on a device.
@@ -48,6 +49,13 @@ vi.mock('react', async (importOriginal) => ({
 vi.mock('expo-router', () => ({
   useLocalSearchParams: () => lifecycle.params,
   useRouter: () => navigation,
+  useFocusEffect: (callback: () => void | (() => void)) => {
+    const index = lifecycle.effectCursor++;
+    const key = `focus-${index}`;
+    if (lifecycle.effectDeps[index] === key) return;
+    lifecycle.effectDeps[index] = key;
+    callback();
+  },
 }));
 
 vi.mock('react-native', () => ({
@@ -69,6 +77,7 @@ vi.mock('react-native', () => ({
     children?: React.ReactNode; onPress?: () => void; disabled?: boolean; accessibilityLabel?: string;
   }) => <button aria-label={accessibilityLabel} disabled={disabled} onClick={onPress}>{children}</button>,
   ScrollView: ({ children }: { children?: React.ReactNode }) => <section>{children}</section>,
+  Platform: { select: (options: { default?: unknown }) => options.default },
   StyleSheet: { create: (styles: unknown) => styles },
   Text: ({ children }: { children?: React.ReactNode }) => <span>{children}</span>,
   View: ({ children }: { children?: React.ReactNode }) => <div>{children}</div>,
@@ -130,7 +139,9 @@ describe('ResidentWarningDetailsScreen – Safety Guidance (LDFEW-116)', () => {
     expect(text).toContain('Not yet acknowledged');
     expect(text).toContain('I am Safe');
     expect(text).toContain('I am Evacuating');
-    expect(text).toContain('I Need Assistance');
+    expect(text).not.toContain('I Need Assistance');
+    expect(text).toContain('Need assistance? Use Help / Emergency Assistance to request rescue or medical support.');
+    expect(text).toContain('Open Emergency Assistance');
     // The sheet is closed, so none of its sections are rendered yet.
     expect(text).not.toContain('Recommended Safe Routes');
     expect(text).not.toContain('Roads to Avoid');
@@ -284,7 +295,8 @@ describe('ResidentWarningDetailsScreen – Safety Guidance (LDFEW-116)', () => {
     expect(text).toContain('How are you responding?');
     expect(text).toContain('I am Safe');
     expect(text).toContain('I am Evacuating');
-    expect(text).toContain('I Need Assistance');
+    expect(text).not.toContain('I Need Assistance');
+    expect(text).toContain('Open Emergency Assistance');
     expect(text).toContain('Submit response');
   });
 
@@ -312,6 +324,15 @@ describe('ResidentWarningDetailsScreen – Safety Guidance (LDFEW-116)', () => {
     const text = screenText(render());
     expect(text).toContain('Acknowledged');
     expect(text).not.toContain('How are you responding?');
+  });
+
+  it('opens the existing Emergency Assistance flow instead of submitting an assistance acknowledgement', async () => {
+    await renderLoaded();
+
+    press(render(), 'Open Emergency Assistance');
+
+    expect(navigation.push).toHaveBeenCalledExactlyOnceWith('/resident/help');
+    expect(acknowledgeResidentWarning).not.toHaveBeenCalled();
   });
 
   it('hides the acknowledgement card after the warning has been acknowledged', async () => {
@@ -345,7 +366,7 @@ describe('ResidentWarningDetailsScreen – Safety Guidance (LDFEW-116)', () => {
     render();
     await vi.waitFor(() => {
       const text = screenText(render());
-      expect(text).toContain('This warning is unavailable.');
+      expect(text).toContain('This warning is no longer active or unavailable.');
       expect(text).not.toContain('View Safety Guidance');
     });
   });

@@ -28,6 +28,7 @@ export function DashboardScreen({
           contentContainerStyle={[styles.content, contentContainerStyle]}
           refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
+          style={styles.scroll}
         >
           {children}
         </ScrollView>
@@ -45,6 +46,9 @@ const styles = StyleSheet.create({
   contentWrap: {
     flex: 1,
     backgroundColor: dashboardTheme.colors.background
+  },
+  scroll: {
+    flex: 1
   },
   content: {
     gap: 20,

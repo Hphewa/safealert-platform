@@ -231,7 +231,6 @@ it('keeps the saved assessment visible while history is independently loading', 
   expect(markup).toContain('Final Risk Level');
   expect(markup).toContain('Assessment History');
   expect(markup).toContain('Loading assessment history');
-  expect(markup).toContain('Create Warning');
 });
 
 it('offers reassessment for the active assessment and routes with its ID', () => {
@@ -286,11 +285,11 @@ it('shows a manual closure note in assessment history', () => {
   expect(markup).toContain('Closure Note: The hazard has permanently ended.');
 });
 
-it('shows warning, reassessment, and close actions only while active', () => {
+it('shows reassessment and close actions only while active', () => {
   const result = savedResult();
   state.data = result;
   expect(renderResult()).toContain('CLOSE ASSESSMENT');
-  expect(renderResult()).toContain('Create Warning');
+  expect(renderResult()).not.toContain('Create Warning');
   expect(renderResult()).toContain('REASSESS RISK');
   for (const status of ['CLOSED', 'VOID'] as const) {
     state.hooks = [];

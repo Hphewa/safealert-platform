@@ -51,8 +51,9 @@ export class IncidentLifecycleService {
       return [history?.currentAssessment?.id, history?.latestAssessment?.id].filter((value): value is string => Boolean(value));
     }))];
     const warnings = await this.warnings.findByAssessmentIds(assessmentIds);
-    const warningSummaries: MonitoringWarningSummary[] = warnings.map(({ id, assessmentId, status, createdAt, publishedAt }) => ({
-      id, assessmentId, status, createdAt, ...(publishedAt ? { publishedAt } : {})
+    const warningSummaries: MonitoringWarningSummary[] = warnings.map(({ id, assessmentId, status, createdAt, publishedAt, cancelledAt, archivedAt }) => ({
+      id, assessmentId, status, createdAt, ...(publishedAt ? { publishedAt } : {}),
+      ...(cancelledAt ? { cancelledAt } : {}), ...(archivedAt ? { archivedAt } : {})
     }));
     return { incidents: monitored.map((incident) => this.compose(incident, byIncident.get(incident.id)!, summariesByReport, warningSummaries).monitoring) };
   }
@@ -67,8 +68,9 @@ export class IncidentLifecycleService {
     const assessmentIds = [lifecycle.currentAssessment?.id, lifecycle.latestAssessment?.id]
       .filter((value): value is string => Boolean(value));
     const warnings = await this.warnings.findByAssessmentIds(assessmentIds);
-    const warningSummaries: MonitoringWarningSummary[] = warnings.map(({ id, assessmentId, status, createdAt, publishedAt }) => ({
-      id, assessmentId, status, createdAt, ...(publishedAt ? { publishedAt } : {})
+    const warningSummaries: MonitoringWarningSummary[] = warnings.map(({ id, assessmentId, status, createdAt, publishedAt, cancelledAt, archivedAt }) => ({
+      id, assessmentId, status, createdAt, ...(publishedAt ? { publishedAt } : {}),
+      ...(cancelledAt ? { cancelledAt } : {}), ...(archivedAt ? { archivedAt } : {})
     }));
     const composed = this.compose(incident, lifecycle, summariesByReport, warningSummaries);
     return { monitoring: composed.monitoring, recentVerifiedReports: composed.recentVerifiedReports };

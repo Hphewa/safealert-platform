@@ -116,9 +116,11 @@ export function createApp({
   const resolvedWarningRepository = warningRepository ?? new MongooseWarningRepository();
   // LDFEW-127: publication persists first; this handler then runs targeted SMS (Notify.lk)
   // and push (Firebase Cloud Messaging) delivery without ever affecting publication.
+  const resolvedWarningDeliveries = warningDeliveryRepository ?? new MongooseWarningDeliveryRepository();
   const warningNotificationService = new WarningNotificationService({
     recipients: notificationRecipientRepository ?? new MongooseNotificationRecipientRepository(),
-    deliveries: warningDeliveryRepository ?? new MongooseWarningDeliveryRepository(),
+    deliveries: resolvedWarningDeliveries,
+    warnings: resolvedWarningRepository,
     smsProvider: smsProvider ?? createSmsProvider(config),
     pushProvider: pushProvider ?? createPushProvider(config),
     countryName: config.notificationCountryName,
@@ -168,9 +170,11 @@ export function createApp({
   app.use('/api/v1/risk-map', createRiskMapRouter(
     new RiskMapService(resolvedIncidentRepository, resolvedAssessmentRepository, resolvedWarningRepository, resolvedReportRepository), config
   ));
-  app.use('/api/v1/warnings', createWarningRouter(warningService, config));
+ 
+  app.use('/api/v1/warnings', createWarningRouter(warningService, config, resolvedWarningDeliveries));
+
   app.use('/api/v1/notifications', createNotificationRouter(
-    new NotificationProfileService(notificationProfileRepository ?? new MongooseNotificationProfileRepository()), config
+    new NotificationProfileService(notificationProfileRepository ?? new MongooseNotificationProfileRepository()), config, warningNotificationService
   ));
   app.use('/api/v1/response-requests', createResponseRequestRouter(responseRequestService, config));
 

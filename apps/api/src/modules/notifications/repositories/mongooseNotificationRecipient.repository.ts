@@ -42,6 +42,11 @@ export function buildResidentFilter(query: NotificationRecipientQuery): Resident
 }
 
 export class MongooseNotificationRecipientRepository implements NotificationRecipientRepository {
+  async findResidentById(id: string): Promise<NotificationRecipient | null> {
+    const user = await UserModel.findOne({ _id: id, role: 'RESIDENT', isActive: true }).select('+pushToken').exec();
+    return user ? { id: user._id.toString(), area: user.area ?? null, district: user.district ?? null, country: user.country ?? null, phoneNumber: user.phoneNumber ?? null, pushToken: user.pushToken ?? null } : null;
+  }
+
   async findResidents(query: NotificationRecipientQuery): Promise<NotificationRecipient[]> {
     const users = await UserModel.find(buildResidentFilter(query) as unknown as Parameters<typeof UserModel.find>[0])
       .select('+pushToken').exec();

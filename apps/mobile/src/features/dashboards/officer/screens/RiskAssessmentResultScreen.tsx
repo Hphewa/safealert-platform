@@ -2,13 +2,12 @@
 import { ActivityIndicator, Text, TextInput, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
-  RISK_ASSESSMENT_DELETE_REASONS, RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS, canCreateWarning,
-  type ManualRiskAssessmentClosureReason, type RiskAssessmentDeleteReason, type SafeRiskAssessment, type SafeUser, type SafeWarning
+  RISK_ASSESSMENT_DELETE_REASONS, RISK_ASSESSMENT_MANUAL_CLOSURE_REASONS,
+  type ManualRiskAssessmentClosureReason, type RiskAssessmentDeleteReason, type SafeRiskAssessment, type SafeUser
 } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '../../../../services/api/client';
 import { closeRiskAssessment, getRiskAssessment, getRiskAssessmentHistory, softDeleteRiskAssessment } from '../api/riskAssessmentApi';
-import { getWarningByAssessment } from '../api/warningApi';
 import {
   assessmentErrorMessage, buildCloseRiskAssessmentRequest, buildDeleteRiskAssessmentRequest
 } from '../riskAssessmentForm';
@@ -52,7 +51,6 @@ export function RiskAssessmentResultScreen() {
   const [deleteReason, setDeleteReason] = useState<RiskAssessmentDeleteReason>('CREATED_BY_MISTAKE');
   const [deleteNote, setDeleteNote] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [existingWarning, setExistingWarning] = useState<SafeWarning | null>(null);
   const [, refreshPending] = useState(0);
   const params = useLocalSearchParams<{ assessmentId?: string | string[] }>();
   const assessmentId = Array.isArray(params.assessmentId) ? params.assessmentId[0] : params.assessmentId;
@@ -105,14 +103,6 @@ export function RiskAssessmentResultScreen() {
     return () => { isActive = false; };
   }, [data, accessToken, historyRetry]);
   const retryHistory = useCallback(() => setHistoryRetry((retry) => retry + 1), []);
-  useEffect(() => {
-    if (!accessToken || !assessmentId) { setExistingWarning(null); return; }
-    let isActive = true;
-    void getWarningByAssessment(assessmentId, accessToken)
-      .then((result) => { if (isActive) setExistingWarning(result.warning); })
-      .catch(() => { if (isActive) setExistingWarning(null); });
-    return () => { isActive = false; };
-  }, [accessToken, assessmentId]);
   const submitClose = useCallback(async () => {
     if (!closeFormVisible || !displayedAssessment || displayedAssessment.status !== 'ACTIVE'
       || !accessToken || pendingCloses.current.some((pending) =>
@@ -177,6 +167,7 @@ export function RiskAssessmentResultScreen() {
     {!data ? <AssessmentLoadState loading={loading} error={error} retry={() => void reload()} /> : <>
       <View style={assessmentStyles.card}>
         <Text style={assessmentStyles.heading}>Saved assessment: {displayedAssessment!.status}</Text>
+        <Text style={assessmentStyles.heading}>Saved assessment · {displayedAssessment!.status}</Text>
         <Text style={assessmentStyles.label}>Final Risk Level</Text>
         <PriorityBadge priority={displayedAssessment!.finalRiskLevel} />
         <AssessmentDetail label="Decision Reason" value={displayedAssessment!.decisionReason ?? 'Suggested risk accepted without an additional reason.'} />
@@ -187,17 +178,9 @@ export function RiskAssessmentResultScreen() {
         {displayedAssessment!.closureReason ? <AssessmentDetail label="Closure Reason" value={displayedAssessment!.closureReason} /> : null}
         {displayedAssessment!.closureNote ? <AssessmentDetail label="Closure Note" value={displayedAssessment!.closureNote} /> : null}
       </View>
-      {displayedAssessment!.status === 'ACTIVE' && canCreateWarning(displayedAssessment!.finalRiskLevel) ? existingWarning ? <AssessmentButton
-        label={existingWarning.status === 'PUBLISHED' ? 'View Published Warning' : 'View/Edit Draft'}
-        disabled={currentBusy}
-        onPress={() => router.push({ pathname: '/officer/warnings/[warningId]', params: { warningId: existingWarning.id } })} /> : <AssessmentButton
-        label="Create Warning" disabled={currentBusy} onPress={() => router.push({
-          pathname: '/officer/warnings/create', params: { assessmentId: displayedAssessment!.id }
-        })} /> : null}
-      {displayedAssessment!.status === 'ACTIVE' ? <AssessmentButton label="REASSESS RISK" disabled={currentBusy} onPress={() => {
-        resetAssessmentDraft();
-        router.push({ pathname: '/officer/assessments/reassess/[step]', params: { step: 'reason', assessmentId: displayedAssessment!.id } });
-      }} /> : null}
+      {displayedAssessment!.status === 'ACTIVE' ? <AssessmentButton label="REASSESS RISK" disabled={currentBusy} onPress={() => router.push({
+        pathname: '/officer/assessments/create', params: { assessmentId: displayedAssessment!.id }
+      })} /> : null}
       {displayedAssessment!.status === 'ACTIVE' && !closeFormVisible ? <AssessmentButton label="CLOSE ASSESSMENT" disabled={currentBusy}
         onPress={() => {
           setCloseFormScope({ routeId: assessmentId, accessToken, generation: closeGeneration });
@@ -300,5 +283,3 @@ export function AssessmentHistorySection({
     </View>)}
   </View>;
 }
-
-

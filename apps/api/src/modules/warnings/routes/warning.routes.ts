@@ -10,8 +10,10 @@ import { WarningModel } from '../models/warning.model.js';
 import { UserModel } from '../../users/models/user.model.js';
 import { WARNING_ACKNOWLEDGEMENT_RESPONSES, type WarningAcknowledgementsResponse } from '@safealert/contracts';
 import { z } from 'zod';
+import { ApiError } from '../../../shared/apiError.js';
+import type { WarningDeliveryRepository } from '../../notifications/repositories/warningDelivery.repository.js';
 
-export function createWarningRouter(service: WarningService, config: ApiConfig) {
+export function createWarningRouter(service: WarningService, config: ApiConfig, deliveries?: WarningDeliveryRepository) {
   const router = Router();
   router.use(authenticate(config));
   const controller = createWarningController(service);
@@ -21,6 +23,26 @@ export function createWarningRouter(service: WarningService, config: ApiConfig) 
     try { response.json(await residentWarnings.list(request.auth!.id)); } catch (error) { next(error); }
   });
   router.get('/by-assessment/:assessmentId', authorizeRoles('DISASTER_OFFICER'), controller.getByAssessment);
+  router.get('/:warningId/delivery', authorizeRoles('DISASTER_OFFICER'), async (request, response, next) => {
+    try {
+      if (!deliveries) { response.status(503).json({ error: { code: 'DELIVERY_UNAVAILABLE', message: 'Delivery status is unavailable.' } }); return; }
+      const warningId = request.params.warningId ?? '';
+      if (!/^[a-f\d]{24}$/i.test(warningId)) throw new ApiError(400, 'VALIDATION_ERROR', 'A valid warning ID is required.');
+      if (!await service.get(warningId)) throw new ApiError(404, 'WARNING_NOT_FOUND', 'Warning not found.');
+      const records = await deliveries.listByWarning(warningId);
+      const residentIds = [...new Set(records.map((record) => record.recipientId))];
+      const residents = await UserModel.find({ _id: { $in: residentIds } }).select('name phoneNumber').lean().exec();
+      const byId = new Map(residents.map((resident) => [resident._id.toString(), resident]));
+      const failed = records.filter((record) => record.status === 'FAILED').map((record) => {
+        const resident = byId.get(record.recipientId);
+        const phone = resident?.phoneNumber ?? '';
+        return { id: record.id, resident: resident?.name ?? 'Resident', channel: record.channel, status: record.status, provider: record.provider, reason: record.errorMessage ?? record.errorCode ?? 'Delivery failed', attemptCount: record.attemptCount, lastAttemptAt: record.attempts.at(-1)?.attemptedAt ?? record.updatedAt, ...(record.channel === 'SMS' && phone ? { phone: phone.length > 4 ? `${'*'.repeat(Math.max(0, phone.length - 4))}${phone.slice(-4)}` : '****' } : {}) };
+      });
+      const summary = { recipientCount: residentIds.length, sms: { sent: 0, failed: 0, skipped: 0 }, push: { sent: 0, failed: 0, skipped: 0 } };
+      for (const record of records) { const bucket = record.channel === 'SMS' ? summary.sms : summary.push; if (record.status === 'SENT') bucket.sent += 1; else if (record.status === 'FAILED') bucket.failed += 1; else bucket.skipped += 1; }
+      response.json({ summary, failedDeliveries: failed });
+    } catch (error) { next(error); }
+  });
   router.get('/:warningId', authorizeRoles('RESIDENT', 'DISASTER_OFFICER'), async (request, response, next) => {
     try {
       if (request.auth!.role === 'DISASTER_OFFICER') {
@@ -52,5 +74,9 @@ export function createWarningRouter(service: WarningService, config: ApiConfig) 
   });
   router.post('/', authorizeRoles('DISASTER_OFFICER'), controller.create);
   router.post('/:warningId/publish', authorizeRoles('DISASTER_OFFICER'), controller.publish);
+  // LDFEW-115: lifecycle maintenance follows the same REST/auth style as publish.
+  router.patch('/:warningId', authorizeRoles('DISASTER_OFFICER'), controller.update);
+  router.post('/:warningId/cancel', authorizeRoles('DISASTER_OFFICER'), controller.cancel);
+  router.post('/:warningId/archive', authorizeRoles('DISASTER_OFFICER'), controller.archive);
   return router;
 }

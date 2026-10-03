@@ -16,6 +16,7 @@ import type { SmsProvider } from '../providers/smsProvider.js';
 import type { DeliveryOutcome, WarningDeliveryRepository } from '../repositories/warningDelivery.repository.js';
 import { emptyChannelSummary } from '../repositories/warningDelivery.repository.js';
 import type { NotificationRecipient, NotificationRecipientRepository } from '../repositories/notificationRecipient.repository.js';
+import type { WarningRepository } from '../../warnings/repositories/warning.repository.js';
 
 export type WarningNotificationLogger = {
   info: (message: string, meta?: Record<string, unknown>) => void;
@@ -25,6 +26,7 @@ export type WarningNotificationLogger = {
 export type WarningNotificationServiceOptions = {
   recipients: NotificationRecipientRepository;
   deliveries: WarningDeliveryRepository;
+  warnings?: WarningRepository;
   smsProvider: SmsProvider;
   pushProvider: PushProvider;
   countryName: string;
@@ -62,6 +64,36 @@ function describeError(error: unknown) {
  */
 export class WarningNotificationService {
   constructor(private readonly options: WarningNotificationServiceOptions) {}
+
+  async retryFailedDelivery(deliveryId: string) {
+    const delivery = await this.options.deliveries.findById(deliveryId);
+    if (!delivery) throw new Error('NOTIFICATION_NOT_FOUND');
+    if (delivery.status === 'SENT') return delivery;
+    if (delivery.status !== 'FAILED') throw new Error('NOTIFICATION_NOT_RETRYABLE');
+    if (!this.options.warnings) throw new Error('WARNING_NOT_PUBLISHED');
+    const warning = await this.options.warnings.findById(delivery.warningId);
+    if (!warning || warning.status !== 'PUBLISHED') throw new Error('WARNING_NOT_PUBLISHED');
+    const recipient = await this.options.recipients.findResidentById(delivery.recipientId);
+    if (!recipient) throw new Error('RECIPIENT_NOT_FOUND');
+
+    let result: ProviderSendResult;
+    if (delivery.channel === 'SMS') {
+      const to = toNotifyLkRecipient(recipient.phoneNumber);
+      if (!to || !this.options.smsProvider.isConfigured()) throw new Error('NOTIFICATION_NOT_RETRYABLE');
+      try { result = await this.options.smsProvider.send({ to, message: buildWarningSmsMessage(warning) }); }
+      catch (error) { result = { status: 'FAILED', provider: this.options.smsProvider.name, errorCode: 'PROVIDER_REQUEST_FAILED', errorMessage: sanitizeProviderText(describeError(error), []) }; }
+    } else {
+      const token = recipient.pushToken?.trim();
+      if (!token || !this.options.pushProvider.isConfigured()) throw new Error('NOTIFICATION_NOT_RETRYABLE');
+      const message = buildWarningPushMessage(warning);
+      try { result = await this.options.pushProvider.send({ token, title: message.title, body: message.body, data: message.data }); }
+      catch (error) { result = { status: 'FAILED', provider: this.options.pushProvider.name, errorCode: 'PROVIDER_REQUEST_FAILED', errorMessage: sanitizeProviderText(describeError(error), []) }; }
+    }
+    const updated = await this.options.deliveries.retry(delivery.id, result.status === 'SENT'
+      ? { expectedStatus: 'FAILED', status: 'SENT', provider: result.provider, providerMessageId: result.providerMessageId, providerStatus: result.providerStatus, sentAt: new Date().toISOString() }
+      : { expectedStatus: 'FAILED', status: 'FAILED', provider: result.provider, errorCode: result.errorCode, errorMessage: result.errorMessage });
+    return updated ?? (await this.options.deliveries.findById(delivery.id));
+  }
 
   async notifyPublishedWarning(warning: SafeWarning): Promise<WarningNotificationSummary | null> {
     if (warning.status !== 'PUBLISHED') {

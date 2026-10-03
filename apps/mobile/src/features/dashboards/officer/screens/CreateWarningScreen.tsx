@@ -20,8 +20,9 @@ import { ReviewWarningScreen } from './ReviewWarningScreen';
 export function CreateWarningScreen() {
   const { accessToken } = useAuth();
   const router = useRouter();
-  const params = useLocalSearchParams<{ assessmentId?: string | string[] }>();
+  const params = useLocalSearchParams<{ assessmentId?: string | string[]; returnTo?: string | string[] }>();
   const assessmentId = Array.isArray(params.assessmentId) ? params.assessmentId[0] : params.assessmentId;
+  const returnTo = Array.isArray(params.returnTo) ? params.returnTo[0] : params.returnTo;
   const [form, setForm] = useState<WarningForm>(initialWarningForm);
   const [errors, setErrors] = useState<WarningFormErrors>({});
   const [review, setReview] = useState<CreateWarningRequest | null>(null);
@@ -51,9 +52,16 @@ export function CreateWarningScreen() {
     return () => { generation.current += 1; };
   }, [accessToken, assessmentId]));
 
-  const back = () => assessmentId
-    ? router.replace({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId } })
-    : router.replace('/officer/assessments');
+  const back = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    const fallback = returnTo?.startsWith('/officer/') || returnTo === '/officer'
+      ? returnTo
+      : '/officer/warnings';
+    router.replace(fallback);
+  };
   const update = (field: keyof WarningForm, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
     setErrors((current) => { const next = { ...current }; delete next[field]; return next; });
@@ -115,12 +123,11 @@ export function CreateWarningScreen() {
         <AssessmentDetail label="Warning Reference" value={saved.id} />
         <AssessmentDetail label="Status" value={saved.status} />
         <AssessmentButton label="Publish Warning" onPress={() => router.push({
-          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id }
+          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id, mode: 'published', returnTo: returnTo ?? '/officer/warnings' }
         })} />
         <AssessmentButton label="View Warning" secondary onPress={() => router.push({
-          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id }
+          pathname: '/officer/warnings/[warningId]', params: { warningId: saved.id, mode: 'view', returnTo: returnTo ?? '/officer/warnings' }
         })} />
-        <AssessmentButton label="Return to Assessment" secondary onPress={back} />
       </View> : <>
         {error ? <Text accessibilityRole="alert" style={assessmentStyles.error}>{error}</Text> : null}
         {review ? <ReviewWarningScreen warning={review} riskLevel={assessment.finalRiskLevel} busy={busy} photos={photos}
@@ -150,7 +157,7 @@ export function CreateWarningScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { width: '100%', maxWidth: 980, alignSelf: 'center', paddingTop: 16, paddingBottom: 32 },
+  content: { width: '100%', alignSelf: 'stretch', paddingTop: 16, paddingBottom: 32 },
   photoPicker: { minHeight: 150, borderWidth: 1.5, borderStyle: 'dashed', borderColor: '#2563eb', borderRadius: 14, backgroundColor: '#dbeafe', alignItems: 'center', justifyContent: 'center', gap: 6, padding: 18 },
   camera: { fontSize: 30 }, photoTitle: { color: '#1d4ed8', fontSize: 16, fontWeight: '700' },
   thumbnails: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 }, thumbnailWrap: { position: 'relative', paddingTop: 6, paddingRight: 6 },

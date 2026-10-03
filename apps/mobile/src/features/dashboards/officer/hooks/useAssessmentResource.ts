@@ -8,26 +8,33 @@ export function useAssessmentResource<T>(loader: () => Promise<T>) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const generation = useRef(0);
-  const reload = useCallback(async (options: { preserveData?: boolean } = {}) => {
+
+  const inFlight = useRef(false);
+  const reload = useCallback(async (options: { preserveData?: boolean } = {}): Promise<T | undefined> => {
+    if (inFlight.current) return undefined;
+    inFlight.current = true;
+
     const requestId = ++generation.current;
     setLoading(true);
     setError(null);
     if (!options.preserveData) setData(null);
     try {
       const result = await loader();
-      if (requestId === generation.current) {
-        setData(result);
-        return result;
-      }
+      if (requestId === generation.current) setData(result);
+       return requestId === generation.current ? result : undefined;
     } catch (failure) {
       if (requestId === generation.current) setError(assessmentErrorMessage(failure));
+      return undefined;
     } finally {
-      if (requestId === generation.current) setLoading(false);
+      if (requestId === generation.current) {
+        setLoading(false);
+        inFlight.current = false;
+      }
     }
   }, [loader]);
   useFocusEffect(useCallback(() => {
     void reload();
-    return () => { generation.current += 1; };
+    return () => { generation.current += 1; inFlight.current = false; };
   }, [reload]));
   return { data, loading, error, reload };
 }

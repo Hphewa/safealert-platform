@@ -19,6 +19,7 @@ vi.mock('react', async (importOriginal) => {
   }, useEffect: (effect: () => void) => { state.effects.push(effect); } };
 });
 vi.mock('react-native', () => ({ View: ({ children }: { children?: ReactNode }) => <div>{children}</div>, Text: ({ children }: { children?: ReactNode }) => <span>{children}</span>,
+  Platform: { select: (styles: { web?: unknown; default?: unknown }) => styles.web ?? styles.default },
   StyleSheet: { create: (value: unknown) => value },
   RefreshControl: ({ onRefresh }: { onRefresh: () => void }) => { state.refresh = onRefresh; return <button>Pull to refresh</button>; } }));
 vi.mock('expo-router', () => ({ useRouter: () => ({ push: state.push, setParams: state.setParams }), useLocalSearchParams: () => state.params, useFocusEffect: vi.fn() }));
@@ -77,6 +78,7 @@ it('loads evidence and routes active assessment lifecycle actions to existing sc
   expect(markup).not.toContain('assessment-1');
   expect(markup).not.toContain('incident-1');
   expect(markup).not.toContain('DELETE ASSESSMENT');
+  expect(markup).not.toContain('CREATE WARNING');
   state.actions.get('VIEW ASSESSMENT')!();
   expect(state.push).toHaveBeenLastCalledWith({ pathname: '/officer/assessments/[assessmentId]', params: { assessmentId: 'assessment-1' } });
   state.actions.get('REASSESS RISK')!();
@@ -123,12 +125,9 @@ it('shows closed and no-visible-assessment states without offering lifecycle mut
   expect(markup).toContain('No current risk assessment'); expect(markup).not.toContain('CURRENT RISK'); expect(markup).not.toContain('DELETE ASSESSMENT');
 });
 
-it('keeps detail errors retryable and only offers warning creation for eligible active assessments', () => {
+it('keeps detail errors retryable', () => {
   state.error = 'Monitoring unavailable';
   expect(renderDetail()).toContain('Monitoring unavailable');
-  state.error = null;
-  state.data = detail({ currentAssessment: { ...active, finalRiskLevel: 'MODERATE' }, latestAssessment: { ...active, finalRiskLevel: 'MODERATE' } });
-  expect(renderDetail()).not.toContain('CREATE WARNING');
 });
 
 it('shows the replacement active risk and zero new evidence after reassessment refresh', () => {

@@ -19,7 +19,9 @@ const warningDeliverySchema = new mongoose.Schema({
   // Only sanitized provider values are stored. Credentials are never persisted.
   errorCode: { type: String, trim: true, maxlength: 128 },
   errorMessage: { type: String, trim: true, maxlength: 500 },
-  sentAt: { type: Date }
+  sentAt: { type: Date },
+  attemptCount: { type: Number, required: true, default: 1 },
+  attempts: [{ attempt: { type: Number, required: true }, status: { type: String, enum: NOTIFICATION_DELIVERY_STATUSES, required: true }, attemptedAt: { type: Date, required: true }, provider: { type: String, enum: NOTIFICATION_PROVIDERS }, providerStatus: String, errorCode: String, errorMessage: String }]
 }, { timestamps: true });
 
 // Idempotency: at most one delivery record per warning, recipient and channel. Republishing
@@ -35,6 +37,7 @@ export const WarningDeliveryModel =
   mongoose.model<WarningDeliveryDocument>('WarningDelivery', warningDeliverySchema);
 
 export function toSafeWarningDelivery(delivery: WarningDeliveryDocument): SafeWarningNotificationDelivery {
+  const attempts = delivery.attempts ?? [];
   return {
     id: delivery._id.toString(),
     warningId: delivery.warningId.toString(),
@@ -48,6 +51,8 @@ export function toSafeWarningDelivery(delivery: WarningDeliveryDocument): SafeWa
     ...(delivery.errorCode ? { errorCode: delivery.errorCode } : {}),
     ...(delivery.errorMessage ? { errorMessage: delivery.errorMessage } : {}),
     ...(delivery.sentAt ? { sentAt: delivery.sentAt.toISOString() } : {}),
+    attemptCount: delivery.attemptCount,
+    attempts: attempts.map((attempt) => ({ attempt: attempt.attempt, status: attempt.status, attemptedAt: attempt.attemptedAt.toISOString(), ...(attempt.provider ? { provider: attempt.provider } : {}), ...(attempt.providerStatus ? { providerStatus: attempt.providerStatus } : {}), ...(attempt.errorCode ? { errorCode: attempt.errorCode } : {}), ...(attempt.errorMessage ? { errorMessage: attempt.errorMessage } : {}) })),
     createdAt: delivery.createdAt.toISOString(),
     updatedAt: delivery.updatedAt.toISOString()
   };
