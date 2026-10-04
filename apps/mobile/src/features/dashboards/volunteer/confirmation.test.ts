@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildConfirmationInput, buildConfirmedInput, buildUnableToConfirmInput } from './confirmation';
+import {
+  buildConfirmationInput,
+  buildConfirmedInput,
+  buildUnableToConfirmInput,
+  emptyVerificationChecklistDraft,
+  toExplicitVerificationChecklist
+} from './confirmation';
 import { listMyFieldConfirmations, submitFieldConfirmation } from './api/fieldConfirmationsApi';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -18,6 +24,20 @@ describe('volunteer confirmation submission', () => {
   });
   it('requires a flag reason', () => {
     expect(() => buildConfirmationInput('UNABLE_TO_CONFIRM', '', '')).toThrow('Select a reason');
+  });
+  it('requires explicit yes or no answers for every confirmed checklist item', () => {
+    expect(() => buildConfirmedInput(emptyVerificationChecklistDraft, '')).toThrow('Complete all required field checks.');
+    expect(toExplicitVerificationChecklist({
+      locationMatches: true,
+      photoMatches: false,
+      situationStillExists: true,
+      severityAppearsCorrect: false
+    })).toEqual({
+      locationMatches: true,
+      photoMatches: false,
+      situationStillExists: true,
+      severityAppearsCorrect: false
+    });
   });
   it('trims Other explanation and omits flag data on confirm', () => {
     expect(buildUnableToConfirmInput('Other', ' Low visibility ')).toEqual({ outcome: 'UNABLE_TO_CONFIRM', reason: 'Other', reasonDetails: 'Low visibility' });

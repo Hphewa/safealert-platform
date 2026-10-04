@@ -34,6 +34,9 @@ export function CounterField({
       <View style={styles.header}>
         <Text style={styles.label}>{label}</Text>
         {helperText ? <Text style={styles.helperText}>{helperText}</Text> : null}
+        {typeof max === 'number' ? (
+          <Text style={styles.helperText}>Maximum is {max} because {max} people are reported as needing assistance.</Text>
+        ) : null}
       </View>
 
       <View style={styles.controls}>
@@ -42,7 +45,7 @@ export function CounterField({
           accessibilityRole="button"
           accessibilityState={{ disabled: !canDecrement }}
           disabled={!canDecrement}
-          onPress={() => onChange(Math.max(min, value - 1))}
+          onPress={() => { if (canDecrement) onChange(Math.max(min, value - 1)); }}
           style={({ pressed }) => [
             styles.button,
             !canDecrement && styles.buttonDisabled,
@@ -61,7 +64,7 @@ export function CounterField({
           accessibilityRole="button"
           accessibilityState={{ disabled: !canIncrement }}
           disabled={!canIncrement}
-          onPress={() => onChange(typeof max === 'number' ? Math.min(max, value + 1) : value + 1)}
+          onPress={() => { if (canIncrement) onChange(value + 1); }}
           style={({ pressed }) => [
             styles.button,
             !canIncrement && styles.buttonDisabled,
@@ -77,6 +80,7 @@ export function CounterField({
 
 const styles = StyleSheet.create({
   card: {
+    minWidth: 0,
     gap: 12,
     padding: 14,
     borderWidth: 1,
@@ -98,18 +102,20 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.muted
   },
   controls: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12
+    gap: 8
   },
   button: {
-    width: 42,
-    height: 42,
+    width: 38,
+    height: 38,
+    flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: dashboardTheme.colors.primary,
-    borderRadius: 21,
+    borderRadius: 19,
     backgroundColor: dashboardTheme.colors.primarySoft
   },
   buttonDisabled: {
@@ -125,10 +131,11 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.muted
   },
   valueWrap: {
-    minWidth: 54,
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 4,
     paddingVertical: 8,
     borderRadius: dashboardTheme.radius.sm,
     backgroundColor: dashboardTheme.colors.surfaceMuted

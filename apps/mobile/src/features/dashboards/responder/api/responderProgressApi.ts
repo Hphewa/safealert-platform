@@ -8,7 +8,14 @@ import {
 
 import { ApiClientError, apiRequest } from '../../../../services/api/client';
 
-export type ResponderProgressStatus = Exclude<ResponseStatus, 'NEW' | 'ASSIGNED'>;
+export type ResponderProgressStatus = Exclude<ResponseStatus, 'NEW' | 'ASSIGNED' | 'CANCELLED'>;
+
+// LDFEW-266 / LDFEW-352: Required completion details for marking an emergency request completed
+export type ResponderCompletionDetails = {
+  assistanceProvided: string;
+  completionSummary: string;
+  responderRemarks?: string;
+};
 
 const progressTimestampFields = {
   DISPATCHED: 'dispatchedAt',
@@ -18,10 +25,12 @@ const progressTimestampFields = {
 } as const satisfies Record<ResponderProgressStatus, keyof SafeResponseRequest>;
 
 // LDFEW-121 progresses requests after ASSIGNED. Acceptance remains in LDFEW-130.
+// LDFEW-266: Connecting completion details with final COMPLETED action.
 export async function updateResponderRequestProgress(
   requestId: string,
   status: ResponderProgressStatus,
-  accessToken: string
+  accessToken: string,
+  completionDetails?: ResponderCompletionDetails
 ): Promise<SafeResponseRequest> {
   if (!isNonEmptyString(requestId)) {
     throw new ApiClientError(400, 'INVALID_REQUEST_ID', 'Select an emergency request to update.');
@@ -35,12 +44,37 @@ export async function updateResponderRequestProgress(
     throw new ApiClientError(401, 'UNAUTHORIZED', 'Please log in again to update this request.');
   }
 
+  if (status === 'COMPLETED' && completionDetails) {
+    if (
+      !isNonEmptyString(completionDetails.assistanceProvided) ||
+      completionDetails.assistanceProvided.trim().length < 3 ||
+      !isNonEmptyString(completionDetails.completionSummary) ||
+      completionDetails.completionSummary.trim().length < 3
+    ) {
+      throw new ApiClientError(
+        400,
+        'COMPLETION_DETAILS_REQUIRED',
+        'Please provide valid completion details before completing this request.'
+      );
+    }
+  }
+
   const normalizedId = requestId.trim();
+  const body = status === 'COMPLETED' && completionDetails
+    ? {
+        status,
+        assistanceProvided: completionDetails.assistanceProvided.trim(),
+        completionSummary: completionDetails.completionSummary.trim(),
+        ...(completionDetails.responderRemarks?.trim()
+          ? { responderRemarks: completionDetails.responderRemarks.trim() }
+          : {})
+      }
+    : { status };
 
   try {
     const response = await apiRequest<unknown>(
       `/response-requests/${encodeURIComponent(normalizedId)}/progress`,
-      { method: 'PATCH', accessToken, body: { status } }
+      { method: 'PATCH', accessToken, body }
     );
 
     if (
@@ -80,9 +114,13 @@ export function progressErrorMessage(error: ApiClientError): string {
         ? 'This progress change is not allowed. Refresh the request to see its current status.'
         : 'This request has changed. Refresh it before updating its progress.';
     case 400:
-      return error.code === 'INVALID_REQUEST_ID'
-        ? 'The emergency request ID is invalid. Refresh your requests.'
-        : 'The progress update is invalid. Check the request and selected status.';
+      if (error.code === 'INVALID_REQUEST_ID') {
+        return 'The emergency request ID is invalid. Refresh your requests.';
+      }
+      if (error.code === 'COMPLETION_DETAILS_REQUIRED' || error.code === 'INVALID_COMPLETION_DETAILS') {
+        return 'Please provide valid completion details (assistance provided and completion summary) before completing this request.';
+      }
+      return 'The progress update is invalid. Check the request and selected status.';
     case 0:
       return 'Unable to confirm progress. Check your connection and refresh the request before trying again.';
     default:
@@ -129,7 +167,14 @@ function isProgressResponse(value: unknown, status: ResponderProgressStatus): va
     isDateString(value[progressTimestampFields[status]]) &&
     ['acceptedAt', ...Object.values(progressTimestampFields)].every(
       (field) => value[field] === undefined || isDateString(value[field])
-    )
+    ) &&
+    // LDFEW-266: Optional operational field notes and timestamp
+    (value.fieldNotes === undefined || typeof value.fieldNotes === 'string') &&
+    (value.fieldUpdatedAt === undefined || isDateString(value.fieldUpdatedAt)) &&
+    // LDFEW-266: Completion fields validation (safe for both new and legacy records)
+    (value.assistanceProvided === undefined || typeof value.assistanceProvided === 'string') &&
+    (value.completionSummary === undefined || typeof value.completionSummary === 'string') &&
+    (value.responderRemarks === undefined || typeof value.responderRemarks === 'string')
   );
 }
 

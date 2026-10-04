@@ -94,23 +94,46 @@ describe('resident report API', () => {
     );
   });
 
-  it('cancels an encoded pending resident-owned report id', async () => {
-    const cancelledReport: SafeReport = {
-      ...report,
-      status: 'CANCELLED',
-      cancelledById: 'resident-1',
-      cancelledAt: '2026-08-24T09:30:00.000Z'
-    };
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ report: cancelledReport }));
+  it('sends adjusted edit report location in GeoJSON coordinate order', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ report }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await updateMyPendingReport(
+      'report/one',
+      {
+        location: {
+          type: 'Point',
+          coordinates: [79.865, 6.9305]
+        }
+      },
+      'resident-access-token'
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      apiBaseUrl + '/reports/mine/report%2Fone',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({
+          location: {
+            type: 'Point',
+            coordinates: [79.865, 6.9305]
+          }
+        })
+      })
+    );
+  });
+
+  it('deletes an encoded pending resident-owned report id', async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal('fetch', fetchMock);
 
     const response = await cancelMyPendingReport('report/one', 'resident-access-token');
 
-    expect(response).toEqual({ report: cancelledReport });
+    expect(response).toBeUndefined();
     expect(fetchMock).toHaveBeenCalledWith(
-      apiBaseUrl + '/reports/mine/report%2Fone/cancel',
+      apiBaseUrl + '/reports/mine/report%2Fone',
       expect.objectContaining({
-        method: 'PATCH',
+        method: 'DELETE',
         headers: expect.objectContaining({ Authorization: 'Bearer resident-access-token' })
       })
     );

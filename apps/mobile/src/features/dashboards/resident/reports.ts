@@ -4,29 +4,44 @@ import type { Href } from 'expo-router';
 
 import type { BadgeTone, DashboardIconName } from '../shared/types';
 
-export type ResidentReportFilterKey = 'all' | 'active' | 'resolved';
+import floodHazardImage from '../../../../assets/hazards/flood.png';
+import blockedRoadHazardImage from '../../../../assets/hazards/blocked-road.png';
+import landslideHazardImage from '../../../../assets/hazards/landslide.png';
+import otherHazardImage from '../../../../assets/hazards/other.png';
+
+export type ResidentReportFilterKey = 'all' | 'pending' | 'verified' | 'rejected' | 'cancelled';
 
 export const residentReportTabs: ReadonlyArray<{
   key: ResidentReportFilterKey;
   label: string;
 }> = [
   { key: 'all', label: 'All' },
-  { key: 'active', label: 'Active' },
-  { key: 'resolved', label: 'Resolved' }
+  { key: 'pending', label: 'Pending' },
+  { key: 'verified', label: 'Verified' },
+  { key: 'rejected', label: 'Rejected' },
+  { key: 'cancelled', label: 'Cancelled' }
 ];
 
 export function filterResidentReports(reports: SafeReport[], filter: ResidentReportFilterKey) {
+  const sortNewestFirst = (items: SafeReport[]) => [...items].sort((left, right) =>
+    new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
+  );
+
   switch (filter) {
     case 'all':
-      return reports;
-    case 'active':
-      return reports.filter((report) => report.status === 'PENDING' || report.status === 'VERIFIED');
-    case 'resolved':
-      return reports.filter((report) => report.status === 'RESOLVED');
+      return sortNewestFirst(reports);
+    case 'pending':
+      return sortNewestFirst(reports.filter((report) => report.status === 'PENDING'));
+    case 'verified':
+      return sortNewestFirst(reports.filter((report) => report.status === 'VERIFIED'));
+    case 'rejected':
+      return sortNewestFirst(reports.filter((report) => report.status === 'REJECTED'));
+    case 'cancelled':
+      return sortNewestFirst(reports.filter((report) => report.status === 'CANCELLED'));
   }
 }
 
-export function hazardLabelForResident(hazardType: HazardType) {
+export function hazardLabelForResident(hazardType: HazardType, otherHazardType?: string) {
   switch (hazardType) {
     case 'FLOOD':
       return 'Flood';
@@ -35,7 +50,7 @@ export function hazardLabelForResident(hazardType: HazardType) {
     case 'LANDSLIDE':
       return 'Landslide';
     case 'OTHER':
-      return 'Other Hazard';
+      return otherHazardType?.trim() || 'Other Hazard';
   }
 }
 
@@ -49,6 +64,19 @@ export function hazardIconForResident(hazardType: HazardType): DashboardIconName
       return 'leaf-outline';
     case 'OTHER':
       return 'alert-circle-outline';
+  }
+}
+
+export function hazardImageForResident(hazardType: HazardType) {
+  switch (hazardType) {
+    case 'FLOOD':
+      return floodHazardImage;
+    case 'BLOCKED_ROAD':
+      return blockedRoadHazardImage;
+    case 'LANDSLIDE':
+      return landslideHazardImage;
+    case 'OTHER':
+      return otherHazardImage;
   }
 }
 
@@ -81,15 +109,30 @@ export function statusLabelForResident(status: ReportStatus) {
 export function statusDescriptionForResident(status: ReportStatus) {
   switch (status) {
     case 'PENDING':
-      return 'Waiting for verification';
+      return 'Waiting for official verification';
     case 'VERIFIED':
-      return 'Verified by an officer';
+      return 'A disaster officer verified this report.';
     case 'REJECTED':
-      return 'Reviewed and rejected';
+      return 'A disaster officer reviewed this report and did not verify it.';
     case 'CANCELLED':
-      return 'Cancelled before verification';
+      return 'You cancelled this report before official review.';
     case 'RESOLVED':
-      return 'Resolved';
+      return 'This report is no longer active.';
+  }
+}
+
+export function officialReviewDetailForResident(status: ReportStatus) {
+  switch (status) {
+    case 'PENDING':
+      return 'A disaster officer has not completed the official review yet.';
+    case 'VERIFIED':
+      return 'A disaster officer verified this report.';
+    case 'REJECTED':
+      return 'A disaster officer reviewed this report and did not verify it.';
+    case 'CANCELLED':
+      return 'You cancelled this report before official review.';
+    case 'RESOLVED':
+      return 'This report is no longer active.';
   }
 }
 
@@ -111,7 +154,7 @@ export function statusToneForResident(status: ReportStatus): BadgeTone {
 export function formatResidentReportLocation(report: SafeReport) {
   const [longitude, latitude] = report.location.coordinates;
 
-  return `Lat ${latitude.toFixed(4)}, Long ${longitude.toFixed(4)}`;
+  return `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
 }
 
 export function formatResidentReportSubmittedAt(value: string) {
@@ -130,7 +173,14 @@ export function formatResidentReportSubmittedAt(value: string) {
 }
 
 export function formatResidentReportCount(count: number, filter: ResidentReportFilterKey) {
-  const scope = filter === 'active' ? 'active' : filter === 'resolved' ? 'resolved' : 'submitted';
+  const scopeByFilter: Record<ResidentReportFilterKey, string> = {
+    all: 'submitted',
+    pending: 'pending',
+    verified: 'verified',
+    rejected: 'rejected',
+    cancelled: 'cancelled'
+  };
+  const scope = scopeByFilter[filter];
 
   return `${count} ${scope} report${count === 1 ? '' : 's'}`;
 }
@@ -175,19 +225,19 @@ export function formatResidentReportDateTime(value: string | undefined) {
 export function residentReportStatusSummary(report: SafeReport) {
   switch (report.status) {
     case 'PENDING':
-      return 'Waiting for verification';
+      return 'Waiting for official verification';
     case 'VERIFIED':
       return report.verifiedAt
         ? `Verified ${formatResidentReportDateTime(report.verifiedAt)}`
-        : 'Verified by an officer';
+        : 'A disaster officer verified this report.';
     case 'REJECTED':
       return report.rejectionReason ?? 'Reviewed and rejected';
     case 'CANCELLED':
       return report.cancelledAt
         ? `Cancelled ${formatResidentReportDateTime(report.cancelledAt)}`
-        : 'This report was cancelled before verification.';
+        : 'You cancelled this report before official review.';
     case 'RESOLVED':
-      return 'Resolved';
+      return 'This report is no longer active.';
   }
 }
 
@@ -210,13 +260,13 @@ export function buildResidentReportTimeline(report: SafeReport): ResidentReportT
     timeline.push({
       id: 'waiting',
       title: 'Waiting for Official Verification',
-      detail: 'A disaster officer has not reviewed this report yet.',
+      detail: 'A disaster officer has not completed the official review yet.',
       tone: 'pending'
     });
     return timeline;
   }
 
-  if (report.status === 'VERIFIED' || report.status === 'RESOLVED') {
+  if (report.status === 'VERIFIED' || (report.status === 'RESOLVED' && (report.verifiedAt || verificationEvent))) {
     const verifiedAt = report.verifiedAt ?? (verificationEvent?.action === 'VERIFY' ? verificationEvent.verifiedAt : undefined);
 
     timeline.push({
@@ -255,9 +305,8 @@ export function buildResidentReportTimeline(report: SafeReport): ResidentReportT
     timeline.push({
       id: 'resolved',
       title: 'Resolved',
-      detail: 'This report has been marked resolved.',
-      timeLabel: formatResidentReportDateTime(report.updatedAt),
-      tone: 'success'
+      detail: 'This report is no longer active.',
+      tone: 'neutral'
     });
   }
 

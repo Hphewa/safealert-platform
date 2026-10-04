@@ -1,10 +1,11 @@
-import type { BottomNavItem, PlaceholderConfig, QuickAction } from '../shared/types';
+import type { BottomNavItem, QuickAction } from '../shared/types';
 
 export const residentBottomNavItems: BottomNavItem[] = [
   { label: 'Home', href: '/resident', icon: 'home-outline' },
-  { label: 'Report', href: '/resident/report-hazard', icon: 'warning-outline' },
+  { label: 'Report', href: '/resident/report-hazard?mode=new', icon: 'warning-outline' },
   { label: 'Reports', href: '/resident/reports', icon: 'document-text-outline' },
-  { label: 'Help', href: '/resident/help', icon: 'help-buoy-outline' }
+  { label: 'Help', href: '/resident/help', icon: 'help-buoy-outline' },
+  { label: 'Profile', href: '/resident/notification-profile', icon: 'person-circle-outline' }
 ];
 
 export const residentPrimaryActions: QuickAction[] = [
@@ -15,22 +16,16 @@ export const residentPrimaryActions: QuickAction[] = [
     icon: 'warning-outline'
   },
   {
-    title: 'Report Status & Reviews',
+    title: 'My Reports',
     subtitle: 'Track reviews and updates for your recent reports',
     href: '/resident/reports',
     icon: 'checkmark-done-outline'
   },
   {
-    title: 'Help / Emergency Assistance',
-    subtitle: 'Request urgent help and share your current situation',
+    title: 'Emergency Requests',
+    subtitle: 'Request urgent help and track assistance',
     href: '/resident/help',
     icon: 'help-buoy-outline'
   }
 ];
 
-export const residentPlaceholderContent: Record<string, PlaceholderConfig> = {
-  reports: {
-    title: 'Report Status & Reviews',
-    description: 'Open My Reports to view submitted hazard reports and review timelines.'
-  }
-};

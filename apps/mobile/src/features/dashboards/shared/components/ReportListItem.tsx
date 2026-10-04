@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import type { ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { DashboardGlyph } from './DashboardGlyph';
@@ -11,7 +12,7 @@ import type { RiskLevel } from '@safealert/contracts';
 
 type ReportListItemProps = {
   title: string;
-  subtitle: string;
+  subtitle: ReactNode;
   icon: DashboardIconName;
   href: Href;
   timeLabel?: string;

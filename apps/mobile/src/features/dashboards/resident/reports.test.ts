@@ -11,6 +11,7 @@ import {
   residentReportEditHref,
   residentReportStatusHref,
   residentReportStatusSummary,
+  residentReportTabs,
   hazardIconForResident,
   hazardLabelForResident,
   statusDescriptionForResident,
@@ -42,7 +43,7 @@ const reports: SafeReport[] = [
 ];
 
 describe('resident report presentation helpers', () => {
-  it('keeps rejected reports discoverable in All without counting them as Active or Resolved', () => {
+  it('filters reports by the official status values used by My Reports', () => {
     expect(filterResidentReports(reports, 'all').map((report) => report.id)).toEqual([
       'pending',
       'verified',
@@ -50,13 +51,21 @@ describe('resident report presentation helpers', () => {
       'cancelled',
       'resolved'
     ]);
-    expect(filterResidentReports(reports, 'active').map((report) => report.id)).toEqual([
-      'pending',
-      'verified'
+    expect(filterResidentReports(reports, 'pending').map((report) => report.id)).toEqual(['pending']);
+    expect(filterResidentReports(reports, 'verified').map((report) => report.id)).toEqual(['verified']);
+    expect(filterResidentReports(reports, 'rejected').map((report) => report.id)).toEqual(['rejected']);
+    expect(filterResidentReports(reports, 'cancelled').map((report) => report.id)).toEqual(['cancelled']);
+  });
+
+  it('does not expose a dedicated resolved filter while keeping resolved reports in All', () => {
+    expect(residentReportTabs.map((tab) => tab.label)).toEqual([
+      'All',
+      'Pending',
+      'Verified',
+      'Rejected',
+      'Cancelled'
     ]);
-    expect(filterResidentReports(reports, 'resolved').map((report) => report.id)).toEqual([
-      'resolved'
-    ]);
+    expect(filterResidentReports(reports, 'all').map((report) => report.id)).toContain('resolved');
   });
 
   it('formats report labels from backend fields', () => {
@@ -64,22 +73,24 @@ describe('resident report presentation helpers', () => {
     expect(hazardIconForResident('LANDSLIDE')).toBe('leaf-outline');
     expect(statusLabelForResident('PENDING')).toBe('Pending');
     expect(statusLabelForResident('CANCELLED')).toBe('Cancelled');
-    expect(statusDescriptionForResident('PENDING')).toBe('Waiting for verification');
-    expect(statusDescriptionForResident('CANCELLED')).toBe('Cancelled before verification');
+    expect(statusDescriptionForResident('PENDING')).toBe('Waiting for official verification');
+    expect(statusDescriptionForResident('CANCELLED')).toBe('You cancelled this report before official review.');
     expect(statusToneForResident('REJECTED')).toBe('critical');
     expect(statusToneForResident('CANCELLED')).toBe('neutral');
-    expect(formatResidentReportLocation(baseReport)).toBe('Lat 6.9271, Long 79.8612');
+    expect(formatResidentReportLocation(baseReport)).toBe('6.9271, 79.8612');
   });
 
   it('formats submitted timestamps and filter summaries', () => {
     expect(formatResidentReportSubmittedAt('not-a-date')).toBe('Submitted time unavailable');
     expect(formatResidentReportSubmittedAt('2026-08-24T09:00:00.000Z')).toContain('Submitted');
-    expect(formatResidentReportCount(1, 'active')).toBe('1 active report');
+    expect(formatResidentReportCount(1, 'pending')).toBe('1 pending report');
+    expect(formatResidentReportCount(1, 'verified')).toBe('1 verified report');
+    expect(formatResidentReportCount(1, 'rejected')).toBe('1 rejected report');
+    expect(formatResidentReportCount(1, 'cancelled')).toBe('1 cancelled report');
     expect(formatResidentReportCount(2, 'all')).toBe('2 submitted reports');
-    expect(formatResidentReportCount(0, 'resolved')).toBe('0 resolved reports');
   });
   it('builds a pending timeline from persisted report data', () => {
-    expect(residentReportStatusSummary(baseReport)).toBe('Waiting for verification');
+    expect(residentReportStatusSummary(baseReport)).toBe('Waiting for official verification');
     expect(buildResidentReportTimeline(baseReport).map((item) => [item.title, item.tone])).toEqual([
       ['Report Submitted', 'success'],
       ['Waiting for Official Verification', 'pending']
@@ -148,6 +159,31 @@ describe('resident report presentation helpers', () => {
       'Officially Verified',
       'Resolved'
     ]);
+    expect(residentReportStatusSummary(resolved)).toBe('This report is no longer active.');
+  });
+
+  it('keeps stored resolved reports displayable without inventing resolution metadata', () => {
+    const resolved: SafeReport = {
+      ...baseReport,
+      status: 'RESOLVED'
+    };
+
+    expect(statusLabelForResident('RESOLVED')).toBe('Resolved');
+    expect(statusDescriptionForResident('RESOLVED')).toBe('This report is no longer active.');
+    expect(filterResidentReports([resolved], 'all')).toEqual([resolved]);
+    expect(isResidentReportEditable(resolved)).toBe(false);
+    const timeline = buildResidentReportTimeline(resolved);
+
+    expect(timeline).toEqual([
+      expect.objectContaining({ id: 'submitted', title: 'Report Submitted' }),
+      expect.objectContaining({
+        id: 'resolved',
+        title: 'Resolved',
+        detail: 'This report is no longer active.',
+        tone: 'neutral'
+      })
+    ]);
+    expect(timeline[1]).not.toHaveProperty('timeLabel');
   });
 
   it('builds a cancelled timeline and marks only pending reports editable', () => {
@@ -165,6 +201,43 @@ describe('resident report presentation helpers', () => {
     ]);
     expect(isResidentReportEditable(baseReport)).toBe(true);
     expect(isResidentReportEditable(cancelled)).toBe(false);
+  });
+
+  it('keeps timeline labels readable for every official report status', () => {
+    const rejected: SafeReport = {
+      ...baseReport,
+      status: 'REJECTED',
+      rejectionReason: 'Location could not be verified.'
+    };
+    const verified: SafeReport = {
+      ...baseReport,
+      status: 'VERIFIED',
+      verifiedAt: '2026-08-24T10:00:00.000Z'
+    };
+    const cancelled: SafeReport = {
+      ...baseReport,
+      status: 'CANCELLED',
+      cancelledAt: '2026-08-24T09:30:00.000Z'
+    };
+    const resolved: SafeReport = {
+      ...verified,
+      status: 'RESOLVED',
+      updatedAt: '2026-08-24T12:00:00.000Z'
+    };
+    const timelines = [baseReport, verified, rejected, cancelled, resolved].flatMap(buildResidentReportTimeline);
+
+    expect(timelines.map((item) => item.title)).toEqual(expect.arrayContaining([
+      'Report Submitted',
+      'Waiting for Official Verification',
+      'Officially Verified',
+      'Report Rejected',
+      'Report Cancelled',
+      'Resolved'
+    ]));
+    const mojibakePattern = new RegExp('[\\u00e2\\u00c3\\ufffd]');
+    for (const item of timelines) {
+      expect(`${item.title} ${item.detail} ${item.timeLabel ?? ''}`).not.toMatch(mojibakePattern);
+    }
   });
 
   it('builds report-status navigation params from a backend report id', () => {

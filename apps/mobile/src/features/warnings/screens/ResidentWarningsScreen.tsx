@@ -1,0 +1,56 @@
+import { useCallback, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useAuth } from '../../auth/hooks/useAuth';
+import { listResidentWarnings } from '../api/residentWarningApi';
+import type { ResidentWarning } from '@safealert/contracts';
+import { DashboardScreen } from '../../dashboards/shared/components/DashboardScreen';
+import { DashboardHeader } from '../../dashboards/shared/components/DashboardHeader';
+import { cardShadow, dashboardTheme } from '../../dashboards/shared/theme';
+import { residentBottomNavItems } from '../../dashboards/resident/mockData';
+import { DashboardGlyph } from '../../dashboards/shared/components/DashboardGlyph';
+
+export function ResidentWarningsScreen() {
+  const router = useRouter(); const { accessToken } = useAuth();
+  const [warnings, setWarnings] = useState<ResidentWarning[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null);
+  const requestInFlight = useRef(false);
+  const load = useCallback(() => {
+    if (!accessToken) {
+      setWarnings([]);
+      setLoading(false);
+      return;
+    }
+    if (requestInFlight.current) return;
+
+    let active = true;
+    requestInFlight.current = true;
+    setLoading(true);
+    setError(null);
+    void listResidentWarnings(accessToken)
+      .then(result => { if (active) setWarnings(result.warnings); })
+      .catch(() => { if (active) setError('Unable to load active warnings.'); })
+      .finally(() => {
+        requestInFlight.current = false;
+        if (active) setLoading(false);
+      });
+
+    return () => { active = false; requestInFlight.current = false; };
+  }, [accessToken]);
+  useFocusEffect(useCallback(() => load(), [load]));
+
+  const goBack = () => {
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+    router.replace('/resident/notification-profile');
+  };
+  return <DashboardScreen bottomNavItems={residentBottomNavItems} contentContainerStyle={styles.content}>
+    <Pressable accessibilityRole="button" accessibilityLabel="Go back" onPress={goBack} style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}>
+      <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.primaryStrong} size={22} /><Text style={styles.backText}>Back</Text>
+    </Pressable>
+    <DashboardHeader title="Active Warnings" description="Published warnings relevant to your profile." />
+    <View style={styles.sectionIntro}><Text style={styles.sectionTitle}>Emergency alerts</Text><Text style={styles.sectionSubtitle}>{warnings.length ? `${warnings.length} published warning${warnings.length === 1 ? '' : 's'} for your area` : 'Stay informed about published safety alerts.'}</Text></View>
+    {loading ? <View style={styles.loadingCard}><ActivityIndicator color={dashboardTheme.colors.primary} size="small" /><Text style={styles.loadingText}>Checking for active warnings…</Text></View> : error ? <View style={styles.stateCard}><Text style={styles.stateTitle}>Unable to load warnings</Text><Text style={styles.stateText}>Please check your connection and try again.</Text><Pressable accessibilityRole="button" onPress={load} style={styles.retryButton}><Text style={styles.retryText}>Retry</Text></Pressable></View> : warnings.length === 0 ? <View style={styles.stateCard}><Text style={styles.stateTitle}>No Active Warnings</Text><Text style={styles.stateText}>There are currently no published safety warnings relevant to your profile.</Text></View> : warnings.map(w => <Pressable key={w.id} accessibilityRole="button" accessibilityLabel={`${w.riskLevel} warning for ${w.affectedArea}. ${w.acknowledgedAt ? 'Acknowledged' : 'Not acknowledged'}. Open warning details.`} onPress={() => router.push({ pathname: '/resident/warnings/[warningId]', params: { warningId: w.id } })} style={({ pressed }) => [styles.card, w.riskLevel === 'CRITICAL' ? styles.criticalCard : styles.highCard, pressed && styles.pressed]}><View style={styles.row}><Text style={[styles.risk, w.riskLevel === 'CRITICAL' ? styles.critical : styles.high]}>{w.riskLevel}</Text><View style={[styles.acknowledgement, w.acknowledgedAt ? styles.acknowledged : styles.pending]}><Text style={styles.statusMark}>{w.acknowledgedAt ? '✓' : '!'}</Text><Text style={[styles.ack, w.acknowledgedAt ? styles.acknowledgedText : styles.pendingText]}>{w.acknowledgedAt ? 'Acknowledged' : 'Not acknowledged'}</Text></View></View><View style={styles.divider} /><Text style={styles.label}>Affected area</Text><Text style={styles.area}>{w.affectedArea}</Text><Text style={styles.label}>Warning message</Text><Text numberOfLines={3} style={styles.message}>{w.message}</Text>{w.publishedAt ? <View style={styles.dateBlock}><Text style={styles.label}>Published</Text><Text style={styles.date}>{new Date(w.publishedAt).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })} • {new Date(w.publishedAt).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}</Text></View> : null}</Pressable>)}</DashboardScreen>;
+}
+const styles = StyleSheet.create({ content: { paddingTop: 12, gap: 14 }, backButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', paddingHorizontal: 4 }, backIcon: { fontSize: 27, color: dashboardTheme.colors.primaryStrong }, backText: { fontSize: 15, fontWeight: '800', color: dashboardTheme.colors.primaryStrong }, sectionIntro: { gap: 4, paddingHorizontal: 2, paddingBottom: 2 }, sectionTitle: { color: dashboardTheme.colors.text, fontSize: 17, fontWeight: '800' }, sectionSubtitle: { color: dashboardTheme.colors.muted, fontSize: 13, lineHeight: 18 }, card: { gap: 10, padding: 16, borderRadius: 16, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, ...cardShadow }, highCard: { borderColor: '#fed7aa' }, criticalCard: { borderColor: '#fecaca' }, row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 }, risk: { color: '#fff', fontSize: 12, fontWeight: '900', letterSpacing: 0.5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 7, overflow: 'hidden' }, high: { backgroundColor: dashboardTheme.colors.high }, critical: { backgroundColor: dashboardTheme.colors.critical }, acknowledgement: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8 }, acknowledged: { backgroundColor: dashboardTheme.colors.successSoft }, pending: { backgroundColor: dashboardTheme.colors.highSoft }, statusMark: { fontSize: 13, fontWeight: '900' }, ack: { fontSize: 12, fontWeight: '700' }, acknowledgedText: { color: '#15803d' }, pendingText: { color: '#b45309' }, divider: { height: 1, backgroundColor: dashboardTheme.colors.border, marginVertical: 1 }, label: { color: dashboardTheme.colors.muted, fontSize: 11, fontWeight: '800', letterSpacing: 0.6, textTransform: 'uppercase' }, area: { color: dashboardTheme.colors.text, fontSize: 16, fontWeight: '800', marginTop: -4 }, message: { color: dashboardTheme.colors.text, fontSize: 14, lineHeight: 20, marginTop: -4 }, dateBlock: { gap: 2, marginTop: 2 }, date: { color: dashboardTheme.colors.muted, fontSize: 13 }, pressed: { opacity: 0.78, transform: [{ scale: 0.995 }] }, loadingCard: { minHeight: 92, alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 16, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border }, loadingText: { color: dashboardTheme.colors.muted, fontSize: 13 }, stateCard: { alignItems: 'center', gap: 8, padding: 24, borderRadius: 16, backgroundColor: dashboardTheme.colors.surface, borderWidth: 1, borderColor: dashboardTheme.colors.border }, stateTitle: { color: dashboardTheme.colors.text, fontSize: 17, fontWeight: '800', textAlign: 'center' }, stateText: { color: dashboardTheme.colors.muted, fontSize: 14, lineHeight: 20, textAlign: 'center', maxWidth: 320 }, retryButton: { minHeight: 44, minWidth: 110, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, borderRadius: 10, backgroundColor: dashboardTheme.colors.primarySoft, marginTop: 4 }, retryText: { color: dashboardTheme.colors.primaryStrong, fontWeight: '800' } });

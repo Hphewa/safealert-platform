@@ -28,14 +28,35 @@ export async function uploadReportEvidence({
 }
 
 function inferMimeType(value: string) {
+  if (/\.m4a(?:$|\?)/i.test(value)) {
+    return 'audio/mp4';
+  }
+
+  if (/\.aac(?:$|\?)/i.test(value)) {
+    return 'audio/aac';
+  }
+
+  if (/\.webm(?:$|\?)/i.test(value)) {
+    return 'audio/webm';
+  }
+
   return /\.png(?:$|\?)/i.test(value) ? 'image/png' : 'image/jpeg';
 }
 
 function safeFormFilename(filename: string | null, mimeType: string) {
-  const extension = mimeType === 'image/png' ? 'png' : 'jpg';
+  const extension =
+    mimeType === 'image/png'
+      ? 'png'
+      : mimeType === 'audio/aac'
+        ? 'aac'
+        : mimeType === 'audio/webm'
+          ? 'webm'
+        : mimeType === 'audio/mp4' || mimeType === 'audio/m4a' || mimeType === 'audio/x-m4a'
+          ? 'm4a'
+          : 'jpg';
   const baseName = filename?.split(/[\\/]/).pop()?.replace(/[^a-zA-Z0-9._-]/g, '_');
 
-  if (baseName && /\.(jpe?g|png)$/i.test(baseName)) {
+  if (baseName && /\.(jpe?g|png|m4a|aac|webm)$/i.test(baseName)) {
     return baseName;
   }
 

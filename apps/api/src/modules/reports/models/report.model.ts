@@ -1,7 +1,10 @@
 import {
   HAZARD_TYPES,
+  REPORT_VOICE_MAX_DURATION_SECONDS,
+  REPORT_VOICE_MIME_TYPES,
   REPORT_SEVERITIES,
   REPORT_STATUSES,
+  type ReportVoiceEvidence,
   type ReportReviewEvent,
   type SafeReport
 } from '@safealert/contracts';
@@ -17,6 +20,12 @@ const reportVerificationSchema = new mongoose.Schema(
     verifiedAt: {
       type: Date,
       required: true
+    },
+    verificationNote: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: 500
     }
   },
   {
@@ -69,6 +78,12 @@ const reportVerificationHistorySchema = new mongoose.Schema(
       required(this: ReportReviewHistoryValidationContext): boolean {
         return this.action === 'VERIFY';
       }
+    },
+    verificationNote: {
+      type: String,
+      required: false,
+      trim: true,
+      maxlength: 500
     },
     rejectedById: {
       type: mongoose.Schema.Types.ObjectId,
@@ -132,6 +147,31 @@ const geoJsonPointSchema = new mongoose.Schema(
   }
 );
 
+const voiceEvidenceSchema = new mongoose.Schema(
+  {
+    mediaReference: {
+      type: String,
+      required: true,
+      trim: true,
+      maxlength: 500
+    },
+    contentType: {
+      type: String,
+      required: true,
+      enum: REPORT_VOICE_MIME_TYPES
+    },
+    durationSeconds: {
+      type: Number,
+      required: true,
+      min: 0.01,
+      max: REPORT_VOICE_MAX_DURATION_SECONDS
+    }
+  },
+  {
+    _id: false
+  }
+);
+
 const reportSchema = new mongoose.Schema(
   {
     residentId: {
@@ -140,10 +180,26 @@ const reportSchema = new mongoose.Schema(
       ref: 'User',
       index: true
     },
+    clientOperationId: {
+      type: String,
+      trim: true,
+      maxlength: 200
+    },
+    communityReportClusterId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: false,
+      ref: 'CommunityReportCluster',
+      index: true
+    },
     hazardType: {
       type: String,
       required: true,
       enum: HAZARD_TYPES
+    },
+    otherHazardType: {
+      type: String,
+      trim: true,
+      maxlength: 80
     },
     description: {
       type: String,
@@ -165,6 +221,10 @@ const reportSchema = new mongoose.Schema(
       type: String,
       trim: true,
       maxlength: 500
+    },
+    voiceEvidence: {
+      type: voiceEvidenceSchema,
+      required: false
     },
     status: {
       type: String,
@@ -201,15 +261,18 @@ const reportSchema = new mongoose.Schema(
 );
 
 reportSchema.index({ location: '2dsphere' });
+reportSchema.index({ residentId: 1, clientOperationId: 1 }, { unique: true, sparse: true });
 
 export type ReportDocument = InferSchemaType<typeof reportSchema> & {
   _id: { toString(): string };
   residentId: { toString(): string };
+  communityReportClusterId?: { toString(): string };
   createdAt: Date;
   updatedAt: Date;
   verification?: {
     verifiedById: { toString(): string };
     verifiedAt: Date;
+    verificationNote?: string;
   };
   rejection?: {
     rejectedById: { toString(): string };
@@ -218,10 +281,12 @@ export type ReportDocument = InferSchemaType<typeof reportSchema> & {
   };
   cancelledById?: { toString(): string };
   cancelledAt?: Date;
+  voiceEvidence?: ReportVoiceEvidence;
   verificationHistory?: Array<{
     action: 'VERIFY' | 'REJECT';
     verifiedById?: { toString(): string };
     verifiedAt?: Date;
+    verificationNote?: string;
     rejectedById?: { toString(): string };
     rejectedAt?: Date;
     rejectionReason?: string;
@@ -236,7 +301,11 @@ export function toSafeReport(report: ReportDocument): SafeReport {
   const safeReport: SafeReport = {
     id: report._id.toString(),
     residentId: report.residentId.toString(),
+    ...(report.communityReportClusterId
+      ? { communityReportClusterId: report.communityReportClusterId.toString() }
+      : {}),
     hazardType: report.hazardType,
+    ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
     description: report.description,
     severity: report.severity,
     location: {
@@ -251,6 +320,9 @@ export function toSafeReport(report: ReportDocument): SafeReport {
   if (report.verification) {
     safeReport.verifiedById = report.verification.verifiedById.toString();
     safeReport.verifiedAt = report.verification.verifiedAt.toISOString();
+    if (report.verification.verificationNote) {
+      safeReport.verificationNote = report.verification.verificationNote;
+    }
   }
 
   if (report.rejection) {
@@ -271,7 +343,8 @@ export function toSafeReport(report: ReportDocument): SafeReport {
           {
             action: 'VERIFY',
             verifiedById: entry.verifiedById.toString(),
-            verifiedAt: entry.verifiedAt.toISOString()
+            verifiedAt: entry.verifiedAt.toISOString(),
+            ...(entry.verificationNote ? { verificationNote: entry.verificationNote } : {})
           }
         ];
       }
@@ -298,6 +371,14 @@ export function toSafeReport(report: ReportDocument): SafeReport {
 
   if (report.mediaReference) {
     safeReport.mediaReference = report.mediaReference;
+  }
+
+  if (report.voiceEvidence) {
+    safeReport.voiceEvidence = {
+      mediaReference: report.voiceEvidence.mediaReference,
+      contentType: report.voiceEvidence.contentType,
+      durationSeconds: report.voiceEvidence.durationSeconds
+    };
   }
 
   return safeReport;

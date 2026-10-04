@@ -6,6 +6,7 @@ import { ApiClientError } from '../../../services/api/client';
 import { useAuth } from '../hooks/useAuth';
 import { routeForRole } from '../utils/roleRoutes';
 import { authStyles } from './AuthStyles';
+import { BrandLogo } from '../components/BrandLogo';
 
 export function LoginScreen() {
   const router = useRouter();
@@ -42,9 +43,15 @@ export function LoginScreen() {
 
   return (
     <View style={authStyles.screen}>
+      <View style={authStyles.brandPanel}>
+        <BrandLogo size={48} />
+        <Text style={authStyles.brandName}>SafeAlert</Text>
+        <Text style={authStyles.brandTagline}>Know the risk. Act early.</Text>
+      </View>
       <View>
+        <Text style={authStyles.eyebrow}>WELCOME BACK</Text>
         <Text style={authStyles.title}>Sign in</Text>
-        <Text style={authStyles.subtitle}>Use your SafeAlert account to continue.</Text>
+        <Text style={authStyles.subtitle}>Stay connected to hazards, warnings, and help in your community.</Text>
       </View>
 
       <View style={authStyles.form}>

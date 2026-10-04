@@ -4,9 +4,20 @@ import {
   ActiveIncidentExistsError, type CreateIncidentInput, type IncidentRepository
 } from './incident.repository.js';
 import { haversineDistanceMeters } from '../../../shared/geo.js';
+import { geoJsonPointSchema } from '../../reports/validation/report.schemas.js';
 
 export class InMemoryIncidentRepository implements IncidentRepository {
   private readonly incidents = new Map<string, SafeIncident>();
+
+  async findActiveMapCandidates() {
+    return [...this.incidents.values()].filter(incident => incident.status === 'ACTIVE')
+      .sort((left, right) => left.id.localeCompare(right.id)).map(incident => {
+        const location = geoJsonPointSchema.safeParse(incident.location);
+        return { id: incident.id, hazardType: incident.hazardType, status: 'ACTIVE' as const,
+          location: location.success ? location.data : null,
+          reportCount: Array.isArray(incident.reportIds) ? incident.reportIds.length : 0 };
+      });
+  }
 
   /** Test-only fixture hook; production code should use create through IncidentService. */
   seedIncident(incident: SafeIncident) { this.incidents.set(incident.id, structuredClone(incident)); }
@@ -26,6 +37,12 @@ export class InMemoryIncidentRepository implements IncidentRepository {
 
   async findById(incidentId: string) {
     return structuredClone(this.incidents.get(incidentId) ?? null);
+  }
+
+  async findAll() {
+    return [...this.incidents.values()]
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id))
+      .map((incident) => structuredClone(incident));
   }
 
   async findActive() {

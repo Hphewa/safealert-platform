@@ -14,7 +14,7 @@ export function canManageResponderProgress(request: SafeResponseRequest | null, 
     typeof request.id === 'string' &&
     /^[a-f\d]{24}$/i.test(request.id) &&
     RESPONSE_STATUSES.some((status) => status === request.status) &&
-    request.status !== 'NEW' &&
+    request.status !== 'NEW' && request.status !== 'CANCELLED' &&
     user?.role === 'EMERGENCY_RESPONDER' &&
     user.id === request.assignedResponderId
   );
@@ -29,7 +29,7 @@ export function getResponderProgressAction(
   }
 
   const action = getResponseProgressAction(request.status);
-  if (!action || action.nextStatus === 'NEW' || action.nextStatus === 'ASSIGNED') {
+  if (!action || action.nextStatus === 'NEW' || action.nextStatus === 'ASSIGNED' || action.nextStatus === 'CANCELLED') {
     return null;
   }
 

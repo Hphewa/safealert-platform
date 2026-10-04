@@ -8,6 +8,7 @@ type VolunteerReportTabsProps = {
   tabs: ReadonlyArray<{
     key: VolunteerReportListKey;
     label: string;
+    description: string;
   }>;
   onChange: (tab: VolunteerReportListKey) => void;
 };
@@ -31,6 +32,7 @@ export function VolunteerReportTabs({ activeTab, tabs, onChange }: VolunteerRepo
             ]}
           >
             <Text style={[styles.tabLabel, isActive && styles.tabLabelActive]}>{tab.label}</Text>
+            {isActive ? <Text style={styles.tabDescription}>{tab.description}</Text> : null}
           </Pressable>
         );
       })}
@@ -51,7 +53,7 @@ const styles = StyleSheet.create({
   },
   tabButton: {
     flex: 1,
-    minHeight: 48,
+    minHeight: 58,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 14,
@@ -66,6 +68,13 @@ const styles = StyleSheet.create({
     color: dashboardTheme.colors.muted
   },
   tabLabelActive: {
+    color: dashboardTheme.colors.primaryStrong
+  },
+  tabDescription: {
+    marginTop: 3,
+    fontSize: 10,
+    lineHeight: 13,
+    textAlign: 'center',
     color: dashboardTheme.colors.primaryStrong
   },
   pressed: {

@@ -5,24 +5,38 @@ import type { RiskAssessmentFactors, SafeIncident, SafeReport } from '@safealert
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
+import { useRiskAssessmentDraft } from '../assessment-flow/riskAssessmentDraft';
+import { AssessmentFlowBackLink } from './AssessmentFlowBackLink';
+
+import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
+
 
 export const assessmentLabel = (value: string) => value.replace(/_/g, ' ');
 
-export function AssessmentPage({ title, children }: { title: string; children: ReactNode }) {
+export function AssessmentPage({ title, children, backToIncidentId }: { title: string; children: ReactNode; backToIncidentId?: string }) {
   const router = useRouter();
+  const { resetAssessmentDraft } = useRiskAssessmentDraft();
   const refresh = useMemo(() => Date.now().toString(), []);
   return <DashboardScreen bottomNavItems={officerBottomNavItems}>
-    <AssessmentButton label="Back to Assessments" secondary onPress={() => router.replace({ pathname: '/officer/assessments', params: { refresh } })} />
+    {backToIncidentId ? <AssessmentFlowBackLink label="Incident Overview" onPress={() => router.dismissTo({
+      pathname: '/officer/assessments/incident/[incidentId]', params: { incidentId: backToIncidentId }
+    })} /> : <AssessmentButton label="Back to Assessments" secondary onPress={() => {
+      resetAssessmentDraft();
+      router.replace({ pathname: '/officer/assessments', params: { refresh } });
+    }} />}
     <Text style={assessmentStyles.title}>{title}</Text>
     {children}
   </DashboardScreen>;
 }
-export function AssessmentButton({ label, onPress, disabled = false, secondary = false }: {
-  label: string; onPress: () => void; disabled?: boolean; secondary?: boolean;
+export function AssessmentButton({ label, onPress, disabled = false, secondary = false, success = false, back = false }: {
+  label: string; onPress: () => void; disabled?: boolean; secondary?: boolean; success?: boolean; back?: boolean;
 }) {
   return <Pressable accessibilityRole="button" accessibilityState={{ disabled }} disabled={disabled}
     onPress={onPress} style={({ pressed }) => [assessmentStyles.button,
-      secondary && assessmentStyles.secondaryButton, (disabled || pressed) && { opacity: 0.55 }]}>
+      secondary && assessmentStyles.secondaryButton, success && assessmentStyles.successButton,
+      back && { flexDirection: 'row', gap: 8 }, (disabled || pressed) && { opacity: 0.55 }
+    ]}>
+    {back ? <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.primaryStrong} size={20} /> : null}
     <Text style={[assessmentStyles.buttonText, secondary && { color: dashboardTheme.colors.primaryStrong }]}>{label}</Text>
   </Pressable>;
 }
@@ -49,7 +63,6 @@ export function ReportAssessmentContext({ report }: { report: SafeReport }) {
     <AssessmentDetail label="Description" value={report.description} />
     <AssessmentDetail label="Location (latitude, longitude)" value={`${report.location.coordinates[1]}, ${report.location.coordinates[0]}`} />
     <AssessmentDetail label="Report Status" value={report.status} />
-    <AssessmentDetail label="Report Reference" value={report.id} />
     {canShowImage && !imageFailed ? <Image accessibilityLabel="Resident evidence" source={{ uri: report.mediaReference }}
       onError={() => setImageFailed(true)} style={assessmentStyles.image} resizeMode="cover" /> : null}
     {report.mediaReference && (!canShowImage || imageFailed) ? <Text style={assessmentStyles.helper}>Resident evidence is not available for preview.</Text> : null}
@@ -78,16 +91,17 @@ export function AssessmentFactorSummary({ factors }: { factors: RiskAssessmentFa
     <AssessmentDetail label="Weather Condition" value={assessmentLabel(factors.weatherCondition)} />
   </View>;
 }
-export function AssessmentOptions<T extends string>({ label, options, value, onChange, disabled = false }: {
+export function AssessmentOptions<T extends string>({ label, options, value, onChange, disabled = false, optionLabels }: {
   label: string; options: readonly T[]; value: T; onChange: (value: T) => void; disabled?: boolean;
+  optionLabels?: Partial<Record<T, string>>;
 }) {
   return <View style={assessmentStyles.detail}>
     <Text style={assessmentStyles.label}>{label}</Text>
     <View style={assessmentStyles.options}>{options.map((option) => <Pressable key={option}
-      accessibilityRole="radio" accessibilityLabel={`${label}: ${assessmentLabel(option)}`}
+      accessibilityRole="radio" accessibilityLabel={`${label}: ${optionLabels?.[option] ?? assessmentLabel(option)}`}
       accessibilityState={{ checked: value === option, disabled }} disabled={disabled} onPress={() => onChange(option)}
       style={[assessmentStyles.option, value === option && assessmentStyles.selectedOption]}>
-      <Text style={[assessmentStyles.optionText, value === option && { color: dashboardTheme.colors.primaryStrong }]}>{assessmentLabel(option)}</Text>
+      <Text style={[assessmentStyles.optionText, value === option && { color: dashboardTheme.colors.primaryStrong }]}>{optionLabels?.[option] ?? assessmentLabel(option)}</Text>
     </Pressable>)}</View>
   </View>;
 }
@@ -104,6 +118,7 @@ export const assessmentStyles = StyleSheet.create({
   error: { fontSize: 14, lineHeight: 21, color: dashboardTheme.colors.critical },
   button: { minHeight: 48, padding: 14, borderRadius: dashboardTheme.radius.sm, backgroundColor: dashboardTheme.colors.primary, alignItems: 'center', justifyContent: 'center' },
   secondaryButton: { backgroundColor: dashboardTheme.colors.primarySoft },
+  successButton: { backgroundColor: dashboardTheme.colors.success },
   buttonText: { fontSize: 15, fontWeight: '700', color: '#ffffff' },
   options: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   option: { minHeight: 44, padding: 12, borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 12, justifyContent: 'center' },

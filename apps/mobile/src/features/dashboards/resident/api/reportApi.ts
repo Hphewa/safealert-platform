@@ -1,7 +1,6 @@
 import type {
   CreateReportRequest,
   CreateReportResponse,
-  CancelResidentReportResponse,
   GetResidentReportResponse,
   GetResidentFieldConfirmationsResponse,
   GetResidentReportsResponse,
@@ -11,10 +10,11 @@ import type {
 
 import { apiRequest } from '../../../../services/api/client';
 
-export function createResidentReport(input: CreateReportRequest, accessToken: string) {
+export function createResidentReport(input: CreateReportRequest, accessToken: string, clientOperationId?: string) {
   return apiRequest<CreateReportResponse>('/reports', {
     method: 'POST',
     accessToken,
+    ...(clientOperationId ? { idempotencyKey: clientOperationId } : {}),
     body: input
   });
 }
@@ -50,8 +50,8 @@ export function updateMyPendingReport(
 }
 
 export function cancelMyPendingReport(reportId: string, accessToken: string) {
-  return apiRequest<CancelResidentReportResponse>(`/reports/mine/${encodeURIComponent(reportId)}/cancel`, {
-    method: 'PATCH',
+  return apiRequest<unknown>(`/reports/mine/${encodeURIComponent(reportId)}`, {
+    method: 'DELETE',
     accessToken
   });
 }

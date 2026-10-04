@@ -20,10 +20,8 @@ export function EmergencyRequestSubmittedScreen() {
     : null;
 
   const trackRequest = () => {
-    router.push({
-      pathname: '/resident/reports',
-      params: submittedResponseRequest ? { requestId: submittedResponseRequest.id } : undefined
-    });
+    // Emergency assistance requests use a separate tracking flow from resident hazard reports.
+    router.push('/resident/my-emergency-requests');
   };
 
   return (
@@ -62,7 +60,14 @@ export function EmergencyRequestSubmittedScreen() {
           />
           <SubmittedDetail
             label="Coordinates"
-            value={`${submittedResponseRequest.location.coordinates[1].toFixed(6)}, ${submittedResponseRequest.location.coordinates[0].toFixed(6)}`}
+            value={
+              Array.isArray(submittedResponseRequest.location?.coordinates) &&
+              submittedResponseRequest.location.coordinates.length === 2 &&
+              Number.isFinite(submittedResponseRequest.location.coordinates[1]) &&
+              Number.isFinite(submittedResponseRequest.location.coordinates[0])
+                ? `${submittedResponseRequest.location.coordinates[1].toFixed(6)}, ${submittedResponseRequest.location.coordinates[0].toFixed(6)}`
+                : 'Not provided'
+            }
           />
         </View>
       ) : (
@@ -79,7 +84,7 @@ export function EmergencyRequestSubmittedScreen() {
         <Text style={styles.helperText}>
           {submittedResponseRequest
             ? `Confirmed by SafeAlert with backend status ${submittedResponseRequest.status}.`
-            : 'Track this request from the resident reports area once confirmed request data is available.'}
+            : 'Open My Emergency Requests to view your submitted emergency assistance requests.'}
         </Text>
       </View>
 

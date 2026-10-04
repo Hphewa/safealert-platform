@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
-import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, type ResponseStatus, type SafeResponseRequest } from '@safealert/contracts';
-import { responseProgressTimestampFields } from './responseRequest.repository.js';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_CANCELLABLE_STATUS, RESPONSE_EDITABLE_STATUS, type ResponseStatus, type SafeResponseRequest, type UpdateResponseRequestRequest } from '@safealert/contracts';
+import { residentEditableFields, responseProgressTimestampFields } from './responseRequest.repository.js';
 
 import type {
   CreateResponseRequestInput,
@@ -10,11 +10,12 @@ import type {
 
 export class InMemoryResponseRequestRepository implements ResponseRequestRepository {
   private readonly responseRequests = new Map<string, SafeResponseRequest>();
+  private readonly clientOperationIds = new Map<string, string>();
 
   async createResponseRequest(input: CreateResponseRequestInput): Promise<SafeResponseRequest> {
     const now = new Date().toISOString();
     const responseRequest: SafeResponseRequest = {
-      id: crypto.randomUUID(),
+      id: crypto.randomBytes(12).toString('hex'),
       residentId: input.residentId,
       assistanceType: input.assistanceType,
       location: input.location,
@@ -36,7 +37,34 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     }
 
     this.responseRequests.set(responseRequest.id, responseRequest);
+    if (input.clientOperationId) this.clientOperationIds.set(`${input.residentId}:${input.clientOperationId}`, responseRequest.id);
     return responseRequest;
+  }
+
+  async findResponseRequestByClientOperationId(residentId: string, clientOperationId: string) {
+    const id = this.clientOperationIds.get(`${residentId}:${clientOperationId}`);
+    return id ? this.responseRequests.get(id) ?? null : null;
+  }
+
+  async updateResidentResponseRequest(responseRequestId: string, residentId: string, input: UpdateResponseRequestRequest) {
+    const current = this.responseRequests.get(responseRequestId);
+    if (!current || current.residentId !== residentId || current.status !== RESPONSE_EDITABLE_STATUS) {
+      return null;
+    }
+    // No await between the predicate and replacement, matching the MongoDB write.
+    const fields = residentEditableFields(input);
+    const updated = { ...current, ...fields, updatedAt: new Date().toISOString() };
+    if (!fields.specialRequirements) delete updated.specialRequirements;
+    this.responseRequests.set(responseRequestId, updated);
+    return updated;
+  }
+
+  async findResponseRequestsByResidentId(residentId: string) {
+    return [...this.responseRequests.values()]
+      .filter((responseRequest) => responseRequest.residentId === residentId)
+      .sort((left, right) =>
+        right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      );
   }
 
   async findPendingResponseRequests(responderId: string) {
@@ -63,6 +91,15 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
       )
           // Keep ordering consistent with the production repository.
       .sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+  }
+
+  async findCompletedResponseRequests(responderId: string) {
+    return [...this.responseRequests.values()]
+      .filter((request) => request.assignedResponderId === responderId && request.status === 'COMPLETED')
+      .sort((left, right) =>
+        (right.completedAt ?? '').localeCompare(left.completedAt ?? '') ||
+        right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+      );
   }
 
   async acceptResponseRequest(responseRequestId: string, responderId: string) {
@@ -105,15 +142,75 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
     return updatedResponseRequest;
   }
 
+  async findResponseRequestForCancellation(responseRequestId: string) {
+    return this.responseRequests.get(responseRequestId) ?? null;
+  }
+
+  async cancelResponseRequest(responseRequestId: string, residentId: string) {
+    const responseRequest = this.responseRequests.get(responseRequestId);
+    if (!responseRequest || responseRequest.residentId !== residentId || responseRequest.status !== RESPONSE_CANCELLABLE_STATUS) {
+      return null;
+    }
+
+    // No await between checking and replacing: mirror the conditional MongoDB write.
+    const cancelledAt = new Date().toISOString();
+    const updatedRequest: SafeResponseRequest = {
+      ...responseRequest,
+      status: 'CANCELLED',
+      cancelledAt,
+      updatedAt: cancelledAt
+    };
+    this.responseRequests.set(responseRequestId, updatedRequest);
+    return updatedRequest;
+  }
+
   async findResponseRequestForProgress(responseRequestId: string) {
     return this.responseRequests.get(responseRequestId) ?? null;
   }
 
+  // LDFEW-266 / LDFEW-350 / LDFEW-354: In-memory simulation of atomic responder field update.
+  // Generates server-side timestamp occurredAt (ISO string) mirroring MongoDB new Date().
+  // Checks assignedResponderId and active assigned statuses synchronously to mirror Mongoose findOneAndUpdate.
+  async updateResponseRequestFieldUpdate(
+    responseRequestId: string,
+    responderId: string,
+    fieldNotes: string
+  ) {
+    const responseRequest = this.responseRequests.get(responseRequestId);
+
+    // Enforce responder assignment and active assigned statuses
+    if (
+      !responseRequest ||
+      responseRequest.assignedResponderId !== responderId ||
+      !RESPONSE_ACTIVE_ASSIGNED_STATUSES.some((status) => status === responseRequest.status)
+    ) {
+      return null;
+    }
+
+    const occurredAt = new Date().toISOString();
+    const updatedRequest: SafeResponseRequest = {
+      ...responseRequest,
+      fieldNotes: fieldNotes.trim(),
+      fieldUpdatedAt: occurredAt,
+      updatedAt: occurredAt
+    };
+    this.responseRequests.set(responseRequestId, updatedRequest);
+    return updatedRequest;
+  }
+
+  // LDFEW-121 / LDFEW-266 / LDFEW-354: In-memory simulation of atomic progress transition and timestamp persistence.
+  // Generates server-side timestamp occurredAt (ISO string) for the next stage (including completedAt for COMPLETED),
+  // persisting completion details and completedAt atomically.
   async updateResponseRequestProgress(
     responseRequestId: string,
     responderId: string,
     currentStatus: ResponseStatus,
-    nextStatus: ResponseStatus
+    nextStatus: ResponseStatus,
+    completionDetails?: {
+      assistanceProvided: string;
+      completionSummary: string;
+      responderRemarks?: string;
+    }
   ) {
     const responseRequest = this.responseRequests.get(responseRequestId);
     const timestampField = responseProgressTimestampFields[nextStatus];
@@ -132,6 +229,12 @@ export class InMemoryResponseRequestRepository implements ResponseRequestReposit
       ...responseRequest,
       status: nextStatus,
       [timestampField]: occurredAt,
+      // LDFEW-266 / LDFEW-354: Persist validated completion details alongside completedAt server timestamp
+      ...(nextStatus === 'COMPLETED' && completionDetails ? {
+        assistanceProvided: completionDetails.assistanceProvided.trim(),
+        completionSummary: completionDetails.completionSummary.trim(),
+        ...(completionDetails.responderRemarks?.trim() ? { responderRemarks: completionDetails.responderRemarks.trim() } : {})
+      } : {}),
       updatedAt: occurredAt
     };
     this.responseRequests.set(responseRequestId, updatedRequest);

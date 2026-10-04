@@ -1,12 +1,15 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
+import { EMERGENCY_CONTACT_PHONE_MESSAGE, sanitizeEmergencyContactPhoneInput } from '@safealert/contracts';
 import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
-import { captureCurrentLocation, formatCoordinate } from '../../shared/currentLocation';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
+import { captureCurrentLocation } from '../../shared/currentLocation';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { CounterField } from '../components/CounterField';
 import { SelectableCard } from '../components/SelectableCard';
@@ -45,6 +48,7 @@ export function EmergencyAssistanceScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { draft, setDraft, validation } = useEmergencyAssistanceDraft();
+  const [phoneTouched, setPhoneTouched] = useState(false);
   const canReviewRequest = validation.isValid;
   const isDetectingLocation =
     draft.location.status === 'REQUESTING_PERMISSION' || draft.location.status === 'LOCATING';
@@ -63,12 +67,14 @@ export function EmergencyAssistanceScreen() {
         ...current.contactDetails,
         name: user.name,
         email: user.email,
+        phoneNumber: sanitizeEmergencyContactPhoneInput(current.contactDetails.phoneNumber),
         usesAuthenticatedProfile: true
       };
 
       if (
         current.contactDetails.name === nextContactDetails.name &&
         current.contactDetails.email === nextContactDetails.email &&
+        current.contactDetails.phoneNumber === nextContactDetails.phoneNumber &&
         current.contactDetails.usesAuthenticatedProfile === nextContactDetails.usesAuthenticatedProfile
       ) {
         return current;
@@ -93,10 +99,7 @@ export function EmergencyAssistanceScreen() {
     setDraft((current) => ({
       ...current,
       affectedPeopleCount,
-      medicalNeeds: {
-        ...current.medicalNeeds,
-        injuredCount: Math.min(current.medicalNeeds.injuredCount, affectedPeopleCount)
-      },
+      // Preserve reported counts when the total drops; validation explains what to correct.
       reviewRequestedAt: null
     }));
   };
@@ -176,23 +179,14 @@ export function EmergencyAssistanceScreen() {
   };
 
   const setContactPhoneNumber = (phoneNumber: string) => {
+    setPhoneTouched(true);
     setDraft((current) => ({
       ...current,
       contactDetails: {
         ...current.contactDetails,
-        phoneNumber
+        phoneNumber: sanitizeEmergencyContactPhoneInput(phoneNumber)
       },
       reviewRequestedAt: null
-    }));
-  };
-
-  const trimContactPhoneNumber = () => {
-    setDraft((current) => ({
-      ...current,
-      contactDetails: {
-        ...current.contactDetails,
-        phoneNumber: current.contactDetails.phoneNumber.trim()
-      }
     }));
   };
 
@@ -269,6 +263,7 @@ export function EmergencyAssistanceScreen() {
   };
 
   const queueReview = () => {
+    setPhoneTouched(true);
     if (!canReviewRequest) {
       return;
     }
@@ -286,7 +281,7 @@ export function EmergencyAssistanceScreen() {
         <Pressable
           accessibilityLabel="Go back"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => goBackSafely(router, '/resident')}
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -301,6 +296,14 @@ export function EmergencyAssistanceScreen() {
           This request form is ready for the resident flow now, with GPS and review handoff kept prepared for the next implementation step.
         </Text>
       </View>
+
+      <Pressable
+        accessibilityRole="button"
+        onPress={() => router.push('/resident/my-emergency-requests')}
+        style={({ pressed }) => [styles.secondaryActionButton, pressed && styles.pressed]}
+      >
+        <Text style={styles.secondaryActionButtonText}>My Emergency Requests</Text>
+      </Pressable>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Assistance Type</Text>
@@ -342,8 +345,10 @@ export function EmergencyAssistanceScreen() {
               <View style={styles.detectedLocation}>
                 <Text style={styles.detectedText}>Detected current location</Text>
                 <Text style={styles.coordinateText}>
-                  Lat {formatCoordinate(draft.location.latitude)}, Long{' '}
-                  {formatCoordinate(draft.location.longitude)}
+                  <HumanReadableLocation
+                    location={{ type: 'Point', coordinates: [draft.location.longitude, draft.location.latitude] }}
+                    style={styles.coordinateText}
+                  />
                 </Text>
                 <Text style={styles.helperNote}>Saved for response requests as [longitude, latitude].</Text>
                 <Text style={styles.helperNote}>
@@ -535,15 +540,18 @@ export function EmergencyAssistanceScreen() {
         </View>
         <TextInput
           accessibilityLabel="Contact phone number"
-          keyboardType="phone-pad"
-          onBlur={trimContactPhoneNumber}
+          keyboardType="number-pad"
+          inputMode="numeric"
+          autoCorrect={false}
+          onBlur={() => setPhoneTouched(true)}
+          accessibilityHint="Enter exactly 10 digits, without spaces or symbols."
           onChangeText={setContactPhoneNumber}
           placeholder="Enter a response contact phone number."
           placeholderTextColor={dashboardTheme.colors.muted}
           style={styles.contactInput}
           value={draft.contactDetails.phoneNumber}
         />
-        <ValidationMessage message={validation.errors.contactDetails} />
+        <ValidationMessage message={phoneTouched || validation.errors.contactDetails !== EMERGENCY_CONTACT_PHONE_MESSAGE ? validation.errors.contactDetails : undefined} />
       </View>
 
       <View style={styles.section}>

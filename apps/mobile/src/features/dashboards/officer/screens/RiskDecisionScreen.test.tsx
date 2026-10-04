@@ -19,6 +19,7 @@ vi.mock('react-native', () => ({
   StyleSheet: { create: (styles: unknown) => styles }
 }));
 vi.mock('expo-router', () => ({ useRouter: () => ({}) }));
+vi.mock('../assessment-flow/riskAssessmentDraft', () => ({ useRiskAssessmentDraft: () => ({}) }));
 vi.mock('../../shared/components/DashboardScreen', () => ({ DashboardScreen: ({ children }: { children?: ReactNode }) => <main>{children}</main> }));
 vi.mock('../../shared/components/PriorityBadge', () => ({ PriorityBadge: ({ priority }: { priority: string }) => <span>{priority}</span> }));
 
@@ -32,7 +33,7 @@ it('lets the officer override the recommendation and save only with a valid reas
   let reason = '';
   const save = vi.fn();
   const render = () => renderToStaticMarkup(<RiskDecisionScreen factors={factors}
-    calculation={{ calculatedScore: 23, systemSuggestedRisk: 'HIGH' }} finalRisk={finalRisk} reason={reason}
+    calculation={{ calculatedScore: 23, systemSuggestedRisk: 'HIGH', factorContributions: [], calculationVersion: 'risk-v1' }} finalRisk={finalRisk} reason={reason}
     saving={false} onFinalRisk={(value) => { finalRisk = value; }} onReason={(value) => { reason = value; }} onEdit={() => {}} onSave={save} />);
 
   render();
@@ -51,8 +52,21 @@ it('lets the officer override the recommendation and save only with a valid reas
 
 it('shows the recommendation and editable decision before the long factor summary', () => {
   const markup = renderToStaticMarkup(<RiskDecisionScreen factors={factors}
-    calculation={{ calculatedScore: 23, systemSuggestedRisk: 'HIGH' }} finalRisk="HIGH" reason=""
+    calculation={{ calculatedScore: 23, systemSuggestedRisk: 'HIGH', factorContributions: [], calculationVersion: 'risk-v1' }} finalRisk="HIGH" reason=""
     saving={false} onFinalRisk={() => {}} onReason={() => {}} onEdit={() => {}} onSave={() => {}} />);
   expect(markup.indexOf('System suggested risk')).toBeLessThan(markup.indexOf('Final officer decision'));
   expect(markup.indexOf('SAVE ASSESSMENT')).toBeLessThan(markup.indexOf('Assessment factors'));
+});
+
+it('compares the previous decision with the new suggestion and labels reassessment save', () => {
+  const markup = renderToStaticMarkup(<RiskDecisionScreen factors={factors}
+    calculation={{ calculatedScore: 27, systemSuggestedRisk: 'CRITICAL', factorContributions: [], calculationVersion: 'risk-v1' }} finalRisk="CRITICAL" reason=""
+    saving={false} onFinalRisk={() => {}} onReason={() => {}} onEdit={() => {}} onSave={() => {}}
+    previousAssessment={{ finalRiskLevel: 'HIGH', calculatedScore: 18 }} saveLabel="SAVE REASSESSMENT" />);
+
+  expect(markup).toContain('Previous Risk');
+  expect(markup).toContain('Calculated Score: 18');
+  expect(markup).toContain('New System Suggestion');
+  expect(markup).toContain('CRITICAL');
+  expect(markup).toContain('SAVE REASSESSMENT');
 });

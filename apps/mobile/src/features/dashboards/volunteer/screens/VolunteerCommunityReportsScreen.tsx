@@ -5,6 +5,7 @@ import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
@@ -17,6 +18,7 @@ import { VolunteerStateCard } from '../components/VolunteerStateCard';
 import { VolunteerReportTabs } from '../components/VolunteerReportTabs';
 import {
   mapCommunityReportToVolunteerReport,
+  resolveVolunteerReportLocation,
   volunteerCommunityReportTabs,
   type VolunteerCommunityReport,
   type VolunteerReportListKey
@@ -35,7 +37,9 @@ type VolunteerReportsErrorKind =
 export function VolunteerCommunityReportsScreen() {
   const router = useRouter();
   const { accessToken } = useAuth();
-  const [activeTab, setActiveTab] = useState<VolunteerReportListKey>('nearby');
+  // Open the complete incoming queue first. Near Me is an optional 10 km location filter;
+  // making it the default can make a valid resident report appear to be missing.
+  const [activeTab, setActiveTab] = useState<VolunteerReportListKey>('incoming');
   const [reports, setReports] = useState<VolunteerCommunityReport[]>([]);
   const [loadStatus, setLoadStatus] = useState<LoadStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -92,7 +96,7 @@ export function VolunteerCommunityReportsScreen() {
           const latitude = currentLocation.coords.latitude;
           const longitude = currentLocation.coords.longitude;
 
-          setLocationSummary(`Using your current location within ${nearbyRadiusKm} km.`);
+          setLocationSummary(`Near Me shows eligible reports within ${nearbyRadiusKm} km of your current location.`);
 
           const response = await listCommunityReports({
             mode: 'nearby',
@@ -106,9 +110,9 @@ export function VolunteerCommunityReportsScreen() {
             return;
           }
 
-          setReports(response.reports.map(mapCommunityReportToVolunteerReport));
+          setReports(await resolveLocationNames(response.reports.map(mapCommunityReportToVolunteerReport)));
         } else {
-          setLocationSummary('Showing newest eligible community reports.');
+          setLocationSummary('New Reports shows eligible reports you have not reviewed, newest first.');
 
           const response = await listCommunityReports({
             mode: 'incoming',
@@ -119,7 +123,7 @@ export function VolunteerCommunityReportsScreen() {
             return;
           }
 
-          setReports(response.reports.map(mapCommunityReportToVolunteerReport));
+          setReports(await resolveLocationNames(response.reports.map(mapCommunityReportToVolunteerReport)));
         }
 
         setLoadStatus('success');
@@ -132,13 +136,13 @@ export function VolunteerCommunityReportsScreen() {
         setLoadStatus('error');
         if (error instanceof ApiClientError) {
           setErrorKind(error.status === 0 ? 'network' : 'api');
-          setErrorMessage(error.message);
+          setErrorMessage('Community reports could not be loaded.');
         } else if (error instanceof Error) {
           setErrorKind('location-unavailable');
           setErrorMessage('We could not determine your current location. Check GPS/location services and try again.');
         } else {
           setErrorKind('api');
-          setErrorMessage('Unable to load community reports right now.');
+          setErrorMessage('Community reports could not be loaded.');
         }
       } finally {
         if (latestRequestIdRef.current === requestId && inFlightTabRef.current === tab) {
@@ -163,7 +167,7 @@ export function VolunteerCommunityReportsScreen() {
   const summaryText =
     errorMessage ??
     locationSummary ??
-    (isNearby ? 'Nearby reports use your current device location.' : 'Incoming reports are ordered newest first.');
+    (isNearby ? 'Near Me uses your current device location.' : 'New Reports are ordered newest first.');
   const showInitialLoading = loadStatus === 'loading' && reports.length === 0;
   const showStateCard = (loadStatus === 'error' || loadStatus === 'success') && reports.length === 0;
 
@@ -184,9 +188,9 @@ export function VolunteerCommunityReportsScreen() {
                 icon="refresh-outline"
                 loading
                 message={
-                  isNearby ? 'Retrieving nearby community reports for your current location.' : 'Retrieving the newest community reports.'
+                  isNearby ? 'Finding eligible reports near your current location.' : 'Finding the latest eligible reports.'
                 }
-                title={isNearby ? 'Loading Nearby Reports' : 'Loading Incoming Reports'}
+                title={isNearby ? 'Loading Near Me Reports' : 'Loading New Reports'}
               />
             ) : showStateCard ? (
               <VolunteerReportsEmptyOrErrorState
@@ -203,7 +207,7 @@ export function VolunteerCommunityReportsScreen() {
                 <Pressable
                   accessibilityLabel="Go back"
                   accessibilityRole="button"
-                  onPress={() => router.back()}
+                  onPress={() => goBackSafely(router, '/volunteer')}
                   style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
                 >
                   <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -230,7 +234,7 @@ export function VolunteerCommunityReportsScreen() {
               </View>
 
               <Text style={styles.description}>
-                Review nearby community submissions and incoming items awaiting volunteer attention.
+                Find reports that need a volunteer field check. Choose Near Me for nearby work or New Reports for the latest queue.
               </Text>
               <Text style={[styles.refreshSummary, errorMessage ? styles.errorText : null]}>{summaryText}</Text>
 
@@ -262,6 +266,10 @@ export function VolunteerCommunityReportsScreen() {
   );
 }
 
+async function resolveLocationNames(reports: VolunteerCommunityReport[]) {
+  return Promise.all(reports.map(resolveVolunteerReportLocation));
+}
+
 type VolunteerReportsEmptyOrErrorStateProps = {
   activeTab: VolunteerReportListKey;
   errorKind: VolunteerReportsErrorKind | null;
@@ -282,7 +290,7 @@ function VolunteerReportsEmptyOrErrorState({
           <VolunteerStateCard
             actionLabel="Allow Location"
             icon="locate-outline"
-            message="Location is needed for Nearby reports. Grant permission to find reports requiring field confirmation near you."
+      message="Location is needed for Near Me. Grant permission to find reports requiring field confirmation near you."
             onActionPress={onRetry}
             title="Location Permission Needed"
           />
@@ -304,7 +312,7 @@ function VolunteerReportsEmptyOrErrorState({
           <VolunteerStateCard
             actionLabel="Retry"
             icon="alert-circle-outline"
-            message={errorMessage ?? 'Unable to load volunteer community reports right now.'}
+            message={errorMessage ?? 'Community reports could not be loaded.'}
             onActionPress={onRetry}
             title="Unable to Load Reports"
           />
@@ -315,14 +323,14 @@ function VolunteerReportsEmptyOrErrorState({
   return activeTab === 'nearby' ? (
     <VolunteerStateCard
       icon="locate-outline"
-      message="No nearby reports requiring confirmation."
-      title="No Nearby Reports"
+      message="No community reports need your attention nearby."
+      title="No Reports Near You"
     />
   ) : (
     <VolunteerStateCard
       icon="time-outline"
-      message="No new community reports right now."
-      title="No Incoming Reports"
+      message="No new community reports need your field check right now."
+      title="No New Reports"
     />
   );
 }

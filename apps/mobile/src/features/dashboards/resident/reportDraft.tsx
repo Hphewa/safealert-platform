@@ -2,12 +2,23 @@ import type { SafeReport } from '@safealert/contracts';
 import {
   createContext,
   useContext,
+  useCallback,
   useMemo,
+  useEffect,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
   type SetStateAction
 } from 'react';
+
+import type { LocalVoiceEvidence } from '../shared/voice/voiceEvidence';
+import { useAuth } from '../../auth/hooks/useAuth';
+import {
+  clearPersistedReportDraft,
+  readPersistedReportDraft,
+  writePersistedReportDraft
+} from './offlineReportQueue';
 
 export type HazardType = 'FLOOD' | 'BLOCKED_ROAD' | 'LANDSLIDE' | 'OTHER';
 export type HazardSeverity = 'LOW' | 'MODERATE' | 'HIGH';
@@ -68,16 +79,30 @@ export type PhotoEvidenceState =
       message: string;
     };
 
+export type VoiceEvidenceState =
+  | {
+      status: 'EMPTY';
+      selected: null;
+      message: string | null;
+    }
+  | {
+      status: 'LOCAL_SELECTED';
+      selected: LocalVoiceEvidence;
+      message: string;
+    };
+
 export type ReportHazardDraft = {
   hazardType: HazardType | null;
+  otherHazardType?: string;
   location: ReportLocationState;
   photoEvidence: PhotoEvidenceState;
+  voiceEvidence: VoiceEvidenceState;
   severity: HazardSeverity | null;
   description: string;
 };
 
 export type ReportHazardValidationErrors = Partial<
-  Record<'hazardType' | 'location' | 'severity' | 'description', string>
+  Record<'hazardType' | 'otherHazardType' | 'location' | 'severity' | 'description', string>
 >;
 
 export type ReportHazardValidationResult = {
@@ -90,6 +115,7 @@ type ReportHazardDraftContextValue = {
   setDraft: Dispatch<SetStateAction<ReportHazardDraft>>;
   resetDraft: () => void;
   validation: ReportHazardValidationResult;
+  hasDraft: boolean;
   submittedReport: SafeReport | null;
   setSubmittedReport: Dispatch<SetStateAction<SafeReport | null>>;
 };
@@ -108,12 +134,13 @@ export const hazardTypeLabels: Record<HazardType, string> = {
 
 export const severityLabels: Record<HazardSeverity, string> = {
   LOW: 'Low',
-  MODERATE: 'Moderate',
+  MODERATE: 'Medium',
   HIGH: 'High'
 };
 
 const initialReportHazardDraft: ReportHazardDraft = {
   hazardType: null,
+  otherHazardType: '',
   location: {
     status: 'REQUESTING_PERMISSION',
     latitude: null,
@@ -125,25 +152,86 @@ const initialReportHazardDraft: ReportHazardDraft = {
     selected: null,
     message: null
   },
+  voiceEvidence: {
+    status: 'EMPTY',
+    selected: null,
+    message: null
+  },
   severity: null,
   description: ''
 };
 
+export function isEmptyReportDraft(draft: ReportHazardDraft) {
+  return !hasReportHazardDraft(draft);
+}
+
+export function hasReportHazardDraft(draft: ReportHazardDraft) {
+  return Boolean(
+    draft.hazardType ||
+      draft.otherHazardType?.trim() ||
+      draft.severity ||
+      draft.description.trim() ||
+      draft.photoEvidence.status !== 'EMPTY' ||
+      draft.voiceEvidence.status !== 'EMPTY'
+  );
+}
+
 export function ReportHazardDraftProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [draft, setDraft] = useState<ReportHazardDraft>(initialReportHazardDraft);
   const [submittedReport, setSubmittedReport] = useState<SafeReport | null>(null);
+  const [storageReady, setStorageReady] = useState(false);
+  const draftLoadRequest = useRef(0);
   const validation = useMemo(() => validateReportHazardDraft(draft), [draft]);
-  const resetDraft = () => setDraft(initialReportHazardDraft);
+  const resetDraft = useCallback(() => {
+    draftLoadRequest.current += 1;
+    setDraft(initialReportHazardDraft);
+    if (user?.id) void clearPersistedReportDraft(user.id);
+  }, [user?.id]);
+
+  useEffect(() => {
+    let active = true;
+    const loadRequest = ++draftLoadRequest.current;
+    setStorageReady(false);
+
+    if (!user?.id) {
+      setDraft(initialReportHazardDraft);
+      setStorageReady(true);
+      return () => {
+        active = false;
+      };
+    }
+
+    void readPersistedReportDraft(user.id)
+      .then((storedDraft) => {
+        if (active && loadRequest === draftLoadRequest.current && storedDraft) setDraft(storedDraft);
+      })
+      .finally(() => {
+        if (active) setStorageReady(true);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (storageReady && user?.id) {
+      void writePersistedReportDraft(user.id, draft);
+    }
+  }, [draft, storageReady, user?.id]);
+  const hasDraft = storageReady && hasReportHazardDraft(draft);
   const value = useMemo(
     () => ({
       draft,
       setDraft,
       resetDraft,
       validation,
+      hasDraft,
       submittedReport,
       setSubmittedReport
     }),
-    [draft, submittedReport, validation]
+    [draft, hasDraft, resetDraft, submittedReport, validation]
   );
 
   return (
@@ -167,6 +255,10 @@ export function validateReportHazardDraft(draft: ReportHazardDraft): ReportHazar
 
   if (!draft.hazardType) {
     errors.hazardType = 'Select a hazard type.';
+  }
+
+  if (draft.hazardType === 'OTHER' && (draft.otherHazardType ?? '').trim().length < 2) {
+    errors.otherHazardType = 'Tell us what type of hazard this is.';
   }
 
   if (draft.location.status !== 'DETECTED') {

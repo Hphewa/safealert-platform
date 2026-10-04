@@ -9,7 +9,8 @@ import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
 import { listVerifiedOfficerReports } from '../api/officerReportsApi';
 import { useAssessmentResource } from '../hooks/useAssessmentResource';
-import { formatIncidentLocation, incidentGroupingErrorMessage } from '../incidentGrouping';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
+import { incidentGroupingErrorMessage } from '../incidentGrouping';
 
 export function OfficerIncidentReportsScreen() {
   const router = useRouter();
@@ -72,7 +73,7 @@ export function OfficerIncidentReportsScreen() {
                 </View>
               </View>
               <Text style={styles.cardBody} numberOfLines={2}>{report.description}</Text>
-              <Text style={styles.detail}>Location: {formatIncidentLocation(report.location)}</Text>
+              <View style={styles.locationRow}><Text style={styles.detail}>Location: </Text><HumanReadableLocation location={report.location} style={styles.detail} /></View>
               <ActionButton
                 label="CHECK RELATED INCIDENTS"
                 onPress={() => router.push({ pathname: '/officer/incidents/group', params: { reportId: report.id } })}
@@ -96,6 +97,7 @@ function ActionButton({ label, onPress }: { label: string; onPress: () => void }
 }
 
 const styles = StyleSheet.create({
+  locationRow: { flexDirection: 'row', flexWrap: 'wrap' },
   content: { gap: 16 },
   headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   iconButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: dashboardTheme.colors.border, borderRadius: 22, backgroundColor: dashboardTheme.colors.surface },

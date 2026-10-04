@@ -1,20 +1,29 @@
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import type { StyleProp, ViewStyle } from 'react-native';
+import type { SafeWarning } from '@safealert/contracts';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
-import { AssessmentButton, assessmentStyles } from './RiskAssessmentComponents';
+import { assessmentStyles } from './RiskAssessmentComponents';
+import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 
-export function WarningPage({ title, reviewing = false, busy = false, onBack, children }: {
-  title: string; reviewing?: boolean; busy?: boolean; onBack: () => void; children: ReactNode;
+export function WarningPage({ title, reviewing = false, published = false, status, busy = false, onBack, children, contentContainerStyle }: {
+  title: string; reviewing?: boolean; published?: boolean; status?: SafeWarning['status']; busy?: boolean; onBack: () => void; children: ReactNode;
+  contentContainerStyle?: StyleProp<ViewStyle>;
 }) {
+  const lifecycleLabel = status ?? (published ? 'PUBLISHED' : 'DRAFT');
   return <KeyboardAvoidingView style={warningStyles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-    <DashboardScreen bottomNavItems={officerBottomNavItems}>
-      <AssessmentButton label="Back to Assessment" secondary disabled={busy} onPress={onBack} />
+    <DashboardScreen bottomNavItems={officerBottomNavItems} contentContainerStyle={contentContainerStyle}>
+      <View style={warningStyles.headerRow}>
+        <Pressable accessibilityLabel="Go back" accessibilityRole="button" disabled={busy} onPress={onBack} style={({ pressed }) => [warningStyles.backButton, pressed && warningStyles.pressed]}>
+          <DashboardGlyph name="arrow-back" color={dashboardTheme.colors.text} size={22} />
+        </Pressable>
       <View style={warningStyles.header}>
-        <Text style={warningStyles.eyebrow}>EARLY WARNING · DRAFT</Text>
+        <Text style={warningStyles.eyebrow}>EARLY WARNING · {lifecycleLabel}</Text>
         <Text accessibilityRole="header" style={assessmentStyles.title}>{title}</Text>
         <Text style={assessmentStyles.helper}>Prepare clear safety information from the saved risk assessment.</Text>
+      </View>
       </View>
       <View style={warningStyles.steps} accessibilityRole="tablist">
         {['Warning details', 'Review warning'].map((label, index) => <View key={label}
@@ -31,7 +40,10 @@ export function WarningPage({ title, reviewing = false, busy = false, onBack, ch
 
 export const warningStyles = StyleSheet.create({
   container: { flex: 1 },
+  headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
   header: { gap: 8 },
+  backButton: { width: 44, height: 44, marginTop: 2, alignItems: 'center', justifyContent: 'center', borderRadius: 22, borderWidth: 1, borderColor: dashboardTheme.colors.border, backgroundColor: dashboardTheme.colors.surface },
+  pressed: { opacity: 0.72 },
   eyebrow: { color: dashboardTheme.colors.primaryStrong, fontSize: 12, fontWeight: '800', letterSpacing: 1 },
   steps: { flexDirection: 'row', gap: 12, padding: 5, borderRadius: 18, backgroundColor: '#eef2f7', borderWidth: 1, borderColor: dashboardTheme.colors.border },
   step: { flex: 1, minHeight: 48, paddingHorizontal: 14, borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 9 },

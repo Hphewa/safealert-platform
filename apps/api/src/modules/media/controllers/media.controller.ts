@@ -41,7 +41,7 @@ async function readRequestBody(request: Request, maxBodySizeBytes: number) {
     receivedBytes += buffer.length;
 
     if (receivedBytes > maxBodySizeBytes) {
-      throw new ApiError(413, 'MEDIA_FILE_TOO_LARGE', 'Image must be 5 MB or smaller.');
+      throw new ApiError(413, 'MEDIA_FILE_TOO_LARGE', 'Evidence file is too large.');
     }
 
     chunks.push(buffer);

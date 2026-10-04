@@ -1,11 +1,16 @@
 import type {
-  CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CreateRiskAssessmentRequest,
-  RiskAssessmentForIncidentResponse, RiskAssessmentResponse, SafeIncident, SafeReport
+  CalculateRiskAssessmentRequest, CalculateRiskAssessmentResponse, CloseRiskAssessmentRequest, CloseRiskAssessmentResponse,
+  CreateRiskAssessmentRequest, DeleteRiskAssessmentRequest, DeleteRiskAssessmentResponse,
+  ReassessRiskAssessmentRequest, RiskAssessmentForIncidentResponse, RiskAssessmentHistoryResponse, RiskAssessmentResponse,
+  SafeIncident, SafeReport
 } from '@safealert/contracts';
 import { ApiError } from '../../../shared/apiError.js';
 import type { IncidentRepository } from '../../incidents/repositories/incident.repository.js';
 import type { ReportRepository } from '../../reports/repositories/report.repository.js';
-import { ActiveRiskAssessmentExistsError, type RiskAssessmentRepository } from '../repositories/riskAssessment.repository.js';
+import {
+  ActiveRiskAssessmentExistsError, RiskAssessmentReassessmentConflictError,
+  type RiskAssessmentRepository
+} from '../repositories/riskAssessment.repository.js';
 import { calculateRisk } from './riskCalculation.service.js';
 
 export class RiskAssessmentService {
@@ -27,14 +32,15 @@ export class RiskAssessmentService {
   async calculate(input: CalculateRiskAssessmentRequest): Promise<CalculateRiskAssessmentResponse> {
     const { incident } = await this.getIncidentWithReports(input.incidentId, true);
     const result = calculateRisk(input, incident.hazardType);
-    return { calculatedScore: result.score, systemSuggestedRisk: result.suggestedRisk };
+    return { calculatedScore: result.score, systemSuggestedRisk: result.suggestedRisk,
+      factorContributions: result.factorContributions, calculationVersion: result.calculationVersion };
   }
 
   async create(officerId: string, input: CreateRiskAssessmentRequest): Promise<RiskAssessmentResponse> {
     const context = await this.getIncidentWithReports(input.incidentId, true);
     const conflict = () => new ApiError(409, 'ACTIVE_ASSESSMENT_EXISTS', 'An active risk assessment already exists for this incident.');
     if (await this.repository.findActiveByIncidentId(context.incident.id)) throw conflict();
-    const { score, suggestedRisk } = calculateRisk(input, context.incident.hazardType);
+    const { score, suggestedRisk, factorContributions, calculationVersion } = calculateRisk(input, context.incident.hazardType);
     if (input.finalRiskLevel !== suggestedRisk && !input.decisionReason?.trim()) throw new ApiError(400, 'DECISION_REASON_REQUIRED', 'A decision reason is required when overriding suggested risk.');
     try {
       const assessment = await this.repository.create({
@@ -43,7 +49,8 @@ export class RiskAssessmentService {
         roadAccessibility: input.roadAccessibility, infrastructureImpact: input.infrastructureImpact,
         waterLevelTrend: input.waterLevelTrend, weatherCondition: input.weatherCondition,
         finalRiskLevel: input.finalRiskLevel, ...(input.decisionReason ? { decisionReason: input.decisionReason.trim() } : {}),
-        calculatedScore: score, systemSuggestedRisk: suggestedRisk, assessedById: officerId, status: 'ACTIVE', assessedAt: new Date().toISOString()
+        calculatedScore: score, systemSuggestedRisk: suggestedRisk, factorContributions, calculationVersion,
+        assessedById: officerId, status: 'ACTIVE', assessedAt: new Date().toISOString()
       });
       return { assessment, incident: context.incident, reports: context.reports };
     } catch (error) { if (error instanceof ActiveRiskAssessmentExistsError) throw conflict(); throw error; }
@@ -58,5 +65,81 @@ export class RiskAssessmentService {
   async getForIncident(incidentId: string): Promise<RiskAssessmentForIncidentResponse> {
     const context = await this.getIncidentWithReports(incidentId);
     return { ...context, assessment: await this.repository.findActiveByIncidentId(incidentId) };
+  }
+
+  async reassess(officerId: string, assessmentId: string, input: ReassessRiskAssessmentRequest): Promise<RiskAssessmentResponse> {
+    const current = await this.repository.findById(assessmentId);
+    if (!current) throw new ApiError(404, 'ASSESSMENT_NOT_FOUND', 'Risk assessment not found.');
+    const inactiveConflict = () => new ApiError(409, 'ASSESSMENT_NOT_ACTIVE', 'This assessment is no longer active. Refresh to view the latest assessment.');
+    if (current.status !== 'ACTIVE') throw inactiveConflict();
+
+    const context = await this.getIncidentWithReports(current.incidentId, true);
+    const factors = { ...input, incidentId: current.incidentId };
+    const { score, suggestedRisk, factorContributions, calculationVersion } = calculateRisk(factors, context.incident.hazardType);
+    if (input.finalRiskLevel !== suggestedRisk && !input.decisionReason?.trim()) {
+      throw new ApiError(400, 'DECISION_REASON_REQUIRED', 'A decision reason is required when overriding suggested risk.');
+    }
+
+    try {
+      const assessment = await this.repository.reassess(current.id, {
+        incidentId: context.incident.id, hazardSeverity: input.hazardSeverity,
+        peopleAffected: input.peopleAffected, vulnerablePeople: input.vulnerablePeople,
+        roadAccessibility: input.roadAccessibility, infrastructureImpact: input.infrastructureImpact,
+        waterLevelTrend: input.waterLevelTrend, weatherCondition: input.weatherCondition,
+        finalRiskLevel: input.finalRiskLevel,
+        ...(input.decisionReason ? { decisionReason: input.decisionReason.trim() } : {}),
+        calculatedScore: score, systemSuggestedRisk: suggestedRisk,
+        factorContributions, calculationVersion,
+        assessedById: officerId,
+        assessedAt: new Date().toISOString(), reassessmentReason: input.reassessmentReason.trim()
+      });
+      return { assessment, incident: context.incident, reports: context.reports };
+    } catch (error) {
+      if (error instanceof RiskAssessmentReassessmentConflictError || error instanceof ActiveRiskAssessmentExistsError) {
+        throw inactiveConflict();
+      }
+      throw error;
+    }
+  }
+
+  async close(officerId: string, assessmentId: string, input: CloseRiskAssessmentRequest): Promise<CloseRiskAssessmentResponse> {
+    const current = await this.repository.findById(assessmentId);
+    if (!current) throw new ApiError(404, 'ASSESSMENT_NOT_FOUND', 'Risk assessment not found.');
+    const inactiveConflict = () => new ApiError(409, 'ASSESSMENT_NOT_ACTIVE', 'This assessment is no longer active. Refresh to view the latest assessment.');
+    if (current.status !== 'ACTIVE') throw inactiveConflict();
+    const assessment = await this.repository.closeActiveAssessment(assessmentId, {
+      closureReason: input.closureReason,
+      ...(input.closureNote === undefined ? {} : { closureNote: input.closureNote }),
+      closedAt: new Date().toISOString(), closedById: officerId
+    });
+    if (!assessment) throw inactiveConflict();
+    return { assessment };
+  }
+
+  async softDelete(
+    officerId: string, assessmentId: string, input: DeleteRiskAssessmentRequest
+  ): Promise<DeleteRiskAssessmentResponse> {
+    const result = await this.repository.softDeleteClosedAssessment(assessmentId, {
+      deletedAt: new Date().toISOString(), deletedById: officerId,
+      deleteReason: input.deleteReason,
+      ...(input.deleteNote === undefined ? {} : { deleteNote: input.deleteNote })
+    });
+    if (result.kind === 'deleted') return { assessment: result.assessment };
+    if (result.kind === 'not_found') {
+      throw new ApiError(404, 'ASSESSMENT_NOT_FOUND', 'Risk assessment not found.');
+    }
+    if (result.kind === 'already_deleted') {
+      throw new ApiError(409, 'ASSESSMENT_ALREADY_DELETED', 'This assessment has already been deleted.');
+    }
+    throw new ApiError(409, 'ASSESSMENT_NOT_CLOSED', 'Only a closed assessment can be deleted.');
+  }
+
+  async getHistoryForIncident(incidentId: string): Promise<RiskAssessmentHistoryResponse> {
+    const incident = await this.incidents.findById(incidentId);
+    if (!incident) throw new ApiError(404, 'INCIDENT_NOT_FOUND', 'Incident not found.');
+    return {
+      incidentId: incident.id,
+      assessments: await this.repository.findHistoryByIncidentId(incident.id)
+    };
   }
 }

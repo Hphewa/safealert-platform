@@ -2,6 +2,7 @@ import type { RequestHandler } from 'express';
 import { ApiError } from '../../../shared/apiError.js';
 import { asyncHandler } from '../../../shared/asyncHandler.js';
 import type { IncidentService } from '../services/incident.service.js';
+import type { IncidentLifecycleService } from '../services/incidentLifecycle.service.js';
 import {
   addIncidentReportSchema,
   createIncidentSchema,
@@ -9,7 +10,7 @@ import {
   incidentObjectIdSchema
 } from '../validation/incident.schemas.js';
 
-export function createIncidentController(service: IncidentService) {
+export function createIncidentController(service: IncidentService, lifecycle: IncidentLifecycleService) {
   const create: RequestHandler = asyncHandler(async (request, response) => {
     if (!request.auth) throw new ApiError(401, 'UNAUTHORIZED', 'Authentication is required.');
     const input = createIncidentSchema.parse(request.body);
@@ -41,5 +42,24 @@ export function createIncidentController(service: IncidentService) {
     response.json(await service.listActive());
   });
 
-  return { create, getById, findCandidates, addReport, getDetails, listActive };
+  const listInitialAssessmentQueue: RequestHandler = asyncHandler(async (_request, response) => {
+    response.json(await lifecycle.listInitialAssessmentQueue());
+  });
+
+  const listMonitoring: RequestHandler = asyncHandler(async (_request, response) => {
+    response.json(await lifecycle.listMonitoring());
+  });
+
+  const getMonitoringDetail: RequestHandler = asyncHandler(async (request, response) => {
+    const incidentId = incidentObjectIdSchema.parse(request.params.incidentId);
+    response.json(await lifecycle.getMonitoringDetail(incidentId));
+  });
+
+  const getTimeline: RequestHandler = asyncHandler(async (request, response) => {
+    const incidentId = incidentObjectIdSchema.parse(request.params.incidentId);
+    response.json(await lifecycle.getTimeline(incidentId));
+  });
+
+  return { create, getById, findCandidates, addReport, getDetails, listActive,
+    listInitialAssessmentQueue, listMonitoring, getMonitoringDetail, getTimeline };
 }

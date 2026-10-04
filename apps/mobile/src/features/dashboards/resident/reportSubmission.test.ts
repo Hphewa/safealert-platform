@@ -51,6 +51,11 @@ function draftWithPhoto(uploadedMediaReference: string | null = null): ReportHaz
         needsUpload: uploadedMediaReference === null,
         uploadedMediaReference
       }
+    },
+    voiceEvidence: {
+      status: 'EMPTY',
+      selected: null,
+      message: null
     }
   };
 }
@@ -209,6 +214,57 @@ describe('submitResidentReportDraft', () => {
 
     expect(uploadReportEvidence).toHaveBeenCalledTimes(2);
     expect(createResidentReport).toHaveBeenCalledOnce();
+  });
+
+  it('uploads selected voice evidence before creating the report with voiceEvidence', async () => {
+    const voiceUploadResponse: UploadReportEvidenceResponse = {
+      mediaReference: '/api/v1/media/report-evidence/voice.m4a',
+      contentType: 'audio/mp4',
+      size: 24
+    };
+    const uploadReportEvidence = vi.fn().mockResolvedValue(voiceUploadResponse);
+    const createResidentReport = vi.fn().mockResolvedValue(reportResponse);
+    const onVoiceEvidenceUploaded = vi.fn();
+    const draft: ReportHazardDraft = {
+      ...draftWithoutPhoto(),
+      voiceEvidence: {
+        status: 'LOCAL_SELECTED',
+        message: 'Voice selected.',
+        selected: {
+          localUri: 'file:///voice.m4a',
+          fileName: 'voice.m4a',
+          mimeType: 'audio/mp4',
+          durationSeconds: 18,
+          uploadedMediaReference: null
+        }
+      }
+    };
+
+    await submitResidentReportDraft({
+      draft,
+      accessToken: 'token',
+      uploadReportEvidence,
+      createResidentReport,
+      onVoiceEvidenceUploaded
+    });
+
+    expect(uploadReportEvidence).toHaveBeenCalledWith({
+      localUri: 'file:///voice.m4a',
+      filename: 'voice.m4a',
+      mimeType: 'audio/mp4',
+      accessToken: 'token'
+    });
+    expect(onVoiceEvidenceUploaded).toHaveBeenCalledWith(voiceUploadResponse.mediaReference);
+    expect(createResidentReport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        voiceEvidence: {
+          mediaReference: voiceUploadResponse.mediaReference,
+          contentType: 'audio/mp4',
+          durationSeconds: 18
+        }
+      }),
+      'token'
+    );
   });
 
   it('keeps draft data on failure and resets only after final success', async () => {

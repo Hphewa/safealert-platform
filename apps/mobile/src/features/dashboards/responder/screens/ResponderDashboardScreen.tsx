@@ -7,12 +7,18 @@ import { useAuth } from '@/features/auth/hooks/useAuth';
 import { ApiClientError } from '@/services/api/client';
 
 import { DashboardHeader } from '../../shared/components/DashboardHeader';
+import { ActionCard } from '../../shared/components/ActionCard';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { ReportListItem } from '../../shared/components/ReportListItem';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listAssignedResponderRequests, listPendingResponderRequests } from '../api/responderRequestsApi';
 import { responderBottomNavItems } from '../mockData';
-import { clearResponderRequestCache, getCachedResponderRequest, replaceResponderRequestCache } from '../requestDetailsCache';
+import { clearResponderRequestCache, getCachedAssignedResponderRequests, getCachedResponderRequest, replaceResponderRequestCache } from '../requestDetailsCache';
+import { projectQueuedUpdates } from '../offline/responderUpdateQueue';
+import { useResponderOffline } from '../offline/useResponderOffline';
+import { ResponderOfflineStatus } from '../offline/ResponderOfflineStatus';
+import { RoleStatusBanner } from '../../shared/components/RoleStatusBanner';
 import { parseResponderRequestTab, responderRequestDetailsHref } from '../requestDetails';
 import {
   emptyQueueDescription,
@@ -35,6 +41,17 @@ export function ResponderDashboardScreen() {
   const router = useRouter();
   const { tab } = useLocalSearchParams<{ tab?: string | string[] }>();
   const queueLoadId = useRef(0);
+  const loadQueuesRef = useRef<() => Promise<void>>(async () => undefined);
+
+
+  // Automatically refresh authoritative queue lists when background sync succeeds (LDFEW-336)
+  const offline = useResponderOffline(user, accessToken ?? '', {
+    accessToken,
+    onSyncSuccess: useCallback(async () => {
+      await loadQueuesRef.current();
+    }, [])
+  });
+
   // Route state restores the selected queue on Back without first rendering Pending.
   const activeTab = parseResponderRequestTab(tab) ?? 'PENDING';
   const setActiveTab = (tab: RequestTab) => router.setParams({ tab });
@@ -51,6 +68,7 @@ export function ResponderDashboardScreen() {
     const loadId = ++queueLoadId.current;
     if (!accessToken) {
       setQueueState({ pending: [], assigned: [] });
+      clearResponderRequestCache();
       setLoadState('error');
       setIsRefreshing(false);
       setErrorMessage('Your session has expired. Please log in again.');
@@ -59,6 +77,13 @@ export function ResponderDashboardScreen() {
 
     setIsRefreshing(true);
     setErrorMessage(null);
+
+    if (offline.connectivity === 'offline') {
+      setQueueState({ pending: [], assigned: user ? getCachedAssignedResponderRequests(user.id).filter((request) => isActiveAssignedResponseStatus(request.status)) : [] });
+      setLoadState('ready');
+      setIsRefreshing(false);
+      return;
+    }
 
     try {
       // Load both queues from the protected responder API so the dashboard
@@ -82,22 +107,47 @@ export function ResponderDashboardScreen() {
     } catch (error) {
       if (loadId !== queueLoadId.current) return;
 
+      // Initial connectivity may still be unknown after offline navigation. Do not
+      // erase loaded assignments before the network listener has resolved its state.
+      if (offline.connectivity !== 'online' && user) {
+        setQueueState({ pending: [], assigned: getCachedAssignedResponderRequests(user.id).filter((request) => isActiveAssignedResponseStatus(request.status)) });
+        setLoadState('ready');
+        setIsRefreshing(false);
+        setErrorMessage('Unable to refresh. Showing previously loaded assignments.');
+        return;
+      }
+
       setQueueState({ pending: [], assigned: [] });
       clearResponderRequestCache();
       setLoadState('error');
       setIsRefreshing(false);
       setErrorMessage(errorMessageFor(error));
     }
-  }, [accessToken, user?.id]);
+  }, [accessToken, user?.id, offline.connectivity]);
+  loadQueuesRef.current = loadQueues;
 
   useFocusEffect(
     useCallback(() => {
+      if (!accessToken) {
+        clearResponderRequestCache();
+      }
       // Show confirmed progress immediately on return, then revalidate with the API.
+      // Immediately purge requests that have been accepted or declined by this responder from Pending.
       setQueueState((current) => ({
-        ...current,
+        pending: current.pending
+          .map((request) => getCachedResponderRequest(request.id) ?? request)
+          .filter(
+            (request) =>
+              request.status === 'NEW' &&
+              !(request.declinedByResponderIds ?? []).includes(user?.id ?? '')
+          ),
         assigned: current.assigned
           .map((request) => getCachedResponderRequest(request.id) ?? request)
-          .filter((request) => request.assignedResponderId === user?.id && isActiveAssignedResponseStatus(request.status))
+          .filter(
+            (request) =>
+              request.assignedResponderId === user?.id &&
+              isActiveAssignedResponseStatus(request.status)
+          )
       }));
       void loadQueues();
       return () => {
@@ -107,24 +157,44 @@ export function ResponderDashboardScreen() {
     }, [loadQueues, user?.id])
   );
 
-  const tabCounts = useMemo(() => getResponderQueueCounts(queueState), [queueState]);
+  // Apply queued offline updates as an overlay on top of assigned requests so the
+  // dashboard accurately reflects in-progress and completed work while offline,
+  // preventing stale status badges and outdated active queue membership.
+  const effectiveQueueState = useMemo((): ResponderQueueState => {
+    if (!offline.items.length) {
+      return queueState;
+    }
+    return {
+      pending: queueState.pending,
+      assigned: queueState.assigned
+        .map((request) => projectQueuedUpdates(request, offline.items).request)
+        .filter((request) => isActiveAssignedResponseStatus(request.status))
+    };
+  }, [queueState, offline.items]);
 
-  const visibleRequests = getVisibleResponderRequests(queueState, activeTab);
+  const tabCounts = useMemo(() => getResponderQueueCounts(effectiveQueueState), [effectiveQueueState]);
+
+  const visibleRequests = getVisibleResponderRequests(effectiveQueueState, activeTab);
   const isLoading = loadState === 'loading';
 
   return (
     <DashboardScreen bottomNavItems={responderBottomNavItems}>
       <DashboardHeader
+        roleLabel="FIELD RESPONSE"
+        accentColor={dashboardTheme.colors.high}
         showLogoutButton
         title="Emergency Requests"
         trailingIcon="refresh-outline"
+        trailingAccessibilityLabel="Refresh emergency requests"
         onTrailingPress={() => void loadQueues()}
       />
 
+      <RoleStatusBanner title="Ready for response" message="Prioritized requests are shown below. Keep your connection status visible before dispatch." tone="warning" icon="flash-outline" />
+
       <View style={styles.statusRow}>
         <View style={styles.onlineBadge}>
-          <View style={styles.onlineDot} />
-          <Text style={styles.onlineText}>Online</Text>
+          <View style={[styles.onlineDot, offline.connectivity !== 'online' && { backgroundColor: dashboardTheme.colors.moderate }]} />
+          <Text style={[styles.onlineText, offline.connectivity !== 'online' && { color: dashboardTheme.colors.text }]}>{offline.connectivity === 'online' ? 'Online' : offline.connectivity === 'offline' ? 'Offline' : 'Checking connection'}</Text>
         </View>
         <Text style={styles.refreshLabel}>
           {isLoading || isRefreshing
@@ -134,6 +204,11 @@ export function ResponderDashboardScreen() {
               : 'Ready'}
         </Text>
       </View>
+      <ResponderOfflineStatus {...offline} />
+      {loadState === 'ready' && errorMessage ? <Text accessibilityRole="alert" style={styles.refreshLabel}>{errorMessage}</Text> : null}
+      {offline.connectivity === 'offline' ? <Text style={styles.refreshLabel}>Showing previously loaded assignments. Connect to load pending requests.</Text> : null}
+
+      <ActionCard title="View Risk Map" subtitle="View current assessed incident risks" href="/responder/risk-map" icon="map-outline" layout="row" />
 
       <View style={styles.tabRow}>
         <ResponderTab
@@ -203,7 +278,11 @@ function ResponderRequestItem({ request, sourceTab }: { request: SafeResponseReq
       icon={assistanceTypeIcon(request.assistanceType)}
       statusLabel={presentation.status}
       statusTone={request.status === 'ASSIGNED' ? 'success' : 'info'}
-      subtitle={presentation.location}
+      subtitle={
+        request.location ? (
+          <HumanReadableLocation location={request.location} />
+        ) : presentation.location
+      }
       timeLabel={presentation.submittedAt}
       title={presentation.title}
     />

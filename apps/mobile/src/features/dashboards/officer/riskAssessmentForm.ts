@@ -1,7 +1,10 @@
 import {
-  RISK_DECISION_REASON_MAX_LENGTH, RISK_DECISION_REASON_MIN_LENGTH,
-  type CreateRiskAssessmentRequest, type RiskAssessmentFactors, type RiskLevel
+  RISK_ASSESSMENT_DELETE_REASONS, RISK_DECISION_REASON_MAX_LENGTH, RISK_DECISION_REASON_MIN_LENGTH,
+  type CloseRiskAssessmentRequest, type CreateRiskAssessmentRequest, type DeleteRiskAssessmentRequest,
+  type ManualRiskAssessmentClosureReason, type RiskAssessmentDeleteReason,
+  type ReassessRiskAssessmentRequest, type RiskAssessmentFactors, type RiskLevel
 } from '@safealert/contracts';
+import { ApiClientError } from '../../../services/api/client';
 
 export type RiskAssessmentForm = Omit<RiskAssessmentFactors, 'peopleAffected' | 'vulnerablePeople'> & {
   peopleAffected: string;
@@ -33,6 +36,14 @@ export function parseRiskAssessmentForm(form: RiskAssessmentForm): RiskAssessmen
   const vulnerablePeople = Number(form.vulnerablePeople);
   return { ...form, peopleAffected, vulnerablePeople };
 }
+export function riskAssessmentFormFromAssessment(assessment: RiskAssessmentFactors): RiskAssessmentForm {
+  return {
+    hazardSeverity: assessment.hazardSeverity, peopleAffected: String(assessment.peopleAffected),
+    vulnerablePeople: String(assessment.vulnerablePeople), roadAccessibility: assessment.roadAccessibility,
+    infrastructureImpact: assessment.infrastructureImpact, waterLevelTrend: assessment.waterLevelTrend,
+    weatherCondition: assessment.weatherCondition
+  };
+}
 export function decisionReasonError(finalRisk: RiskLevel, suggestedRisk: RiskLevel, reason: string): string | null {
   const length = reason.trim().length;
   if (length === 0 && finalRisk === suggestedRisk) return null;
@@ -54,8 +65,73 @@ export function buildRiskAssessmentRequest(
     ...(trimmedReason ? { decisionReason: trimmedReason } : {})
   };
 }
+export function reassessmentReasonError(reason: string): string | null {
+  const length = reason.trim().length;
+  if (length < RISK_DECISION_REASON_MIN_LENGTH) return 'Enter a reassessment reason of at least 10 characters.';
+  if (length > RISK_DECISION_REASON_MAX_LENGTH) return 'Reassessment reason must be at most 500 characters.';
+  return null;
+}
+export function buildReassessmentRiskAssessmentRequest(
+  factors: RiskAssessmentFactors, finalRisk: RiskLevel, suggestedRisk: RiskLevel,
+  decisionReason: string, reassessmentReason: string
+): ReassessRiskAssessmentRequest {
+  const invalidReassessmentReason = reassessmentReasonError(reassessmentReason);
+  if (invalidReassessmentReason) throw new Error(invalidReassessmentReason);
+  const invalidDecisionReason = decisionReasonError(finalRisk, suggestedRisk, decisionReason);
+  if (invalidDecisionReason) throw new Error(invalidDecisionReason);
+  const trimmedDecisionReason = decisionReason.trim();
+  return {
+    ...factors, finalRiskLevel: finalRisk,
+    ...(trimmedDecisionReason ? { decisionReason: trimmedDecisionReason } : {}),
+    reassessmentReason: reassessmentReason.trim()
+  };
+}
+export function closureNoteError(reason: ManualRiskAssessmentClosureReason, note: string): string | null {
+  const length = note.trim().length;
+  if (length === 0 && reason !== 'OTHER') return null;
+  if (length < RISK_DECISION_REASON_MIN_LENGTH) return 'Enter a closure note of at least 10 characters.';
+  if (length > RISK_DECISION_REASON_MAX_LENGTH) return 'Closure note must be at most 500 characters.';
+  return null;
+}
+export function buildCloseRiskAssessmentRequest(
+  reason: ManualRiskAssessmentClosureReason, note: string
+): CloseRiskAssessmentRequest {
+  const error = closureNoteError(reason, note);
+  if (error) throw new Error(error);
+  const closureNote = note.trim();
+  return { closureReason: reason, ...(closureNote ? { closureNote } : {}) };
+}
+export function buildDeleteRiskAssessmentRequest(
+  reason: RiskAssessmentDeleteReason, note: string
+): DeleteRiskAssessmentRequest {
+  if (!RISK_ASSESSMENT_DELETE_REASONS.includes(reason)) throw new Error('Choose a valid delete reason.');
+  const deleteNote = note.trim();
+  if (deleteNote && deleteNote.length < RISK_DECISION_REASON_MIN_LENGTH) {
+    throw new Error('Enter a delete note of at least 10 characters.');
+  }
+  if (deleteNote.length > RISK_DECISION_REASON_MAX_LENGTH) {
+    throw new Error('Delete note must be at most 500 characters.');
+  }
+  if (reason === 'OTHER' && !deleteNote) throw new Error('Enter a delete note for OTHER.');
+  return { deleteReason: reason, ...(deleteNote ? { deleteNote } : {}) };
+}
 export function assessmentErrorMessage(error: unknown) {
+  if (error instanceof ApiClientError && error.code === 'ASSESSMENT_NOT_ACTIVE') {
+    return 'This assessment is no longer active. Refresh to view the latest assessment.';
+  }
   return error instanceof Error ? error.message : 'Unable to complete this request. Please try again.';
+}
+export function warningLifecycleErrorMessage(error: unknown): string {
+  if (error instanceof ApiClientError) {
+    if (/WARNING_NOT_FOUND/i.test(error.message)) return 'Warning not found.';
+    if (/WARNING_ALREADY_CANCELLED/i.test(error.message)) return 'This warning has already been cancelled.';
+    if (/WARNING_ALREADY_ARCHIVED/i.test(error.message)) return 'This warning has already been archived.';
+    if (/WARNING_NOT_EDITABLE|WARNING_INVALID_TRANSITION/i.test(error.message)) {
+      return 'This warning cannot be changed in its current state.';
+    }
+    if (/FORBIDDEN|not authorized/i.test(error.message)) return 'You are not authorized to change warnings.';
+  }
+  return error instanceof Error ? error.message : 'Unable to update this warning. Please try again.';
 }
 export function warningPublishErrorMessage(error: unknown) {
   if (error instanceof Error) {

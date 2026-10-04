@@ -1,17 +1,25 @@
-import { useCallback, useEffect } from 'react';
+﻿import { useCallback, useEffect } from 'react';
+import { useState } from 'react';
 import { ActivityIndicator, Image, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { goBackSafely } from '@/features/navigation/safeBack';
 
+import photoEvidenceIcon from '../../../../../assets/evidence/photo-evidence.png';
+import voiceEvidenceIcon from '../../../../../assets/evidence/voice-evidence.png';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
 import {
-  captureCurrentLocation as captureCurrentDeviceLocation,
-  formatCoordinate
+  captureCurrentLocation as captureCurrentDeviceLocation
 } from '../../shared/currentLocation';
+import { LocationPreview } from '../../shared/maps/LocationPreview';
+import { reverseGeocodePlace } from '../../shared/maps/locationSearch';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { VoiceNoteRecorder } from '../../shared/voice/VoiceNoteRecorder';
+import type { LocalVoiceEvidence } from '../../shared/voice/voiceEvidence';
 import { residentBottomNavItems } from '../mockData';
 import { SelectableCard } from '../components/SelectableCard';
+import { hazardImageForResident } from '../reports';
 import {
   descriptionMaxLength,
   type HazardSeverity,
@@ -37,31 +45,42 @@ const severityOptions: Array<{
   value: HazardSeverity;
   color: string;
   softColor: string;
+  description: string;
 }> = [
   {
     label: 'Low',
     value: 'LOW',
     color: dashboardTheme.colors.low,
-    softColor: dashboardTheme.colors.lowSoft
+    softColor: dashboardTheme.colors.lowSoft,
+    description: 'Limited impact'
   },
   {
-    label: 'Moderate',
+    label: 'Medium',
     value: 'MODERATE',
     color: dashboardTheme.colors.moderate,
-    softColor: dashboardTheme.colors.moderateSoft
+    softColor: dashboardTheme.colors.moderateSoft,
+    description: 'Causing disruption'
   },
   {
     label: 'High',
     value: 'HIGH',
-    color: dashboardTheme.colors.high,
-    softColor: dashboardTheme.colors.highSoft
+    color: dashboardTheme.colors.critical,
+    softColor: dashboardTheme.colors.criticalSoft,
+    description: 'Serious danger or major disruption'
   }
 ];
 
 export function ReportHazardScreen() {
   const router = useRouter();
-  const { draft, setDraft, validation } = useReportHazardDraft();
+  const { draft, resetDraft, setDraft, validation } = useReportHazardDraft();
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
+  const [reviewAttempted, setReviewAttempted] = useState(false);
+  const [placeName, setPlaceName] = useState<string | null>(null);
   const canReviewReport = validation.isValid;
+
+  useEffect(() => {
+    if (mode === 'new') resetDraft();
+  }, [mode, resetDraft]);
 
   const captureCurrentLocation = useCallback(async () => {
     setDraft((current) => ({
@@ -120,8 +139,46 @@ export function ReportHazardScreen() {
     }
   }, [captureCurrentLocation, draft.location.status]);
 
+  useEffect(() => {
+    if (draft.location.status !== 'DETECTED') {
+      setPlaceName(null);
+      return;
+    }
+
+    let isCurrent = true;
+    setPlaceName(null);
+
+    void reverseGeocodePlace(draft.location.latitude, draft.location.longitude)
+      .then((nextPlaceName) => {
+        if (isCurrent) {
+          setPlaceName(nextPlaceName ?? 'Place unavailable');
+        }
+      })
+      .catch(() => {
+        if (isCurrent) {
+          setPlaceName('Place unavailable');
+        }
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [
+    draft.location.status,
+    draft.location.status === 'DETECTED' ? draft.location.latitude : null,
+    draft.location.status === 'DETECTED' ? draft.location.longitude : null
+  ]);
+
   const setHazardType = (hazardType: HazardType) => {
-    setDraft((current) => ({ ...current, hazardType }));
+    setDraft((current) => ({
+      ...current,
+      hazardType,
+      ...(hazardType === 'OTHER' ? {} : { otherHazardType: '' })
+    }));
+  };
+
+  const setOtherHazardType = (otherHazardType: string) => {
+    setDraft((current) => ({ ...current, otherHazardType }));
   };
 
   const setSeverity = (severity: HazardSeverity) => {
@@ -167,7 +224,7 @@ export function ReportHazardScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsEditing: false,
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.82
       });
 
@@ -221,7 +278,7 @@ export function ReportHazardScreen() {
 
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: false,
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.82
       });
 
@@ -256,7 +313,25 @@ export function ReportHazardScreen() {
     });
   };
 
+  const setVoiceEvidence = (voiceEvidence: LocalVoiceEvidence | null) => {
+    setDraft((current) => ({
+      ...current,
+      voiceEvidence: voiceEvidence
+        ? {
+            status: 'LOCAL_SELECTED',
+            selected: voiceEvidence,
+            message: 'Voice note ready. It will be uploaded during report submission.'
+          }
+        : {
+            status: 'EMPTY',
+            selected: null,
+            message: null
+          }
+    }));
+  };
+
   const reviewReport = () => {
+    setReviewAttempted(true);
     if (!canReviewReport) {
       return;
     }
@@ -271,7 +346,7 @@ export function ReportHazardScreen() {
         <Pressable
           accessibilityLabel="Go back"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => goBackSafely(router, '/resident')}
           style={({ pressed }) => [styles.backButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -285,7 +360,7 @@ export function ReportHazardScreen() {
         <View accessibilityRole="radiogroup" style={styles.optionGrid}>
           {hazardTypeOptions.map((option) => (
             <SelectableCard
-              icon={option.icon}
+              imageSource={hazardImageForResident(option.value)}
               key={option.value}
               label={option.label}
               onSelect={setHazardType}
@@ -294,15 +369,44 @@ export function ReportHazardScreen() {
             />
           ))}
         </View>
-        <ValidationMessage message={validation.errors.hazardType} />
+        <ValidationMessage message={reviewAttempted ? validation.errors.hazardType : undefined} />
+        {draft.hazardType === 'OTHER' ? (
+          <View style={styles.otherHazardSection}>
+            <Text style={styles.fieldLabel}>What type of hazard?</Text>
+            <View style={styles.suggestionRow}>
+              {['Tsunami', 'Earthquake', 'Strong winds', 'Fire'].map((suggestion) => (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel={`Use ${suggestion}`}
+                  key={suggestion}
+                  onPress={() => setOtherHazardType(suggestion)}
+                  style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+                >
+                  <Text style={styles.suggestionChipText}>{suggestion}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              accessibilityLabel="Other hazard type"
+              maxLength={80}
+              onChangeText={setOtherHazardType}
+              placeholder="Or type another hazard"
+              placeholderTextColor={dashboardTheme.colors.muted}
+              style={styles.otherHazardInput}
+              value={draft.otherHazardType ?? ''}
+            />
+            <ValidationMessage message={reviewAttempted ? validation.errors.otherHazardType : undefined} />
+          </View>
+        ) : null}
       </View>
 
       <View style={styles.locationPanel}>
-        <View style={styles.panelIcon}>
-          <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="locate-outline" size={20} />
-        </View>
-        <View style={styles.panelBody}>
-          <Text style={styles.panelTitle}>Location</Text>
+        <View style={styles.locationHeader}>
+          <View style={styles.panelIcon}>
+            <DashboardGlyph color={dashboardTheme.colors.primaryStrong} name="locate-outline" size={20} />
+          </View>
+          <View style={styles.panelBody}>
+            <Text style={styles.panelTitle}>Hazard location</Text>
           {draft.location.status === 'REQUESTING_PERMISSION' ? (
             <LocationStatusMessage message="Requesting location permission..." showSpinner />
           ) : null}
@@ -311,18 +415,28 @@ export function ReportHazardScreen() {
           ) : null}
           {draft.location.status === 'DETECTED' ? (
             <View style={styles.detectedLocation}>
-              <Text style={styles.detectedText}>Detected current location</Text>
-              <Text style={styles.coordinateText}>
-                Lat {formatCoordinate(draft.location.latitude)}, Long {formatCoordinate(draft.location.longitude)}
-              </Text>
-              <Text style={styles.mongoHintText}>Saved for reports as [longitude, latitude].</Text>
+              <Text style={styles.detectedText}>Location detected</Text>
+              <Text style={styles.locationPlaceText}>{placeName ?? 'Finding nearby place...'}</Text>
             </View>
           ) : null}
           {draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR' ? (
             <Text style={styles.errorText}>{draft.location.errorMessage}</Text>
           ) : null}
-          <ValidationMessage message={validation.errors.location} />
+          <ValidationMessage message={reviewAttempted ? validation.errors.location : undefined} />
+          </View>
         </View>
+        {draft.location.status === 'DETECTED' ? (
+          <View style={styles.locationPreviewWrap}>
+            <LocationPreview
+              coordinates={{
+                latitude: draft.location.latitude,
+                longitude: draft.location.longitude
+              }}
+              height={128}
+              title="Hazard location"
+            />
+          </View>
+        ) : null}
         <View style={styles.locationActions}>
           {(draft.location.status === 'PERMISSION_DENIED' || draft.location.status === 'ERROR') && (
             <Pressable
@@ -333,7 +447,7 @@ export function ReportHazardScreen() {
               }}
               style={({ pressed }) => [styles.retryButton, pressed && styles.pressed]}
             >
-              <Text style={styles.retryButtonText}>Retry</Text>
+              <Text style={styles.retryButtonText}>Retry location</Text>
             </Pressable>
           )}
           <Pressable
@@ -342,12 +456,24 @@ export function ReportHazardScreen() {
             onPress={() => router.push('/resident/adjust-report-location')}
             style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
           >
-            <Text style={styles.secondaryButtonText}>Adjust Location</Text>
+            <Text style={styles.secondaryButtonText}>Change location</Text>
           </Pressable>
         </View>
       </View>
 
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>Evidence</Text>
+      </View>
+
       <View style={styles.photoPanel}>
+        <View style={styles.panelHeaderInline}>
+          <View style={styles.panelIcon}>
+            <Image accessibilityLabel="Photo evidence" source={photoEvidenceIcon} style={styles.evidenceIcon} />
+          </View>
+          <View style={styles.panelBody}>
+            <Text style={styles.panelTitle}>Photo evidence</Text>
+          </View>
+        </View>
         {draft.photoEvidence.status === 'LOCAL_SELECTED' ? (
           <Image
             accessibilityLabel="Selected hazard evidence preview"
@@ -359,31 +485,21 @@ export function ReportHazardScreen() {
             {draft.photoEvidence.status === 'REQUESTING_PERMISSION' || draft.photoEvidence.status === 'PICKING' ? (
               <ActivityIndicator color={dashboardTheme.colors.info} size="small" />
             ) : (
-              <DashboardGlyph color={dashboardTheme.colors.info} name="camera-outline" size={24} />
+              <DashboardGlyph color={dashboardTheme.colors.info} name="camera-outline" size={28} />
             )}
           </View>
         )}
-        <View style={styles.panelBody}>
-          <Text style={styles.panelTitle}>Photo evidence</Text>
+        <View style={styles.photoStatus}>
           {draft.photoEvidence.status === 'LOCAL_SELECTED' ? (
-            <View style={styles.detectedLocation}>
-              <Text style={styles.detectedText}>Photo ready</Text>
-              <Text style={styles.panelText}>{draft.photoEvidence.message}</Text>
-              <Text style={styles.mongoHintText}>
-                Local image stays on this device until a media upload service stores it.
-              </Text>
-            </View>
+            <Text style={styles.detectedText}>Photo ready</Text>
           ) : (
-            <Text
-              style={[
-                styles.panelText,
-                (draft.photoEvidence.status === 'PERMISSION_DENIED' ||
-                  draft.photoEvidence.status === 'ERROR') &&
-                  styles.errorText
-              ]}
-            >
-              {draft.photoEvidence.message ?? 'Add an optional photo from this device.'}
-            </Text>
+            <ValidationMessage
+              message={
+                draft.photoEvidence.status === 'PERMISSION_DENIED' || draft.photoEvidence.status === 'ERROR'
+                  ? draft.photoEvidence.message ?? undefined
+                  : undefined
+              }
+            />
           )}
         </View>
         <View style={styles.photoActions}>
@@ -424,6 +540,22 @@ export function ReportHazardScreen() {
         </View>
       </View>
 
+      <View style={styles.photoPanel}>
+        <View style={styles.panelHeaderInline}>
+          <View style={styles.panelIcon}>
+            <Image accessibilityLabel="Voice evidence" source={voiceEvidenceIcon} style={styles.evidenceIcon} />
+          </View>
+          <View style={styles.panelBody}>
+            <Text style={styles.panelTitle}>Voice evidence</Text>
+            <Text style={styles.panelText}>Up to 3 minutes</Text>
+          </View>
+        </View>
+        <VoiceNoteRecorder
+          onChange={setVoiceEvidence}
+          value={draft.voiceEvidence.status === 'LOCAL_SELECTED' ? draft.voiceEvidence.selected : null}
+        />
+      </View>
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Severity</Text>
         <View accessibilityRole="radiogroup" style={styles.severityRow}>
@@ -447,25 +579,47 @@ export function ReportHazardScreen() {
                 ]}
               >
                 <View style={[styles.severityDot, { backgroundColor: option.color }]} />
-                <Text style={[styles.severityText, selected && { color: option.color }]}>
-                  {option.label}
-                </Text>
+                <View style={styles.severityCopy}>
+                  <Text style={[styles.severityText, selected && { color: option.color }]}>
+                    {option.label}
+                  </Text>
+                  <Text style={styles.severityHelperText}>{option.description}</Text>
+                </View>
               </Pressable>
             );
           })}
         </View>
-        <ValidationMessage message={validation.errors.severity} />
+        <ValidationMessage message={reviewAttempted ? validation.errors.severity : undefined} />
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Short description</Text>
+        <Text style={styles.sectionTitle}>What can you see?</Text>
+        <View style={styles.suggestionRow}>
+          {(draft.hazardType === 'FLOOD'
+            ? ['Water is covering part of the road.', 'Water is entering homes.', 'The water level is rising quickly.']
+            : draft.hazardType === 'BLOCKED_ROAD'
+              ? ['Vehicles cannot pass through this road.', 'Debris is covering the road.', 'A fallen tree is blocking the road.']
+              : draft.hazardType === 'LANDSLIDE'
+                ? ['Soil and rocks are covering the road.', 'The slope has collapsed.', 'More movement is still visible.']
+                : ['There is visible damage in this area.', 'People may need help at this location.']).map((suggestion) => (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Use description: ${suggestion}`}
+              key={suggestion}
+              onPress={() => setDescription(suggestion)}
+              style={({ pressed }) => [styles.suggestionChip, pressed && styles.pressed]}
+            >
+              <Text style={styles.suggestionChipText}>{suggestion}</Text>
+            </Pressable>
+          ))}
+        </View>
         <TextInput
-          accessibilityLabel="Short description"
+          accessibilityLabel="What can you see?"
           maxLength={descriptionMaxLength}
           multiline
           onBlur={trimDescription}
           onChangeText={setDescription}
-          placeholder="Briefly describe what you see."
+          placeholder="Example: Water is covering both lanes and still rising."
           placeholderTextColor={dashboardTheme.colors.muted}
           style={styles.descriptionInput}
           textAlignVertical="top"
@@ -474,22 +628,22 @@ export function ReportHazardScreen() {
         <Text style={styles.characterCount}>
           {draft.description.trim().length}/{descriptionMaxLength}
         </Text>
-        <ValidationMessage message={validation.errors.description} />
+        <ValidationMessage message={reviewAttempted ? validation.errors.description : undefined} />
       </View>
 
       <Pressable
         accessibilityLabel="Review hazard report"
         accessibilityRole="button"
-        accessibilityState={{ disabled: !canReviewReport }}
-        disabled={!canReviewReport}
+        accessibilityState={{ disabled: draft.location.status === 'LOCATING' }}
+        disabled={draft.location.status === 'LOCATING'}
         onPress={reviewReport}
         style={({ pressed }) => [
           styles.reviewButton,
-          !canReviewReport && styles.reviewButtonDisabled,
-          pressed && canReviewReport && styles.pressed
+          draft.location.status === 'LOCATING' && styles.reviewButtonDisabled,
+          pressed && draft.location.status !== 'LOCATING' && styles.pressed
         ]}
       >
-        <Text style={[styles.reviewButtonText, !canReviewReport && styles.reviewButtonTextDisabled]}>
+        <Text style={[styles.reviewButtonText, draft.location.status === 'LOCATING' && styles.reviewButtonTextDisabled]}>
           Review Report
         </Text>
       </Pressable>
@@ -570,22 +724,61 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: dashboardTheme.colors.text
   },
+  fieldLabel: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  otherHazardSection: {
+    gap: 10,
+    paddingTop: 4
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8
+  },
+  suggestionChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surfaceMuted
+  },
+  suggestionChipText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: dashboardTheme.colors.primaryStrong
+  },
+  otherHazardInput: {
+    minHeight: 48,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.border,
+    borderRadius: dashboardTheme.radius.sm,
+    backgroundColor: dashboardTheme.colors.surface,
+    fontSize: 15,
+    color: dashboardTheme.colors.text
+  },
   optionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12
   },
   locationPanel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 12,
+    gap: 14,
     padding: 16,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.surface,
     ...cardShadow
+  },
+  locationHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
   },
   photoPanel: {
     gap: 14,
@@ -604,6 +797,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: dashboardTheme.colors.primarySoft
   },
+  evidenceIcon: {
+    width: 30,
+    height: 30,
+    resizeMode: 'contain'
+  },
   panelBody: {
     flex: 1,
     gap: 4
@@ -618,25 +816,41 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: dashboardTheme.colors.muted
   },
+  sectionHelper: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: dashboardTheme.colors.muted
+  },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8
   },
   detectedLocation: {
-    gap: 3
+    gap: 8
   },
   detectedText: {
     fontSize: 14,
     fontWeight: '800',
     color: dashboardTheme.colors.success
   },
-  coordinateText: {
-    fontSize: 14,
-    lineHeight: 20,
+  locationPlaceText: {
+    fontSize: 15,
+    lineHeight: 21,
+    fontWeight: '800',
     color: dashboardTheme.colors.text
   },
-  mongoHintText: {
+  coordinateText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: dashboardTheme.colors.muted
+  },
+  secondaryHintText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: dashboardTheme.colors.muted
+  },
+  locationHintText: {
     fontSize: 12,
     lineHeight: 18,
     color: dashboardTheme.colors.muted
@@ -656,11 +870,17 @@ const styles = StyleSheet.create({
   locationActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-end',
+    width: '100%',
+    justifyContent: 'flex-start',
     gap: 8
   },
+  locationPreviewWrap: {
+    width: '100%'
+  },
   secondaryButton: {
+    flexGrow: 1,
     minHeight: 40,
+    alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
     borderWidth: 1,
@@ -702,16 +922,27 @@ const styles = StyleSheet.create({
     borderRadius: dashboardTheme.radius.md,
     backgroundColor: dashboardTheme.colors.surfaceMuted
   },
+  photoStatus: {
+    minHeight: 20,
+    justifyContent: 'center'
+  },
   photoActions: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 10
   },
+  panelHeaderInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12
+  },
   addPhotoButton: {
     flexGrow: 1,
     minHeight: 48,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.info,
     borderRadius: dashboardTheme.radius.sm,
@@ -725,8 +956,10 @@ const styles = StyleSheet.create({
   cameraButton: {
     flexGrow: 1,
     minHeight: 48,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.primary,
     borderRadius: dashboardTheme.radius.sm,
@@ -754,18 +987,18 @@ const styles = StyleSheet.create({
   },
   severityRow: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     gap: 10
   },
   severityOption: {
-    flexGrow: 1,
-    minHeight: 52,
-    minWidth: 104,
+    flex: 1,
+    minHeight: 78,
+    minWidth: 0,
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
     gap: 8,
-    paddingHorizontal: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 12,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.sm,
@@ -780,6 +1013,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: dashboardTheme.colors.text
+  },
+  severityCopy: {
+    flex: 1,
+    gap: 2
+  },
+  severityHelperText: {
+    fontSize: 12,
+    lineHeight: 16,
+    color: dashboardTheme.colors.muted
   },
   descriptionInput: {
     minHeight: 124,
@@ -822,3 +1064,6 @@ const styles = StyleSheet.create({
     opacity: 0.82
   }
 });
+
+
+

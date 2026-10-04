@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-nativ
 import { ApiClientError } from '../../../services/api/client';
 import { useAuth } from '../hooks/useAuth';
 import { authStyles } from './AuthStyles';
+import { BrandLogo } from '../components/BrandLogo';
 
 export function RegisterScreen() {
   const router = useRouter();
@@ -52,9 +53,15 @@ export function RegisterScreen() {
 
   return (
     <View style={authStyles.screen}>
+      <View style={authStyles.brandPanel}>
+        <BrandLogo size={48} />
+        <Text style={authStyles.brandName}>SafeAlert</Text>
+        <Text style={authStyles.brandTagline}>Community-powered disaster safety.</Text>
+      </View>
       <View>
+        <Text style={authStyles.eyebrow}>JOIN YOUR COMMUNITY</Text>
         <Text style={authStyles.title}>Create resident account</Text>
-        <Text style={authStyles.subtitle}>Public registration creates Resident accounts only.</Text>
+        <Text style={authStyles.subtitle}>Report hazards, receive warnings, and request help when it matters.</Text>
       </View>
 
       <View style={authStyles.form}>

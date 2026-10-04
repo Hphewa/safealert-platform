@@ -3,11 +3,13 @@
   REPORT_REJECTION_REASON_MIN_LENGTH,
   type HazardType,
   type ReportSeverity,
+  type ReportVoiceEvidence,
   type ReportStatus,
   type SafeReport
 } from '@safealert/contracts';
 import type { Href } from 'expo-router';
 
+import { canPreviewImageMedia, resolveMediaReferenceUri } from '../shared/media/mediaReference';
 import type { BadgeTone, DashboardIconName } from '../shared/types';
 
 export const officerReportHazardFilters = ['ALL', 'FLOOD', 'BLOCKED_ROAD', 'LANDSLIDE', 'OTHER'] as const;
@@ -29,10 +31,13 @@ export type OfficerGroupedReportSummary = {
   status: ReportStatus;
   statusLabel: string;
   locationLabel: string;
+  locationCoordinates?: { latitude: number; longitude: number };
   latestUpdateLabel: string;
   communityReportsCount: number;
   communityReportsLabel: string;
   descriptionPreview: string;
+  hasPhotoEvidence?: boolean;
+  hasVoiceEvidence?: boolean;
   searchText: string;
   tone: BadgeTone;
   icon: DashboardIconName;
@@ -63,6 +68,7 @@ export type OfficerReportReviewRecord = OfficerGroupedReportSummary & {
   residentPhotoUrl?: string;
   residentPhotoLabel?: string;
   residentMediaReference?: string;
+  residentVoiceEvidence?: ReportVoiceEvidence;
   locationDetails: string;
   relatedReportsCount: number;
   relatedReportsLabel: string;
@@ -124,7 +130,7 @@ export function statusLabelForOfficer(status: ReportStatus) {
 }
 
 export function formatCommunityReportsLabel(count: number) {
-  return `${count} Community Report${count === 1 ? '' : 's'}`;
+  return `${count} pending report${count === 1 ? '' : 's'}`;
 }
 
 export type OfficerRejectionReasonValidation = {
@@ -203,13 +209,16 @@ export function mapSafeReportToOfficerGroupedReportSummary(
     status: report.status,
     statusLabel: statusLabelForOfficer(report.status),
     locationLabel,
+    locationCoordinates: { latitude: report.location.coordinates[1], longitude: report.location.coordinates[0] },
     latestUpdateLabel: formatOfficerRelativeTime(report.updatedAt, now),
     communityReportsCount: 1,
     communityReportsLabel: formatCommunityReportsLabel(1),
     descriptionPreview: report.description,
+    hasPhotoEvidence: Boolean(report.mediaReference),
+    hasVoiceEvidence: Boolean(report.voiceEvidence),
     searchText: `${hazardLabelForOfficer(report.hazardType)} ${locationLabel} ${report.description}`.toLowerCase(),
     tone: hazardToneForOfficer(report.hazardType),
-    icon: iconForOfficerHazard(report.hazardType),
+    icon: hazardIconForOfficer(report.hazardType),
     href: `/officer/reports/${report.id}` as Href
   };
 }
@@ -220,7 +229,9 @@ export function mapSafeReportToOfficerReviewRecord(
 ): OfficerReportReviewRecord {
   const summary = mapSafeReportToOfficerGroupedReportSummary(report, now);
   const hasPhotoEvidence = Boolean(report.mediaReference);
-  const canDisplayPhoto = report.mediaReference ? isDisplayableMediaUri(report.mediaReference) : false;
+  const hasVoiceEvidence = Boolean(report.voiceEvidence);
+  const residentPhotoUri = resolveMediaReferenceUri(report.mediaReference);
+  const canDisplayPhoto = canPreviewImageMedia(residentPhotoUri);
   const timeline: OfficerReportTimelineEvent[] = [
     {
       id: `${report.id}-submitted`,
@@ -241,17 +252,28 @@ export function mapSafeReportToOfficerReviewRecord(
     });
   }
 
+  if (report.voiceEvidence) {
+    timeline.push({
+      id: `${report.id}-voice`,
+      title: 'Voice note added',
+      detail: 'The resident attached a voice note to the report.',
+      timeLabel: formatOfficerRelativeTime(report.createdAt, now),
+      icon: 'mic-outline'
+    });
+  }
+
   return {
     ...summary,
     reportedTimeLabel: formatOfficerRelativeTime(report.createdAt, now),
     residentDescription: report.description,
-    ...(canDisplayPhoto && report.mediaReference
+    ...(canDisplayPhoto && residentPhotoUri
       ? {
-          residentPhotoUrl: report.mediaReference,
+          residentPhotoUrl: residentPhotoUri,
           residentPhotoLabel: 'Resident photo evidence'
         }
       : {}),
     ...(report.mediaReference ? { residentMediaReference: report.mediaReference } : {}),
+    ...(report.voiceEvidence ? { residentVoiceEvidence: report.voiceEvidence } : {}),
     locationDetails: `Coordinates: ${summary.locationLabel}`,
     relatedReportsCount: 1,
     relatedReportsLabel: formatCommunityReportsLabel(1),
@@ -261,7 +283,7 @@ export function mapSafeReportToOfficerReviewRecord(
       locationConfirmed: false,
       timeValid: false,
       multipleReports: false,
-      photoEvidence: hasPhotoEvidence,
+      photoEvidence: hasPhotoEvidence || hasVoiceEvidence,
       fieldUpdate: false
     }
   };
@@ -299,7 +321,7 @@ function formatOfficerRelativeTime(value: string, now: Date) {
   return `${Math.floor(elapsedHours / 24)}d ago`;
 }
 
-function iconForOfficerHazard(hazardType: HazardType): DashboardIconName {
+export function hazardIconForOfficer(hazardType: HazardType): DashboardIconName {
   switch (hazardType) {
     case 'FLOOD':
       return 'water-outline';
@@ -312,6 +334,3 @@ function iconForOfficerHazard(hazardType: HazardType): DashboardIconName {
   }
 }
 
-function isDisplayableMediaUri(mediaReference: string) {
-  return /^(https?:|data:image\/)/i.test(mediaReference);
-}

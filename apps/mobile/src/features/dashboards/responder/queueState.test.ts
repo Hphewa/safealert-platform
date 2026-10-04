@@ -1,4 +1,4 @@
-import type { SafeResponseRequest } from '@safealert/contracts';
+import { RESPONSE_STATUSES, type SafeResponseRequest } from '@safealert/contracts';
 import { describe, expect, it } from 'vitest';
 
 import { getResponderQueueCounts, getVisibleResponderRequests } from './queueState';
@@ -32,6 +32,19 @@ const request = (id: string, status: SafeResponseRequest['status']): SafeRespons
 });
 
 describe('responder queue state', () => {
+  it('excludes terminal and unknown statuses from visible work and counts in mixed queues', () => {
+    // Simulate an unsupported server value at runtime, despite the shared static type.
+    const mixedRequests = [...RESPONSE_STATUSES, 'UNKNOWN' as SafeResponseRequest['status']]
+      .map((status) => request(status, status));
+    const queueState = { pending: mixedRequests, assigned: mixedRequests };
+
+    expect(getVisibleResponderRequests(queueState, 'PENDING').map(({ status }) => status))
+      .toEqual(['NEW']);
+    expect(getVisibleResponderRequests(queueState, 'ASSIGNED').map(({ status }) => status))
+      .toEqual(['ASSIGNED', 'DISPATCHED', 'ARRIVED', 'IN_PROGRESS']);
+    expect(getResponderQueueCounts(queueState)).toEqual({ PENDING: 1, ASSIGNED: 4 });
+  });
+
   it('keeps pending and assigned requests in separate tab lists', () => {
     const queueState = {
       pending: [request('pending-1', 'NEW')],

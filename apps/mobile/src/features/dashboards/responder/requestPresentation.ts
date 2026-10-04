@@ -1,4 +1,5 @@
 import type { SafeResponseRequest } from '@safealert/contracts';
+import { progressStatusLabel } from './progressUi';
 
 export type ResponderRequestPresentation = {
   title: string;
@@ -27,6 +28,20 @@ export function displayNumber(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value) ? String(value) : 'Not provided';
 }
 
+export function presentResponderAssignment(request: SafeResponseRequest, completed = false) {
+  const timestamps = completed ? [request.completedAt] : [
+    request.fieldUpdatedAt, request.inProgressAt, request.arrivedAt,
+    request.dispatchedAt, request.acceptedAt, request.updatedAt, request.createdAt
+  ];
+  const latest = timestamps.filter((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)))
+    .sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+  return {
+    ...presentResponderRequest(request),
+    status: progressStatusLabel(request.status),
+    updatedAt: latest ? formatSubmittedAt(latest) : undefined
+  };
+}
+
 function formatAssistanceType(assistanceType: SafeResponseRequest['assistanceType']) {
   return assistanceType
     .toLowerCase()
@@ -38,7 +53,16 @@ function formatAssistanceType(assistanceType: SafeResponseRequest['assistanceTyp
 function formatLocation(responseRequest: SafeResponseRequest) {
   const coordinates = responseRequest.location?.coordinates;
 
-  if (!coordinates || coordinates.length !== 2) {
+  // Protect against missing, non-array, or non-finite coordinate values
+  // so malformed emergency location data cannot crash queue cards or details.
+  if (
+    !coordinates ||
+    coordinates.length !== 2 ||
+    typeof coordinates[0] !== 'number' ||
+    typeof coordinates[1] !== 'number' ||
+    !Number.isFinite(coordinates[0]) ||
+    !Number.isFinite(coordinates[1])
+  ) {
     return 'Location not provided';
   }
 

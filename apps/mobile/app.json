@@ -3,8 +3,22 @@
     "name": "SafeAlert",
     "slug": "safealert",
     "version": "0.1.0",
+    "icon": "./assets/safealert-logo.png",
+    "splash": {
+      "image": "./assets/safealert-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#102a43"
+    },
     "orientation": "portrait",
     "scheme": "safealert",
+    "android": {
+      "package": "com.safealert.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/safealert-logo.png",
+        "backgroundColor": "#102a43"
+      },
+      "googleServicesFile": "./google-services.json"
+    },
     "userInterfaceStyle": "automatic",
     "plugins": [
       "expo-router",
@@ -21,7 +35,9 @@
           "cameraPermission": "Allow SafeAlert to take a photo as optional hazard evidence."
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-notifications",
+      "expo-audio"
     ],
     "extra": {
       "apiUrl": "http://localhost:4000/api/v1"

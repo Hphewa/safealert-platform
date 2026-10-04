@@ -6,6 +6,7 @@ import type { IncidentCandidate } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 import { dashboardTheme } from '../../shared/theme';
 import { officerBottomNavItems } from '../officerNavigation';
 import {
@@ -15,7 +16,6 @@ import {
 } from '../api/incidentApi';
 import {
   formatIncidentDistance,
-  formatIncidentLocation,
   formatIncidentTime,
   incidentGroupingErrorMessage
 } from '../incidentGrouping';
@@ -238,7 +238,7 @@ function CandidateCard({
         <Text style={styles.candidateDistance}>{formatIncidentDistance(candidate.distanceMeters)}</Text>
       </View>
       <View style={styles.detailsGrid}>
-        <Detail label="Approximate location" value={formatIncidentLocation(candidate.location)} />
+        <View style={styles.detail}><Text style={styles.detailLabel}>Approximate location</Text><HumanReadableLocation location={candidate.location} style={styles.detailValue} /></View>
         <Detail label="Verified reports" value={String(candidate.reportCount)} />
         <Detail label="Recent report" value={formatIncidentTime(candidate.latestReportAt)} />
       </View>

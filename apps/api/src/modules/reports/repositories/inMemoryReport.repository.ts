@@ -1,19 +1,21 @@
 import crypto from 'node:crypto';
 
-import type { CommunityReportSummary, ReportStatus, SafeReport } from '@safealert/contracts';
+import type { CommunityReportSummary, MonitoringReportSummary, ReportStatus, SafeReport } from '@safealert/contracts';
 
 import type {
-  CancelPendingResidentReportInput,
+  DeletePendingResidentReportInput,
   CreateReportInput,
   NearbyCommunityReportsQuery,
   ReportRepository,
   ReviewReportInput,
   UpdatePendingResidentReportInput
 } from './report.repository.js';
+import { isSafeReportImageReference } from './reportImageEvidence.js';
 import { haversineDistanceKm } from '../../../shared/geo.js';
 
 export class InMemoryReportRepository implements ReportRepository {
   private readonly reports = new Map<string, SafeReport>();
+  private readonly clientOperationIds = new Map<string, string>();
 
   async createReport(input: CreateReportInput): Promise<SafeReport> {
     const now = new Date().toISOString();
@@ -21,6 +23,7 @@ export class InMemoryReportRepository implements ReportRepository {
       id: crypto.randomBytes(12).toString('hex'),
       residentId: input.residentId,
       hazardType: input.hazardType,
+      ...(input.otherHazardType ? { otherHazardType: input.otherHazardType } : {}),
       description: input.description,
       severity: input.severity,
       location: input.location,
@@ -33,7 +36,14 @@ export class InMemoryReportRepository implements ReportRepository {
       report.mediaReference = input.mediaReference;
     }
 
+    if (input.voiceEvidence) {
+      report.voiceEvidence = input.voiceEvidence;
+    }
+
     this.reports.set(report.id, report);
+    if (input.clientOperationId) {
+      this.clientOperationIds.set(`${input.residentId}:${input.clientOperationId}`, report.id);
+    }
     return report;
   }
 
@@ -53,9 +63,41 @@ export class InMemoryReportRepository implements ReportRepository {
     return report?.residentId === residentId ? report : null;
   }
 
+  async findReportByClientOperationId(residentId: string, clientOperationId: string) {
+    const reportId = this.clientOperationIds.get(`${residentId}:${clientOperationId}`);
+    return reportId ? this.reports.get(reportId) ?? null : null;
+  }
+
   async findReportsByIds(ids: string[]) {
     const selectedIds = new Set(ids.map((id) => id.toLowerCase()));
     return [...this.reports.values()].filter((report) => selectedIds.has(report.id.toLowerCase()));
+  }
+
+  async findVerifiedImageEvidenceByIds(ids: string[]) {
+    if (ids.length === 0) return [];
+    const selectedIds = new Set(ids.map(id => id.toLowerCase()));
+    return [...this.reports.values()].flatMap(report => report.status === 'VERIFIED' && selectedIds.has(report.id.toLowerCase())
+      && isSafeReportImageReference(report.mediaReference)
+      ? [{ id: report.id, imageReference: report.mediaReference, createdAt: report.createdAt }]
+      : []);
+  }
+
+
+  async findReportsByCommunityReportClusterId(communityReportClusterId: string) {
+    return [...this.reports.values()]
+      .filter((report) => report.communityReportClusterId === communityReportClusterId)
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+      .map((report) => structuredClone(report));
+  }
+  async findVerifiedSummariesByIds(ids: string[]): Promise<MonitoringReportSummary[]> {
+    if (ids.length === 0) return [];
+    const selectedIds = new Set(ids.map((id) => id.toLowerCase()));
+    return [...this.reports.values()]
+      .filter((report) => selectedIds.has(report.id.toLowerCase()) && report.status === 'VERIFIED')
+      .map(({ id, description, severity, verifiedAt }) => ({
+        id, description, severity, ...(verifiedAt === undefined ? {} : { verifiedAt })
+      }));
+
   }
 
   async findReportsByStatuses(statuses: ReportStatus[]) {
@@ -81,12 +123,15 @@ export class InMemoryReportRepository implements ReportRepository {
       .map(({ report, distanceKm }) => ({
         id: report.id,
         hazardType: report.hazardType,
+        ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
         description: report.description,
         severity: report.severity,
         location: report.location,
         status: report.status,
         createdAt: report.createdAt,
+        ...(report.communityReportClusterId ? { communityReportClusterId: report.communityReportClusterId } : {}),
         ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
+        ...(report.voiceEvidence ? { voiceEvidence: report.voiceEvidence } : {}),
         distanceKm: Number(distanceKm.toFixed(2))
       }));
   }
@@ -101,13 +146,29 @@ export class InMemoryReportRepository implements ReportRepository {
     return {
       id: report.id,
       hazardType: report.hazardType,
+      ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
       description: report.description,
       severity: report.severity,
       location: report.location,
       status: report.status,
       createdAt: report.createdAt,
-      ...(report.mediaReference ? { mediaReference: report.mediaReference } : {})
+      ...(report.communityReportClusterId ? { communityReportClusterId: report.communityReportClusterId } : {}),
+      ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
+      ...(report.voiceEvidence ? { voiceEvidence: report.voiceEvidence } : {})
     };
+  }
+
+  async setCommunityReportCluster(input: { reportId: string; communityReportClusterId: string | null }) {
+    const report = this.reports.get(input.reportId);
+    if (!report) return null;
+    const updatedReport = { ...report };
+    if (input.communityReportClusterId) {
+      updatedReport.communityReportClusterId = input.communityReportClusterId;
+    } else {
+      delete updatedReport.communityReportClusterId;
+    }
+    this.reports.set(updatedReport.id, updatedReport);
+    return structuredClone(updatedReport);
   }
 
   seedReport(report: SafeReport) {
@@ -121,34 +182,35 @@ export class InMemoryReportRepository implements ReportRepository {
       return null;
     }
 
+    const { voiceEvidence, ...update } = input.update;
     const updatedReport: SafeReport = {
       ...report,
-      ...input.update,
+      ...update,
       updatedAt: new Date().toISOString()
     };
+
+    if (voiceEvidence === null) {
+      delete updatedReport.voiceEvidence;
+    } else if (voiceEvidence) {
+      updatedReport.voiceEvidence = voiceEvidence;
+    }
 
     this.reports.set(updatedReport.id, updatedReport);
     return updatedReport;
   }
 
-  async cancelPendingResidentReport(input: CancelPendingResidentReportInput) {
+  async deletePendingResidentReport(input: DeletePendingResidentReportInput) {
     const report = this.reports.get(input.reportId);
 
     if (!report || report.residentId !== input.residentId || report.status !== 'PENDING') {
-      return null;
+      return false;
     }
 
-    const cancelledAt = input.cancelledAt.toISOString();
-    const updatedReport: SafeReport = {
-      ...report,
-      status: 'CANCELLED',
-      updatedAt: cancelledAt,
-      cancelledById: input.residentId,
-      cancelledAt
-    };
-
-    this.reports.set(updatedReport.id, updatedReport);
-    return updatedReport;
+    this.reports.delete(report.id);
+    for (const [key, reportId] of this.clientOperationIds) {
+      if (reportId === report.id) this.clientOperationIds.delete(key);
+    }
+    return true;
   }
 
   async reviewReport(input: ReviewReportInput) {
@@ -167,12 +229,14 @@ export class InMemoryReportRepository implements ReportRepository {
             updatedAt: reviewedAt,
             verifiedById: input.officerId,
             verifiedAt: reviewedAt,
+            ...(input.verificationNote ? { verificationNote: input.verificationNote } : {}),
             verificationHistory: [
               ...(report.verificationHistory ?? []),
               {
                 action: 'VERIFY',
                 verifiedById: input.officerId,
-                verifiedAt: reviewedAt
+                verifiedAt: reviewedAt,
+                ...(input.verificationNote ? { verificationNote: input.verificationNote } : {})
               }
             ]
           }

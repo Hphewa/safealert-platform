@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
-import { useFocusEffect } from 'expo-router';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
 import type { FieldConfirmation } from '@safealert/contracts';
 import { useAuth } from '@/features/auth/hooks/useAuth';
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
@@ -9,8 +9,10 @@ import { VolunteerStateCard } from '../components/VolunteerStateCard';
 import { volunteerBottomNavItems } from '../mockData';
 import { listMyFieldConfirmations } from '../api/fieldConfirmationsApi';
 import { apiBaseUrl } from '@/services/api/client';
+import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 
 export function VolunteerConfirmationsScreen() {
+  const router = useRouter();
   const { accessToken } = useAuth();
   const [confirmations, setConfirmations] = useState<FieldConfirmation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,7 +69,14 @@ export function VolunteerConfirmationsScreen() {
         confirmations.length === 0 ? <VolunteerStateCard title="No Confirmations Yet" message="Your submitted confirmations and flags will appear here." /> :
           confirmations.map((item) => {
             const isConfirmed = item.outcome === 'CONFIRMED';
-            return <View key={item.id} style={styles.card}>
+            return <Pressable
+              accessibilityHint="Open the related community report details."
+              accessibilityLabel={`Open report for ${isConfirmed ? 'confirmed situation' : 'flagged issue'}`}
+              accessibilityRole="button"
+              key={item.id}
+              onPress={() => router.push(`/volunteer/reports/${encodeURIComponent(item.reportId)}`)}
+              style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+            >
               <View style={styles.cardHeader}>
                 <View style={[styles.outcomeIcon, isConfirmed ? styles.confirmedBackground : styles.flagBackground]}>
                   <Text accessible={false} style={[styles.iconText, isConfirmed ? styles.confirmedText : styles.flagText]}>{isConfirmed ? '\u2713' : '!'}</Text>
@@ -80,6 +89,7 @@ export function VolunteerConfirmationsScreen() {
                   <View style={styles.statusDot} />
                   <Text style={styles.statusText}>{item.status}</Text>
                 </View>
+                <DashboardGlyph color={dashboardTheme.colors.muted} name="chevron-forward" size={18} />
               </View>
               {item.outcome === 'UNABLE_TO_CONFIRM' ? <View style={styles.reasonBox}>
                 <Text style={styles.reasonLabel}>REASON FOR FLAG</Text>
@@ -96,15 +106,15 @@ export function VolunteerConfirmationsScreen() {
               </View>}
               <View style={styles.cardFooter}>
                 <View style={styles.metadata}>
-                  <Text style={styles.metaLabel}>REPORT REFERENCE</Text>
-                  <Text selectable style={styles.reportReference}>{item.reportId}</Text>
+                  <Text style={styles.metaLabel}>REPORT</Text>
+                  <Text style={styles.reportReference}>Community report</Text>
                 </View>
                 <View style={styles.metadata}>
                   <Text style={styles.metaLabel}>SUBMITTED</Text>
                   <Text style={styles.dateText}>{new Date(item.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })} at {new Date(item.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}</Text>
                 </View>
               </View>
-            </View>;
+            </Pressable>;
           })}
   </DashboardScreen>;
 }
@@ -123,6 +133,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: dashboardTheme.colors.text, fontSize: 18, fontWeight: '700' },
   sectionHint: { color: dashboardTheme.colors.muted, fontSize: 12 },
   card: { backgroundColor: dashboardTheme.colors.surface, padding: 20, borderRadius: dashboardTheme.radius.md, borderWidth: 1, borderColor: dashboardTheme.colors.border, gap: 18, ...cardShadow },
+  cardPressed: { opacity: 0.82 },
   cardHeader: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 12 },
   outcomeIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
   iconText: { fontSize: 25, fontWeight: '700' },

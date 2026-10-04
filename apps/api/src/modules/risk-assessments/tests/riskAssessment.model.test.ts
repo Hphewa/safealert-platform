@@ -26,8 +26,173 @@ describe('risk persistence constraints', () => {
   it('validates and serializes dates and references safely', async () => {
     const assessment = document();
     await expect(assessment.validate()).resolves.toBeUndefined();
-    expect(toSafeRiskAssessment(assessment)).toMatchObject({ status: 'ACTIVE', assessedAt: expect.any(String), incidentId: assessment.incidentId.toString() });
+    expect(assessment.isDeleted).toBe(false);
+    expect(toSafeRiskAssessment(assessment)).toMatchObject({ status: 'ACTIVE', isDeleted: false, assessedAt: expect.any(String), incidentId: assessment.incidentId.toString() });
     expect(toSafeRiskAssessment(assessment)).not.toHaveProperty('_id');
+  });
+  it('stores new contribution snapshots but keeps legacy snapshots absent', async () => {
+    const assessment = document();
+    assessment.set({ calculationVersion: 'risk-v1', factorContributions: [
+      { key: 'hazardSeverity', label: 'Hazard severity', selectedValue: 'LOW', points: 0 }
+    ] });
+    await expect(assessment.validate()).resolves.toBeUndefined();
+    expect(toSafeRiskAssessment(assessment)).toMatchObject({ calculationVersion: 'risk-v1',
+      factorContributions: [{ key: 'hazardSeverity', points: 0 }] });
+    const legacy = RiskAssessmentModel.hydrate(document().toObject());
+    expect(toSafeRiskAssessment(legacy)).not.toHaveProperty('calculationVersion');
+    expect(toSafeRiskAssessment(legacy)).not.toHaveProperty('factorContributions');
+  });
+  it('serializes deletion audit fields without changing operational status', async () => {
+    const assessment = document();
+    const deletedAt = new Date('2026-09-26T13:00:00.000Z');
+    const deletedById = new mongoose.Types.ObjectId();
+    assessment.set({
+      status: 'CLOSED', isDeleted: true, deletedAt, deletedById,
+      deleteReason: 'DUPLICATE_RECORD', deleteNote: 'Duplicate field assessment.'
+    });
+
+    await expect(assessment.validate()).resolves.toBeUndefined();
+
+    expect(toSafeRiskAssessment(assessment)).toMatchObject({
+      status: 'CLOSED', isDeleted: true, deletedAt: deletedAt.toISOString(),
+      deletedById: deletedById.toString(), deleteReason: 'DUPLICATE_RECORD',
+      deleteNote: 'Duplicate field assessment.'
+    });
+  });
+  it('keeps legacy assessments visible when deletion state was not stored', () => {
+    const legacy = RiskAssessmentModel.hydrate(document().toObject());
+    expect(legacy.isDeleted).toBe(false);
+    expect(toSafeRiskAssessment(legacy)).toMatchObject({ isDeleted: false });
+  });
+  it.each([
+    { deletedAt: undefined }, { deletedById: undefined }, { deleteReason: undefined }
+  ])('requires deletion audit fields for a deleted record: %j', async (missing) => {
+    const assessment = document();
+    assessment.status = 'CLOSED';
+    assessment.set({
+      isDeleted: true, deletedAt: new Date(), deletedById: new mongoose.Types.ObjectId(),
+      deleteReason: 'CREATED_BY_MISTAKE', ...missing
+    });
+    await expect(assessment.validate()).rejects.toThrow();
+  });
+  it.each([undefined, '', '          ', 'too short', 'x'.repeat(501)])(
+    'requires a valid OTHER delete note: %j', async (deleteNote) => {
+      const assessment = document();
+      assessment.status = 'CLOSED';
+      assessment.set({
+        isDeleted: true, deletedAt: new Date(), deletedById: new mongoose.Types.ObjectId(),
+        deleteReason: 'OTHER', deleteNote
+      });
+      await expect(assessment.validate()).rejects.toThrow();
+    });
+  it('rejects unsupported delete reasons', async () => {
+    const assessment = document();
+    assessment.status = 'CLOSED';
+    assessment.set({
+      isDeleted: true, deletedAt: new Date(), deletedById: new mongoose.Types.ObjectId(),
+      deleteReason: 'UNKNOWN'
+    });
+    await expect(assessment.validate()).rejects.toThrow();
+  });
+  it('persists and safely serializes reassessment lineage and closure metadata', async () => {
+    const assessment = document();
+    assessment.status = 'CLOSED';
+    const previousAssessmentId = new mongoose.Types.ObjectId();
+    const closedById = new mongoose.Types.ObjectId();
+    assessment.set({
+      previousAssessmentId, reassessmentReason: 'Conditions changed substantially.',
+      closureReason: 'REASSESSED', closedAt: new Date('2026-09-26T12:30:00.000Z'), closedById
+    });
+
+    await expect(assessment.validate()).resolves.toBeUndefined();
+    expect(RiskAssessmentModel.schema.path('previousAssessmentId').options.ref).toBe('RiskAssessment');
+    expect(RiskAssessmentModel.schema.path('closedById').options.ref).toBe('User');
+    expect(toSafeRiskAssessment(assessment)).toMatchObject({
+      previousAssessmentId: previousAssessmentId.toString(),
+      reassessmentReason: 'Conditions changed substantially.',
+      closureReason: 'REASSESSED',
+      closedAt: '2026-09-26T12:30:00.000Z',
+      closedById: closedById.toString()
+    });
+  });
+  it.each(['INCIDENT_RESOLVED', 'HAZARD_NO_LONGER_ACTIVE', 'MONITORING_COMPLETED'])(
+    'validates manual closure %s without a note', async (closureReason) => {
+      const assessment = document();
+      assessment.set({ status: 'CLOSED', closureReason, closedAt: new Date(), closedById: new mongoose.Types.ObjectId() });
+      await expect(assessment.validate()).resolves.toBeUndefined();
+      expect(toSafeRiskAssessment(assessment).closureReason).toBe(closureReason);
+    });
+  it('trims and serializes an OTHER closure note', async () => {
+    const assessment = document();
+    assessment.set({
+      status: 'CLOSED', closureReason: 'OTHER', closureNote: '  Conditions reviewed and resolved.  ',
+      closedAt: new Date(), closedById: new mongoose.Types.ObjectId()
+    });
+    await expect(assessment.validate()).resolves.toBeUndefined();
+    expect(toSafeRiskAssessment(assessment).closureNote).toBe('Conditions reviewed and resolved.');
+  });
+  it.each([
+    { status: 'ACTIVE' }, { closedAt: undefined }, { closedById: undefined }
+  ])('requires complete lifecycle metadata for a manual reason: %j', async (missing) => {
+    const assessment = document();
+    assessment.set({
+      status: 'CLOSED', closureReason: 'INCIDENT_RESOLVED', closedAt: new Date(),
+      closedById: new mongoose.Types.ObjectId(), ...missing
+    });
+    await expect(assessment.validate()).rejects.toThrow();
+  });
+  it.each([undefined, '', '     ', 'too short', 'x'.repeat(501)])(
+    'requires a valid note for OTHER: %j', async (closureNote) => {
+      const assessment = document();
+      assessment.set({
+        status: 'CLOSED', closureReason: 'OTHER', closureNote,
+        closedAt: new Date(), closedById: new mongoose.Types.ObjectId()
+      });
+      await expect(assessment.validate()).rejects.toThrow();
+    });
+  it('accepts legacy CLOSED records without closure metadata', async () => {
+    const assessment = document();
+    assessment.status = 'CLOSED';
+    await expect(assessment.validate()).resolves.toBeUndefined();
+  });
+  it('does not require a manual note for REASSESSED', async () => {
+    const assessment = document();
+    assessment.set({
+      status: 'CLOSED', closureReason: 'REASSESSED', closedAt: new Date(),
+      closedById: new mongoose.Types.ObjectId()
+    });
+    await expect(assessment.validate()).resolves.toBeUndefined();
+  });
+  it('filters Mongo history by incident, sorts all results deterministically, and serializes safe assessments', async () => {
+    const assessment = document();
+    const query = RiskAssessmentModel.find();
+    const sort = vi.spyOn(query, 'sort').mockReturnValue(query);
+    const execute = vi.spyOn(query, 'exec').mockResolvedValue([assessment]);
+    const find = vi.spyOn(RiskAssessmentModel, 'find').mockReturnValue(query);
+
+    const result = await new MongooseRiskAssessmentRepository().findHistoryByIncidentId(assessment.incidentId.toString());
+
+    expect(find).toHaveBeenCalledWith({ incidentId: assessment.incidentId.toString(), isDeleted: { $ne: true } });
+    expect(sort).toHaveBeenCalledWith({ assessedAt: -1, _id: -1 });
+    expect(execute).toHaveBeenCalledOnce();
+    expect(result).toEqual([toSafeRiskAssessment(assessment)]);
+  });
+  it('filters soft-deleted records from direct and active Mongoose lookups', async () => {
+    const directQuery = RiskAssessmentModel.findOne({});
+    vi.spyOn(directQuery, 'exec').mockResolvedValue(null);
+    const findOne = vi.spyOn(RiskAssessmentModel, 'findOne').mockReturnValue(directQuery);
+    const repository = new MongooseRiskAssessmentRepository();
+
+    await repository.findById('123456789012345678901234');
+    expect(findOne).toHaveBeenCalledWith({ _id: '123456789012345678901234', isDeleted: { $ne: true } });
+
+    const activeQuery = RiskAssessmentModel.findOne({});
+    vi.spyOn(activeQuery, 'exec').mockResolvedValue(null);
+    findOne.mockReturnValue(activeQuery);
+    await repository.findActiveByIncidentId('223456789012345678901234');
+    expect(findOne).toHaveBeenLastCalledWith({
+      incidentId: '223456789012345678901234', status: 'ACTIVE', isDeleted: { $ne: true }
+    });
   });
   it.each([{ vulnerablePeople: 2 }, { peopleAffected: -1 }, { vulnerablePeople: 0.5 }, { finalRiskLevel: 'HIGH' }])('enforces model invariants %j', async (invalid) => {
     const assessment = document();

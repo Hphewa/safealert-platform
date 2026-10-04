@@ -1,14 +1,15 @@
-import type { CommunityReportSummary } from '@safealert/contracts';
+import type { CommunityReportSummary, MonitoringReportSummary } from '@safealert/contracts';
 
 import { ReportModel, toSafeReport } from '../models/report.model.js';
 import type {
   CreateReportInput,
-  CancelPendingResidentReportInput,
+  DeletePendingResidentReportInput,
   NearbyCommunityReportsQuery,
   ReportRepository,
   ReviewReportInput,
   UpdatePendingResidentReportInput
 } from './report.repository.js';
+import { isSafeReportImageReference } from './reportImageEvidence.js';
 
 export class MongooseReportRepository implements ReportRepository {
   async createReport(input: CreateReportInput) {
@@ -34,10 +35,39 @@ export class MongooseReportRepository implements ReportRepository {
     return report ? toSafeReport(report) : null;
   }
 
+  async findReportByClientOperationId(residentId: string, clientOperationId: string) {
+    const report = await ReportModel.findOne({ residentId, clientOperationId }).exec();
+    return report ? toSafeReport(report) : null;
+  }
+
   async findReportsByIds(reportIds: string[]) {
     if (reportIds.length === 0) return [];
     const reports = await ReportModel.find({ _id: { $in: reportIds } }).exec();
     return reports.map(toSafeReport);
+  }
+
+  async findVerifiedImageEvidenceByIds(reportIds: string[]) {
+    if (reportIds.length === 0) return [];
+    const reports = await ReportModel.find({ _id: { $in: reportIds }, status: 'VERIFIED' })
+      .select('_id mediaReference createdAt').exec();
+    return reports.flatMap(report => isSafeReportImageReference(report.mediaReference)
+      ? [{ id: report._id.toString(), imageReference: report.mediaReference, createdAt: report.createdAt.toISOString() }]
+      : []);
+  }
+
+
+  async findReportsByCommunityReportClusterId(communityReportClusterId: string) {
+    const reports = await ReportModel.find({ communityReportClusterId }).sort({ createdAt: 1 }).exec();
+    return reports.map(toSafeReport);
+  }
+  async findVerifiedSummariesByIds(reportIds: string[]): Promise<MonitoringReportSummary[]> {
+    if (reportIds.length === 0) return [];
+    const reports = await ReportModel.find({ _id: { $in: reportIds }, status: 'VERIFIED' })
+      .select('_id description severity verification.verifiedAt').exec();
+    return reports.map((report) => ({
+      id: report._id.toString(), description: report.description, severity: report.severity,
+      ...(report.verification?.verifiedAt ? { verifiedAt: report.verification.verifiedAt.toISOString() } : {})
+    }));
   }
 
   async findReportsByStatuses(statuses: CreateReportInput['status'][]) {
@@ -75,6 +105,7 @@ export class MongooseReportRepository implements ReportRepository {
           _id: 0,
           id: { $toString: '$_id' },
           hazardType: 1,
+          otherHazardType: 1,
           description: 1,
           severity: 1,
           location: 1,
@@ -87,6 +118,8 @@ export class MongooseReportRepository implements ReportRepository {
             }
           },
           mediaReference: 1,
+          voiceEvidence: 1,
+          communityReportClusterId: { $toString: '$communityReportClusterId' },
           distanceKm: {
             $round: [{ $divide: ['$distanceMeters', 1000] }, 2]
           }
@@ -114,25 +147,51 @@ export class MongooseReportRepository implements ReportRepository {
     return {
       id: safeReport.id,
       hazardType: safeReport.hazardType,
+      ...(safeReport.otherHazardType ? { otherHazardType: safeReport.otherHazardType } : {}),
       description: safeReport.description,
       severity: safeReport.severity,
       location: safeReport.location,
       status: safeReport.status,
       createdAt: safeReport.createdAt,
-      ...(safeReport.mediaReference ? { mediaReference: safeReport.mediaReference } : {})
+      ...(safeReport.mediaReference ? { mediaReference: safeReport.mediaReference } : {}),
+      ...(safeReport.voiceEvidence ? { voiceEvidence: safeReport.voiceEvidence } : {}),
+      ...(safeReport.communityReportClusterId ? { communityReportClusterId: safeReport.communityReportClusterId } : {})
     };
   }
 
+  async setCommunityReportCluster(input: { reportId: string; communityReportClusterId: string | null }) {
+    const report = await ReportModel.findByIdAndUpdate(
+      input.reportId,
+      input.communityReportClusterId
+        ? { $set: { communityReportClusterId: input.communityReportClusterId } }
+        : { $unset: { communityReportClusterId: '' } },
+      { new: true, runValidators: true, timestamps: false }
+    ).exec();
+
+    return report ? toSafeReport(report) : null;
+  }
+
   async updatePendingResidentReport(input: UpdatePendingResidentReportInput) {
+    const { voiceEvidence, ...setUpdate } = input.update;
+    const unsetUpdate = voiceEvidence === null ? { voiceEvidence: '' } : undefined;
+    const updateDocument = {
+      ...(Object.keys(setUpdate).length > 0 || voiceEvidence
+        ? {
+            $set: {
+              ...setUpdate,
+              ...(voiceEvidence ? { voiceEvidence } : {})
+            }
+          }
+        : {}),
+      ...(unsetUpdate ? { $unset: unsetUpdate } : {})
+    };
     const report = await ReportModel.findOneAndUpdate(
       {
         _id: input.reportId,
         residentId: input.residentId,
         status: 'PENDING'
       },
-      {
-        $set: input.update
-      },
+      updateDocument,
       {
         new: true,
         runValidators: true
@@ -142,27 +201,15 @@ export class MongooseReportRepository implements ReportRepository {
     return report ? toSafeReport(report) : null;
   }
 
-  async cancelPendingResidentReport(input: CancelPendingResidentReportInput) {
-    const report = await ReportModel.findOneAndUpdate(
+  async deletePendingResidentReport(input: DeletePendingResidentReportInput) {
+    const result = await ReportModel.deleteOne(
       {
         _id: input.reportId,
         residentId: input.residentId,
         status: 'PENDING'
-      },
-      {
-        $set: {
-          status: 'CANCELLED',
-          cancelledById: input.residentId,
-          cancelledAt: input.cancelledAt
-        }
-      },
-      {
-        new: true,
-        runValidators: true
       }
     ).exec();
-
-    return report ? toSafeReport(report) : null;
+    return result.deletedCount === 1;
   }
 
   async reviewReport(input: ReviewReportInput) {
@@ -172,12 +219,14 @@ export class MongooseReportRepository implements ReportRepository {
             status: 'VERIFIED' as const,
             audit: {
               verifiedById: input.officerId,
-              verifiedAt: input.reviewedAt
+              verifiedAt: input.reviewedAt,
+              ...(input.verificationNote ? { verificationNote: input.verificationNote } : {})
             },
             history: {
               action: 'VERIFY' as const,
               verifiedById: input.officerId,
-              verifiedAt: input.reviewedAt
+              verifiedAt: input.reviewedAt,
+              ...(input.verificationNote ? { verificationNote: input.verificationNote } : {})
             }
           }
         : {

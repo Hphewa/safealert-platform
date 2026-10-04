@@ -10,6 +10,31 @@ export function listAssignedResponderRequests(accessToken: string) {
   return getResponderRequestQueue('/response-requests/responder/assigned', accessToken);
 }
 
+export function listCompletedResponderRequests(accessToken: string) {
+  return getResponderRequestQueue('/response-requests/responder/completed', accessToken);
+}
+
+// LDFEW-266 / LDFEW-355: Fetch single emergency request details for responder to display previously saved updates
+export async function getResponderRequestById(requestId: string, accessToken: string): Promise<SafeResponseRequest | null> {
+  try {
+    const response = await apiRequest<unknown>(
+      `/response-requests/responder/requests/${encodeURIComponent(requestId)}`,
+      { accessToken }
+    );
+    if (isSafeResponseRequest(response)) {
+      return response;
+    }
+    return null;
+  } catch {
+    // Resilient fallback: lookup from assigned and pending queues
+    const [assigned, pending] = await Promise.all([
+      listAssignedResponderRequests(accessToken).catch(() => []),
+      listPendingResponderRequests(accessToken).catch(() => [])
+    ]);
+    return [...assigned, ...pending].find((r) => r.id === requestId) ?? null;
+  }
+}
+
 async function getResponderRequestQueue(path: string, accessToken: string) {
   const response = await apiRequest<unknown>(path, { accessToken });
 

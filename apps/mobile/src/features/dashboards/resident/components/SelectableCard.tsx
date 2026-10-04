@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
 
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { dashboardTheme } from '../../shared/theme';
@@ -9,6 +9,7 @@ type SelectableCardProps<TValue extends string> = {
   value: TValue;
   selected: boolean;
   icon?: DashboardIconName;
+  imageSource?: ImageSourcePropType;
   accessibilityLabel?: string;
   onSelect: (value: TValue) => void;
 };
@@ -18,6 +19,7 @@ export function SelectableCard<TValue extends string>({
   value,
   selected,
   icon,
+  imageSource,
   accessibilityLabel,
   onSelect
 }: SelectableCardProps<TValue>) {
@@ -33,8 +35,10 @@ export function SelectableCard<TValue extends string>({
         pressed && styles.cardPressed
       ]}
     >
-      {icon ? (
-        <View style={[styles.iconWrap, selected && styles.iconWrapSelected]}>
+      {imageSource ? (
+        <Image accessibilityLabel={`${label} hazard icon`} source={imageSource} style={styles.hazardImage} />
+      ) : icon ? (
+        <View style={styles.iconWrap}>
           <DashboardGlyph
             color={selected ? dashboardTheme.colors.primaryStrong : dashboardTheme.colors.info}
             name={icon}
@@ -69,15 +73,16 @@ const styles = StyleSheet.create({
     opacity: 0.82
   },
   iconWrap: {
-    width: 42,
-    height: 42,
+    width: 28,
+    height: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
-    backgroundColor: dashboardTheme.colors.infoSoft
+    borderRadius: 14
   },
-  iconWrapSelected: {
-    backgroundColor: dashboardTheme.colors.primarySoft
+  hazardImage: {
+    width: 56,
+    height: 56,
+    resizeMode: 'contain'
   },
   label: {
     paddingRight: 24,

@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { apiBaseUrl } from '../../../../services/api/client';
 import {
   listAssignedResponderRequests,
+  listCompletedResponderRequests,
   listPendingResponderRequests
 } from './responderRequestsApi';
 
@@ -83,6 +84,17 @@ describe('Responder request API', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(listPendingResponderRequests('responder-access-token')).resolves.toEqual([]);
+  });
+
+  it('loads completed history with session authentication and no client-selected responder', async () => {
+    const completed = { ...responseRequest, status: 'COMPLETED' as const, assignedResponderId: 'responder-1' };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse([completed]));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(listCompletedResponderRequests('responder-access-token')).resolves.toEqual([completed]);
+    expect(fetchMock).toHaveBeenCalledWith(`${apiBaseUrl}/response-requests/responder/completed`, expect.objectContaining({
+      method: 'GET', headers: expect.objectContaining({ Authorization: 'Bearer responder-access-token' })
+    }));
+    expect(fetchMock.mock.calls[0]?.[0]).not.toContain('responderId');
   });
 
   it('surfaces a user-safe client error when the queue request fails', async () => {

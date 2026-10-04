@@ -1,15 +1,93 @@
 import {
   EMERGENCY_ASSISTANCE_TYPES,
+  EMERGENCY_CONTACT_PHONE_PATTERN,
+  EMERGENCY_CONTACT_PHONE_MESSAGE,
+  EMERGENCY_VULNERABLE_COUNT_KEYS,
+  getEmergencyVulnerableCountError,
   RESPONSE_STATUSES,
   ROAD_ACCESSIBILITIES
 } from '@safealert/contracts';
 import { z } from 'zod';
 
+export const cancelResponseRequestSchema = z.object({
+  params: z.object({
+    // Reject malformed IDs before Mongoose can attempt to cast them.
+    requestId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'A valid response request id is required.')
+  }).strict(),
+  // Cancellation takes its identity from authentication and its target from the URL.
+  // Do not accept client-selected owners, statuses, or other mutation fields.
+  body: z.object({}).strict().optional(),
+  query: z.object({}).strict()
+});
+
+// LDFEW-266 / LDFEW-354: Validation for saving responder operational field notes.
+// Strict body validation ensures only fieldNotes is accepted; client-supplied timestamps (e.g. fieldUpdatedAt,
+// createdAt, updatedAt) are strictly rejected so that the authoritative timestamp is always generated on the server.
+export const recordFieldUpdateSchema = z.object({
+  params: z.object({
+    // Reject malformed IDs before Mongoose can attempt to cast them
+    requestId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'A valid response request id is required.')
+  }).strict(),
+  body: z.object({
+    fieldNotes: z
+      .string({ required_error: 'Field update notes are required.' })
+      .trim()
+      .min(3, 'Field update notes must be at least 3 characters.')
+      .max(2000, 'Field update notes must be at most 2000 characters.')
+  }).strict(),
+  query: z.object({}).strict()
+});
+
+// LDFEW-121 & LDFEW-266 / LDFEW-354: Strict progress transitions, accepting completion details on final completion.
+// Strict body validation rejects client-supplied timestamps (such as completedAt, createdAt, updatedAt) so that
+// lifecycle timestamps can only be created by the server during valid state transitions.
 export const responseRequestProgressSchema = z
   .object({
-    status: z.enum(RESPONSE_STATUSES).exclude(['NEW'])
+    status: z.enum(RESPONSE_STATUSES).exclude(['NEW', 'CANCELLED']),
+    assistanceProvided: z
+      .string()
+      .trim()
+      .min(3, 'Assistance provided must be at least 3 characters.')
+      .max(1000, 'Assistance provided must be at most 1000 characters.')
+      .optional(),
+    completionSummary: z
+      .string()
+      .trim()
+      .min(3, 'Completion summary must be at least 3 characters.')
+      .max(1000, 'Completion summary must be at most 1000 characters.')
+      .optional(),
+    responderRemarks: z
+      .string()
+      .trim()
+      .max(1000, 'Responder remarks must be at most 1000 characters.')
+      .optional()
   })
-  .strict();
+  .strict()
+  .superRefine((data, ctx) => {
+    if (data.status !== 'COMPLETED') {
+      if (data.assistanceProvided !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Assistance provided is only allowed when status is COMPLETED.',
+          path: ['assistanceProvided']
+        });
+      }
+      if (data.completionSummary !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Completion summary is only allowed when status is COMPLETED.',
+          path: ['completionSummary']
+        });
+      }
+      if (data.responderRemarks !== undefined) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'Responder remarks are only allowed when status is COMPLETED.',
+          path: ['responderRemarks']
+        });
+      }
+    }
+  });
 
 const geoJsonPointSchema = z
   .object({
@@ -63,10 +141,8 @@ export const createResponseRequestSchema = z
           .min(2, 'Contact name must be at least 2 characters.')
           .max(120, 'Contact name must be at most 120 characters.'),
         phoneNumber: z
-          .string()
-          .trim()
-          .min(7, 'Contact phone number must be at least 7 characters.')
-          .max(32, 'Contact phone number must be at most 32 characters.'),
+          .string({ required_error: EMERGENCY_CONTACT_PHONE_MESSAGE })
+          .regex(EMERGENCY_CONTACT_PHONE_PATTERN, EMERGENCY_CONTACT_PHONE_MESSAGE),
         email: z.string().trim().email('Contact email must be valid.').max(320).optional()
       })
       .strict(),
@@ -83,6 +159,13 @@ export const createResponseRequestSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    // The edit endpoint reuses this schema. Overlapping categories are allowed.
+    const vulnerableError = getEmergencyVulnerableCountError(value.affectedPeople, value.vulnerablePeople);
+    for (const key of EMERGENCY_VULNERABLE_COUNT_KEYS) {
+      if (value.vulnerablePeople[key] > value.affectedPeople) {
+        context.addIssue({ code: z.ZodIssueCode.custom, message: vulnerableError ?? 'Count exceeds affected people.', path: ['vulnerablePeople', key] });
+      }
+    }
     if (value.injuredPeople > value.affectedPeople) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -99,3 +182,23 @@ export const createResponseRequestSchema = z
       });
     }
   });
+
+// A complete editable snapshot keeps the existing cross-field medical rules
+// consistent with creation. Strict objects reject ownership and lifecycle fields.
+export const updateResponseRequestSchema = z.object({
+  params: z.object({
+    requestId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'A valid response request id is required.')
+  }).strict(),
+  body: createResponseRequestSchema,
+  query: z.object({}).strict()
+});
+
+// LDFEW-266 / LDFEW-355: Schema for responder fetching specific emergency request details
+export const responderRequestParamsSchema = z.object({
+  params: z.object({
+    requestId: z.string().regex(/^[a-fA-F0-9]{24}$/, 'A valid response request id is required.')
+  }).strict(),
+  body: z.object({}).strict().optional(),
+  query: z.object({}).strict().optional()
+});
+

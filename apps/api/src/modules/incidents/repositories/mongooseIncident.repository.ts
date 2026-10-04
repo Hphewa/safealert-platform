@@ -1,9 +1,21 @@
 import { IncidentModel, toSafeIncident } from '../models/incident.model.js';
+import { geoJsonPointSchema } from '../../reports/validation/report.schemas.js';
 import {
   ActiveIncidentExistsError, type CreateIncidentInput, type IncidentRepository
 } from './incident.repository.js';
 
 export class MongooseIncidentRepository implements IncidentRepository {
+  async findActiveMapCandidates() {
+    const records = await IncidentModel.find({ status: 'ACTIVE' })
+      .select('_id hazardType location status reportIds').sort({ _id: 1 }).lean().exec();
+    return records.map(record => {
+      const location = geoJsonPointSchema.safeParse(record.location);
+      return { id: record._id.toString(), hazardType: record.hazardType, status: 'ACTIVE' as const,
+        location: location.success ? location.data : null,
+        reportCount: Array.isArray(record.reportIds) ? record.reportIds.length : 0 };
+    });
+  }
+
   async create(input: CreateIncidentInput) {
     // Index initialization must succeed before the first write can rely on uniqueness.
     await IncidentModel.init();
@@ -20,6 +32,11 @@ export class MongooseIncidentRepository implements IncidentRepository {
   async findById(incidentId: string) {
     const incident = await IncidentModel.findById(incidentId).exec();
     return incident ? toSafeIncident(incident) : null;
+  }
+
+  async findAll() {
+    const incidents = await IncidentModel.find({}).sort({ updatedAt: -1, _id: -1 }).exec();
+    return incidents.map(toSafeIncident);
   }
 
   async findActive() {

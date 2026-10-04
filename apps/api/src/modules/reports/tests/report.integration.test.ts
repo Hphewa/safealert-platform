@@ -10,6 +10,7 @@ import { InMemoryAuthRepository } from '../../auth/repositories/inMemoryAuth.rep
 import { InMemoryReportRepository } from '../repositories/inMemoryReport.repository.js';
 import { InMemoryFieldConfirmationRepository } from '../../field-confirmations/repositories/inMemoryFieldConfirmation.repository.js';
 import { InMemoryIncidentRepository } from '../../incidents/repositories/inMemoryIncident.repository.js';
+import { InMemoryCommunityReportClusterRepository } from '../../report-clusters/repositories/inMemoryCommunityReportCluster.repository.js';
 
 function createTestContext(overrides: Partial<ApiConfig> = {}) {
   process.env.NODE_ENV = 'test';
@@ -25,7 +26,14 @@ function createTestContext(overrides: Partial<ApiConfig> = {}) {
   const authRepository = new InMemoryAuthRepository();
   const reportRepository = new InMemoryReportRepository();
   const incidentRepository = new InMemoryIncidentRepository();
-  const app = createApp({ config, authRepository, reportRepository, incidentRepository, fieldConfirmationRepository: new InMemoryFieldConfirmationRepository() });
+  const app = createApp({
+    config,
+    authRepository,
+    reportRepository,
+    incidentRepository,
+    communityReportClusterRepository: new InMemoryCommunityReportClusterRepository(),
+    fieldConfirmationRepository: new InMemoryFieldConfirmationRepository()
+  });
 
   return { app, authRepository, reportRepository, incidentRepository };
 }
@@ -93,7 +101,8 @@ function seedReport(
     status: overrides.status,
     createdAt: overrides.createdAt,
     updatedAt: overrides.updatedAt ?? overrides.createdAt,
-    ...(overrides.mediaReference ? { mediaReference: overrides.mediaReference } : {})
+    ...(overrides.mediaReference ? { mediaReference: overrides.mediaReference } : {}),
+    ...(overrides.voiceEvidence ? { voiceEvidence: overrides.voiceEvidence } : {})
   };
 
   reportRepository.seedReport(report);
@@ -157,6 +166,56 @@ describe('report API', () => {
     expect(response.body.report.residentId).not.toBe(validReportPayload.residentId);
     expect(Date.parse(response.body.report.createdAt)).not.toBeNaN();
     expect(response.body.report.updatedAt).toBe(response.body.report.createdAt);
+  });
+
+  it('returns the existing report for a retried client operation', async () => {
+    const { app } = createTestContext();
+    const resident = await registerResident(app);
+    const operationId = 'resident-offline-operation-1';
+
+    const first = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .set('Idempotency-Key', operationId)
+      .send(validReportPayload);
+    const second = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .set('Idempotency-Key', operationId)
+      .send(validReportPayload);
+
+    expect(first.status).toBe(201);
+    expect(second.status).toBe(201);
+    expect(second.body.report.id).toBe(first.body.report.id);
+    expect((await request(app)
+      .get('/api/v1/reports/mine')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)).body.reports).toHaveLength(1);
+  });
+
+  it('creates a pending resident hazard report with optional voice evidence metadata', async () => {
+    const { app } = createTestContext();
+    const resident = await registerResident(app);
+    const voiceEvidence = {
+      mediaReference: '/api/v1/media/report-evidence/resident-voice.m4a',
+      contentType: 'audio/mp4',
+      durationSeconds: 42
+    };
+
+    const response = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.body.accessToken}`)
+      .send({
+        ...validReportPayload,
+        voiceEvidence
+      });
+
+    expect(response.status).toBe(201);
+    expect(response.body.report).toEqual(
+      expect.objectContaining({
+        residentId: resident.body.user.id,
+        voiceEvidence
+      })
+    );
   });
 
   it.each([
@@ -261,6 +320,7 @@ describe('report API', () => {
         .send({
           ...validReportPayload,
           hazardType,
+          ...(hazardType === 'OTHER' ? { otherHazardType: 'Damaged building' } : {}),
           description: `${hazardType} hazard reported near the main road.`
         });
 
@@ -1003,7 +1063,12 @@ describe('report API', () => {
         severity: 'MODERATE',
         description: 'Updated resident description before verification.',
         location: { type: 'Point', coordinates: [80.1234, 7.1234] },
-        mediaReference: '/api/v1/media/report-evidence/updated-photo.jpg'
+        mediaReference: '/api/v1/media/report-evidence/updated-photo.jpg',
+        voiceEvidence: {
+          mediaReference: '/api/v1/media/report-evidence/updated-voice.m4a',
+          contentType: 'audio/mp4',
+          durationSeconds: 37
+        }
       });
     const stored = await reportRepository.findReportById(reportId);
 
@@ -1017,10 +1082,43 @@ describe('report API', () => {
         description: 'Updated resident description before verification.',
         location: { type: 'Point', coordinates: [80.1234, 7.1234] },
         mediaReference: '/api/v1/media/report-evidence/updated-photo.jpg',
+        voiceEvidence: {
+          mediaReference: '/api/v1/media/report-evidence/updated-voice.m4a',
+          contentType: 'audio/mp4',
+          durationSeconds: 37
+        },
         status: 'PENDING'
       })
     );
     expect(stored).toEqual(expect.objectContaining({ id: reportId, status: 'PENDING' }));
+  });
+
+  it('allows a resident to remove voice evidence from their own pending report', async () => {
+    const { app, authRepository } = createTestContext();
+    const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-edit-remove-voice@example.com');
+
+    const created = await request(app)
+      .post('/api/v1/reports')
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send({
+        ...validReportPayload,
+        voiceEvidence: {
+          mediaReference: '/api/v1/media/report-evidence/original-voice.m4a',
+          contentType: 'audio/mp4',
+          durationSeconds: 22
+        }
+      });
+    const reportId = created.body.report.id as string;
+
+    const response = await request(app)
+      .patch(`/api/v1/reports/mine/${reportId}`)
+      .set('Authorization', `Bearer ${resident.token}`)
+      .send({
+        voiceEvidence: null
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.report.voiceEvidence).toBeUndefined();
   });
 
   it('rejects resident edit overposting of server-controlled fields', async () => {
@@ -1048,7 +1146,7 @@ describe('report API', () => {
     expect(response.status).toBe(400);
   });
 
-  it('prevents foreign residents and non-resident roles from editing or cancelling resident reports', async () => {
+  it('prevents foreign residents and non-resident roles from editing or deleting resident reports', async () => {
     const { app, authRepository } = createTestContext();
     const residentA = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-owner@example.com');
     const residentB = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-foreign@example.com');
@@ -1066,18 +1164,18 @@ describe('report API', () => {
       .set('Authorization', `Bearer ${residentB.token}`)
       .send({ description: 'Foreign edit attempt.' });
     const foreignCancel = await request(app)
-      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .delete(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${residentB.token}`);
     const unauthenticatedEdit = await request(app)
       .patch(`/api/v1/reports/mine/${reportId}`)
       .send({ description: 'Unauthenticated edit attempt.' });
-    const unauthenticatedCancel = await request(app).patch(`/api/v1/reports/mine/${reportId}/cancel`);
+    const unauthenticatedCancel = await request(app).delete(`/api/v1/reports/mine/${reportId}`);
     const volunteerEdit = await request(app)
       .patch(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${volunteer.token}`)
       .send({ description: 'Volunteer edit attempt.' });
     const officerCancel = await request(app)
-      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .delete(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${officer.token}`);
 
     expect(foreignEdit.status).toBe(404);
@@ -1088,7 +1186,7 @@ describe('report API', () => {
     expect(officerCancel.status).toBe(403);
   });
 
-  it('soft-cancels a resident-owned pending report and removes it from pending workflows', async () => {
+  it('deletes a resident-owned pending report and removes it from pending workflows', async () => {
     const { app, authRepository, reportRepository } = createTestContext();
     const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', 'resident-cancel@example.com');
     const volunteer = await createAuthenticatedUser(authRepository, 'COMMUNITY_VOLUNTEER', 'volunteer-cancel-list@example.com');
@@ -1101,7 +1199,7 @@ describe('report API', () => {
     const reportId = created.body.report.id as string;
 
     const response = await request(app)
-      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .delete(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${resident.token}`);
     const stored = await reportRepository.findReportById(reportId);
     const volunteerList = await request(app)
@@ -1114,23 +1212,15 @@ describe('report API', () => {
       .get(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${resident.token}`);
 
-    expect(response.status).toBe(200);
-    expect(response.body.report).toEqual(
-      expect.objectContaining({
-        id: reportId,
-        status: 'CANCELLED',
-        cancelledById: resident.user.id,
-        cancelledAt: expect.any(String)
-      })
-    );
-    expect(stored).toEqual(expect.objectContaining({ id: reportId, status: 'CANCELLED' }));
+    expect(response.status).toBe(204);
+    expect(stored).toBeNull();
     expect(volunteerList.body.reports.map((report: SafeReport) => report.id)).not.toContain(reportId);
     expect(officerList.body.reports.map((report: SafeReport) => report.id)).not.toContain(reportId);
-    expect(residentDetail.body.report.status).toBe('CANCELLED');
+    expect(residentDetail.status).toBe(404);
   });
 
   it.each(['VERIFIED', 'REJECTED', 'CANCELLED', 'RESOLVED'] as const)(
-    'rejects resident edit and cancel for %s reports',
+    'rejects resident edit and delete for %s reports',
     async (status) => {
       const { app, authRepository, reportRepository } = createTestContext();
       const resident = await createAuthenticatedUser(authRepository, 'RESIDENT', `resident-lock-${status.toLowerCase()}@example.com`);
@@ -1147,7 +1237,7 @@ describe('report API', () => {
         .set('Authorization', `Bearer ${resident.token}`)
         .send({ description: 'Should not be accepted.' });
       const cancel = await request(app)
-        .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+        .delete(`/api/v1/reports/mine/${reportId}`)
         .set('Authorization', `Bearer ${resident.token}`);
 
       expect(edit.status).toBe(409);
@@ -1176,7 +1266,7 @@ describe('report API', () => {
       .set('Authorization', `Bearer ${resident.token}`)
       .send({ description: 'Stale resident edit after officer decision.' });
     const staleCancel = await request(app)
-      .patch(`/api/v1/reports/mine/${reportId}/cancel`)
+      .delete(`/api/v1/reports/mine/${reportId}`)
       .set('Authorization', `Bearer ${resident.token}`);
 
     expect(staleEdit.status).toBe(409);
@@ -1400,7 +1490,12 @@ describe('report API', () => {
       status: 'PENDING',
       createdAt: '2026-08-23T11:05:00.000Z',
       description: 'Flooding has started to cross the side lane.',
-      mediaReference: 'media/reports/flood-detail.jpg'
+      mediaReference: 'media/reports/flood-detail.jpg',
+      voiceEvidence: {
+        mediaReference: '/api/v1/media/report-evidence/detail-voice.m4a',
+        contentType: 'audio/mp4',
+        durationSeconds: 31
+      }
     });
 
     const response = await request(app)
@@ -1419,6 +1514,11 @@ describe('report API', () => {
           coordinates: [79.8612, 6.9271]
         },
         mediaReference: 'media/reports/flood-detail.jpg',
+        voiceEvidence: {
+          mediaReference: '/api/v1/media/report-evidence/detail-voice.m4a',
+          contentType: 'audio/mp4',
+          durationSeconds: 31
+        },
         status: 'PENDING',
         createdAt: '2026-08-23T11:05:00.000Z'
       }

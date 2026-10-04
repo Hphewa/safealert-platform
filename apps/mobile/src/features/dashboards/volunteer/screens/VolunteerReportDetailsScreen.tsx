@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import type { FieldConfirmation } from '@safealert/contracts';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import { ApiClientError } from '@/services/api/client';
 
 import { DashboardScreen } from '../../shared/components/DashboardScreen';
@@ -10,18 +12,22 @@ import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { PriorityBadge } from '../../shared/components/PriorityBadge';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { badgeToneForReportStatus } from '../../shared/utils';
+import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
+import { VoiceNotePlayer } from '../../shared/voice/VoiceNotePlayer';
 import { getCommunityReportById } from '../api/communityReportsApi';
+import { listMyFieldConfirmations } from '../api/fieldConfirmationsApi';
 import { VolunteerStateCard } from '../components/VolunteerStateCard';
 import { volunteerBottomNavItems } from '../mockData';
 import { VolunteerReportDetailItem } from '../components/VolunteerReportDetailItem';
 import {
   mapCommunityReportToVolunteerReport,
+  resolveVolunteerReportLocation,
   type VolunteerCommunityReport
 } from '../reports';
 
-function volunteerConfirmationHref(reportId: string, mode: 'confirmed' | 'unable') {
-  return `/volunteer/reports/${encodeURIComponent(reportId)}/confirm?mode=${mode}` as const;
+function volunteerConfirmationHref(reportId: string) {
+  return `/volunteer/reports/${encodeURIComponent(reportId)}/confirm?mode=confirmed` as const;
 }
 
 export function VolunteerReportDetailsScreen() {
@@ -32,6 +38,7 @@ export function VolunteerReportDetailsScreen() {
   const [report, setReport] = useState<VolunteerCommunityReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [myConfirmation, setMyConfirmation] = useState<FieldConfirmation | null>(null);
 
   const loadReport = useCallback(async () => {
     if (!reportId || !accessToken) {
@@ -43,10 +50,15 @@ export function VolunteerReportDetailsScreen() {
 
     setIsLoading(true);
     setErrorMessage(null);
+    setMyConfirmation(null);
 
     try {
-      const response = await getCommunityReportById(reportId, accessToken);
-      setReport(mapCommunityReportToVolunteerReport(response.report));
+      const [response, confirmationsResponse] = await Promise.all([
+        getCommunityReportById(reportId, accessToken),
+        listMyFieldConfirmations(accessToken)
+      ]);
+      setReport(await resolveVolunteerReportLocation(mapCommunityReportToVolunteerReport(response.report)));
+      setMyConfirmation(confirmationsResponse.confirmations.find((confirmation) => confirmation.reportId === reportId) ?? null);
       setIsLoading(false);
     } catch (error) {
       setReport(null);
@@ -70,7 +82,7 @@ export function VolunteerReportDetailsScreen() {
           <Pressable
             accessibilityLabel="Go back"
             accessibilityRole="button"
-            onPress={() => router.back()}
+            onPress={() => goBackSafely(router, '/volunteer/reports')}
             style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
           >
             <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -96,7 +108,7 @@ export function VolunteerReportDetailsScreen() {
           <Pressable
             accessibilityLabel="Go back"
             accessibilityRole="button"
-            onPress={() => router.back()}
+            onPress={() => goBackSafely(router, '/volunteer/reports')}
             style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
           >
             <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -119,13 +131,17 @@ export function VolunteerReportDetailsScreen() {
     );
   }
 
+  const photoUri = resolveMediaReferenceUri(report.mediaUrl);
+  const voiceUri = resolveMediaReferenceUri(report.voiceEvidence?.mediaReference);
+  const confirmation = myConfirmation;
+
   return (
     <DashboardScreen bottomNavItems={volunteerBottomNavItems} contentContainerStyle={styles.content}>
       <View style={styles.headerRow}>
         <Pressable
           accessibilityLabel="Go back"
           accessibilityRole="button"
-          onPress={() => router.back()}
+          onPress={() => goBackSafely(router, '/volunteer/reports')}
           style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
         >
           <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -139,6 +155,7 @@ export function VolunteerReportDetailsScreen() {
           <PriorityBadge priority={report.severity} />
           <StatusBadge label={report.status} tone={badgeToneForReportStatus(report.status)} />
         </View>
+        <Image accessibilityLabel={`${report.hazardType} hazard icon`} source={report.hazardImage} style={styles.hazardImage} />
         <Text style={styles.heroTitle}>{report.hazardType}</Text>
         <Text style={styles.heroSubtitle}>{report.locationLabel}</Text>
         <Text style={styles.heroSummary}>
@@ -156,6 +173,12 @@ export function VolunteerReportDetailsScreen() {
           {report.distanceLabel ? (
             <VolunteerReportDetailItem label="Distance" value={report.distanceLabel} />
           ) : null}
+          {report.relatedCommunityReportCount ? (
+            <VolunteerReportDetailItem
+              label="Related activity"
+              value={`${report.relatedCommunityReportCount} other related community report${report.relatedCommunityReportCount === 1 ? '' : 's'}`}
+            />
+          ) : null}
           <VolunteerReportDetailItem label="Report Age" value={report.reportedTimeLabel} />
         </View>
       </View>
@@ -167,11 +190,11 @@ export function VolunteerReportDetailsScreen() {
 
       <View style={styles.panel}>
         <Text style={styles.sectionTitle}>Photo Evidence</Text>
-        {report.mediaUrl ? (
+        {photoUri ? (
           <View style={styles.mediaBlock}>
             <Image
               accessibilityLabel={`${report.hazardType} evidence preview`}
-              source={{ uri: report.mediaUrl }}
+              source={{ uri: photoUri }}
               style={styles.mediaPreview}
             />
             <Text style={styles.caption}>Safe preview media is available for this report.</Text>
@@ -181,34 +204,38 @@ export function VolunteerReportDetailsScreen() {
         )}
       </View>
 
+      <View style={styles.panel}>
+        <Text style={styles.sectionTitle}>Voice Evidence</Text>
+        {report.voiceEvidence ? (
+          <VoiceNotePlayer
+            durationSeconds={report.voiceEvidence.durationSeconds}
+            title="Voice Note"
+            uri={voiceUri}
+          />
+        ) : (
+          <Text style={styles.panelBody}>No resident voice note is attached to this report.</Text>
+        )}
+      </View>
+
       <View style={styles.actionCard}>
         <View style={styles.actionCopy}>
-          <Text style={styles.actionTitle}>Community Field Check</Text>
-          <Text style={styles.actionBody}>
-            Confirm the current situation or flag why you are unable to confirm it for Disaster Officer review.
-          </Text>
+          <Text style={styles.actionTitle}>{confirmation ? 'Field Check Submitted' : 'Community Field Check'}</Text>
+          <Text style={styles.actionBody}>{confirmation
+            ? confirmation.outcome === 'CONFIRMED'
+              ? 'You confirmed the current situation. This decision is locked and cannot be changed.'
+              : 'You marked this report as unable to confirm. This decision is locked and cannot be changed.'
+            : 'Review the report in the field, add optional evidence, and submit your confirmation for Disaster Officer review.'}</Text>
         </View>
-        <Pressable
+        {confirmation ? <View style={[styles.submittedBadge, confirmation.outcome === 'CONFIRMED' ? styles.confirmedBadge : styles.unableBadge]}>
+          <Text style={styles.submittedBadgeText}>{confirmation.outcome === 'CONFIRMED' ? 'Confirmed' : 'Unable to Confirm'}</Text>
+          <Text style={styles.submittedStatusText}>Officer review: {confirmation.status}</Text>
+        </View> : <Pressable
           accessibilityRole="button"
-          onPress={() => router.push(volunteerConfirmationHref(report.id, 'confirmed'))}
+          onPress={() => router.push(volunteerConfirmationHref(report.id))}
           style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}
         >
-          <Text style={styles.primaryButtonText}>Confirm Current Situation</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push(volunteerConfirmationHref(report.id, 'confirmed'))}
-          style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.secondaryButtonText}>Add Field Evidence</Text>
-        </Pressable>
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => router.push(volunteerConfirmationHref(report.id, 'unable'))}
-          style={({ pressed }) => [styles.flagButton, pressed && styles.pressed]}
-        >
-          <Text style={styles.flagButtonText}>Unable to Confirm / Flag Issue</Text>
-        </Pressable>
+          <Text style={styles.primaryButtonText}>Start Field Confirmation</Text>
+        </Pressable>}
       </View>
     </DashboardScreen>
   );
@@ -263,6 +290,12 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     color: dashboardTheme.colors.text
+  },
+  hazardImage: {
+    width: 58,
+    height: 58,
+    resizeMode: 'contain',
+    marginTop: 4
   },
   heroSubtitle: {
     fontSize: 16,
@@ -350,34 +383,17 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: '#ffffff'
   },
-  secondaryButton: {
-    minHeight: 50,
+  submittedBadge: {
+    minHeight: 54,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.primary,
     borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.primarySoft
+    borderWidth: 1
   },
-  secondaryButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: dashboardTheme.colors.primaryStrong
-  },
-  flagButton: {
-    minHeight: 50,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.moderate,
-    borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.moderateSoft
-  },
-  flagButtonText: {
-    fontSize: 15,
-    fontWeight: '800',
-    color: '#9a3412'
-  },
+  confirmedBadge: { backgroundColor: dashboardTheme.colors.successSoft, borderColor: '#86efac' },
+  unableBadge: { backgroundColor: dashboardTheme.colors.moderateSoft, borderColor: '#fdba74' },
+  submittedBadgeText: { fontSize: 16, fontWeight: '800', color: dashboardTheme.colors.text },
+  submittedStatusText: { fontSize: 12, fontWeight: '700', color: dashboardTheme.colors.muted },
   pressed: {
     opacity: 0.82
   }

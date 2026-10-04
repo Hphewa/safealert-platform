@@ -1,5 +1,6 @@
 import { usePathname, useRouter } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { SymbolView, type SymbolViewProps } from 'expo-symbols';
 
 import { DashboardGlyph } from './DashboardGlyph';
 import { cardShadow, dashboardTheme } from '../theme';
@@ -12,30 +13,46 @@ type BottomNavigationProps = {
 export function BottomNavigation({ items }: BottomNavigationProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const isOfficerNavigation = items.some((item) => typeof item.href === 'string' && item.href.startsWith('/officer'));
+  const roleAccent = pathname.startsWith('/volunteer')
+    ? dashboardTheme.colors.teal
+    : pathname.startsWith('/officer')
+      ? dashboardTheme.colors.critical
+      : pathname.startsWith('/responder')
+        ? dashboardTheme.colors.high
+        : dashboardTheme.colors.primary;
 
   return (
     <View style={styles.shell}>
-      <View style={styles.bar}>
+      <View style={[styles.bar, { borderTopColor: roleAccent }]}>
         {items.map((item) => {
-          const isActive = pathname === item.href;
+          const href = typeof item.href === 'string' ? item.href : '';
+          const isActive = href === '/officer'
+            ? pathname === href
+            : pathname === href || (isOfficerNavigation && pathname.startsWith(`${href}/`));
+          const label = isOfficerNavigation ? officerLabels[item.label] ?? item.label : item.label;
+          const symbol = isOfficerNavigation ? officerSymbols[item.icon] : undefined;
 
           return (
             <Pressable
               accessibilityRole="button"
+              accessibilityLabel={label}
+              accessibilityState={{ selected: isActive }}
               key={item.label}
               onPress={() => router.push(item.href)}
               style={({ pressed }) => [
                 styles.item,
-                isActive && styles.itemActive,
+                isActive && [styles.itemActive, { backgroundColor: roleAccent === dashboardTheme.colors.primary ? dashboardTheme.colors.primarySoft : `${roleAccent}18` }],
                 pressed && styles.itemPressed
               ]}
             >
-              <DashboardGlyph
-                color={isActive ? dashboardTheme.colors.primary : dashboardTheme.colors.muted}
-                name={item.icon}
-                size={20}
-              />
-              <Text style={[styles.label, isActive && styles.labelActive]}>{item.label}</Text>
+              {symbol ? <SymbolView name={symbol} size={20}
+                tintColor={isActive ? dashboardTheme.colors.primary : dashboardTheme.colors.muted} /> : <DashboardGlyph
+                  color={isActive ? dashboardTheme.colors.primary : dashboardTheme.colors.muted}
+                  name={item.icon}
+                  size={20}
+                />}
+              <Text numberOfLines={1} style={[styles.label, isOfficerNavigation && styles.officerLabel, isActive && styles.labelActive]}>{label}</Text>
             </Pressable>
           );
         })}
@@ -43,6 +60,19 @@ export function BottomNavigation({ items }: BottomNavigationProps) {
     </View>
   );
 }
+
+const officerLabels: Record<string, string> = {
+  Assessments: 'Assess',
+  Monitoring: 'Monitor'
+};
+
+const officerSymbols: Record<string, SymbolViewProps['name']> = {
+  'home-outline': { ios: 'house', android: 'home', web: 'home' },
+  'document-text-outline': { ios: 'doc.text', android: 'description', web: 'description' },
+  'shield-checkmark-outline': { ios: 'checkmark.shield', android: 'fact_check', web: 'fact_check' },
+  'eye-outline': { ios: 'eye', android: 'visibility', web: 'visibility' },
+  'warning-outline': { ios: 'exclamationmark.triangle', android: 'warning', web: 'warning' }
+};
 
 const styles = StyleSheet.create({
   shell: {
@@ -54,22 +84,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 10,
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 8,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.lg,
+    borderRadius: 18,
+    borderTopWidth: 3,
+    borderTopColor: dashboardTheme.colors.primary,
     backgroundColor: dashboardTheme.colors.surface,
     ...cardShadow
   },
   item: {
     flex: 1,
-    minHeight: 56,
+    minHeight: 58,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
-    borderRadius: dashboardTheme.radius.sm
+    gap: 3,
+    paddingHorizontal: 2,
+    borderRadius: 12
   },
   itemActive: {
     backgroundColor: dashboardTheme.colors.primarySoft
@@ -78,11 +112,17 @@ const styles = StyleSheet.create({
     opacity: 0.82
   },
   label: {
-    fontSize: 12,
+    width: '100%',
+    fontSize: 10,
     fontWeight: '600',
+    textAlign: 'center',
     color: dashboardTheme.colors.muted
   },
   labelActive: {
     color: dashboardTheme.colors.primaryStrong
+  },
+  officerLabel: {
+    color: dashboardTheme.colors.primaryStrong,
+    fontWeight: '700'
   }
 });

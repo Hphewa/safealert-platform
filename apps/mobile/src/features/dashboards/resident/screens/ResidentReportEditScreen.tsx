@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { HazardType, ReportSeverity, SafeReport, UpdateResidentReportRequest } from '@safealert/contracts';
+import type {
+  HazardType,
+  ReportSeverity,
+  ReportVoiceEvidence,
+  SafeReport,
+  UpdateResidentReportRequest
+} from '@safealert/contracts';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import { goBackSafely } from '@/features/navigation/safeBack';
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Pressable,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,34 +24,42 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { ApiClientError, apiBaseUrl } from '@/services/api/client';
+import { ApiClientError } from '@/services/api/client';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
+import { DashboardTopBar } from '../../shared/components/DashboardTopBar';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
-import { formatCoordinate } from '../../shared/currentLocation';
+import { LocationPicker } from '../../shared/maps/LocationPicker';
+import { LocationPreview } from '../../shared/maps/LocationPreview';
+import { reverseGeocodePlace } from '../../shared/maps/locationSearch';
+import { resolveMediaReferenceUri } from '../../shared/media/mediaReference';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
-import { ReportLocationMap } from '../components/ReportLocationMap';
+import { VoiceNoteRecorder } from '../../shared/voice/VoiceNoteRecorder';
+import { toReportVoiceEvidence, type LocalVoiceEvidence } from '../../shared/voice/voiceEvidence';
 import { uploadReportEvidence } from '../api/mediaApi';
-import { getMyReportById, updateMyPendingReport } from '../api/reportApi';
+import { cancelMyPendingReport, getMyReportById, updateMyPendingReport } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
 import { descriptionMaxLength, descriptionMinLength } from '../reportDraft';
-import type { ReportLocationCoordinates, ReportMapRegion } from '../reportLocation';
+import { reportGeoJsonToLocationCoordinates, type ReportLocationCoordinates } from '../reportLocation';
 import {
   canPreviewResidentReportMedia,
   residentReportStatusHref,
   statusLabelForResident
 } from '../reports';
 
-const hazardOptions: Array<{ label: string; value: HazardType; icon: string }> = [
-  { label: 'Flood', value: 'FLOOD', icon: 'water-outline' },
-  { label: 'Blocked Road', value: 'BLOCKED_ROAD', icon: 'trail-sign-outline' },
-  { label: 'Landslide', value: 'LANDSLIDE', icon: 'leaf-outline' },
-  { label: 'Other', value: 'OTHER', icon: 'alert-circle-outline' }
+import blockedRoadHazardImage from '../../../../../assets/hazards/blocked-road.png';
+import floodHazardImage from '../../../../../assets/hazards/flood.png';
+import landslideHazardImage from '../../../../../assets/hazards/landslide.png';
+import otherHazardImage from '../../../../../assets/hazards/other.png';
+
+const hazardOptions: Array<{ label: string; value: HazardType; image: number }> = [
+  { label: 'Flood', value: 'FLOOD', image: floodHazardImage },
+  { label: 'Blocked Road', value: 'BLOCKED_ROAD', image: blockedRoadHazardImage },
+  { label: 'Landslide', value: 'LANDSLIDE', image: landslideHazardImage },
+  { label: 'Other', value: 'OTHER', image: otherHazardImage }
 ];
 
 const severityOptions: ReportSeverity[] = ['LOW', 'MODERATE', 'HIGH'];
-const initialLatitudeDelta = 0.01;
-const initialLongitudeDelta = 0.01;
 
 type EditLoadStatus = 'loading' | 'success' | 'error';
 type EditSubmitStatus = 'idle' | 'uploading' | 'saving';
@@ -61,6 +78,9 @@ type ResidentReportEditForm = {
   coordinates: ReportLocationCoordinates;
   mediaReference?: string;
   selectedPhoto: SelectedEditPhoto | null;
+  voiceEvidence?: ReportVoiceEvidence;
+  selectedVoice: LocalVoiceEvidence | null;
+  removeVoiceEvidence: boolean;
 };
 
 export function ResidentReportEditScreen() {
@@ -70,11 +90,15 @@ export function ResidentReportEditScreen() {
   const { accessToken } = useAuth();
   const [report, setReport] = useState<SafeReport | null>(null);
   const [form, setForm] = useState<ResidentReportEditForm | null>(null);
-  const [region, setRegion] = useState<ReportMapRegion | null>(null);
+  const [isEditingLocation, setIsEditingLocation] = useState(false);
+  const [pendingCoordinates, setPendingCoordinates] = useState<ReportLocationCoordinates | null>(null);
   const [loadStatus, setLoadStatus] = useState<EditLoadStatus>('loading');
   const [submitStatus, setSubmitStatus] = useState<EditSubmitStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [canRetrySave, setCanRetrySave] = useState(false);
+  const [locationAddress, setLocationAddress] = useState<string | null>(null);
   const submitInFlightRef = useRef(false);
+  const deleteInFlightRef = useRef(false);
 
   const loadReport = useCallback(async () => {
     if (!reportId) {
@@ -91,12 +115,14 @@ export function ResidentReportEditScreen() {
 
     setLoadStatus('loading');
     setErrorMessage(null);
+    setCanRetrySave(false);
 
     try {
       const response = await getMyReportById(reportId, accessToken);
       setReport(response.report);
       setForm(createFormFromReport(response.report));
-      setRegion(regionFromReport(response.report));
+      setIsEditingLocation(false);
+      setPendingCoordinates(null);
       setLoadStatus('success');
     } catch (error) {
       setLoadStatus('error');
@@ -112,6 +138,25 @@ export function ResidentReportEditScreen() {
     void loadReport();
   }, [loadReport]);
 
+  useEffect(() => {
+    if (!form) {
+      setLocationAddress(null);
+      return;
+    }
+
+    let active = true;
+    setLocationAddress('Finding nearby address...');
+    void reverseGeocodePlace(form.coordinates.latitude, form.coordinates.longitude).then((placeName) => {
+      if (active) {
+        setLocationAddress(placeName ?? 'Address unavailable for this location.');
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [form?.coordinates.latitude, form?.coordinates.longitude]);
+
   const saveChanges = async () => {
     if (!accessToken || !report || !form || submitInFlightRef.current) {
       return;
@@ -121,14 +166,18 @@ export function ResidentReportEditScreen() {
 
     if (validationMessage) {
       setErrorMessage(validationMessage);
+      setCanRetrySave(false);
       return;
     }
 
     submitInFlightRef.current = true;
     setErrorMessage(null);
+    setCanRetrySave(false);
 
     try {
       let mediaReference = form.mediaReference;
+      let voiceEvidence: ReportVoiceEvidence | null | undefined =
+        form.removeVoiceEvidence ? null : form.voiceEvidence;
 
       if (form.selectedPhoto) {
         if (!form.selectedPhoto.uploadedMediaReference) {
@@ -157,6 +206,34 @@ export function ResidentReportEditScreen() {
         }
       }
 
+      if (form.selectedVoice) {
+        let voiceMediaReference = form.selectedVoice.uploadedMediaReference;
+
+        if (!voiceMediaReference) {
+          setSubmitStatus('uploading');
+          const upload = await uploadReportEvidence({
+            localUri: form.selectedVoice.localUri,
+            filename: form.selectedVoice.fileName,
+            mimeType: form.selectedVoice.mimeType,
+            accessToken
+          });
+          voiceMediaReference = upload.mediaReference;
+          setForm((current) =>
+            current?.selectedVoice
+              ? {
+                  ...current,
+                  selectedVoice: {
+                    ...current.selectedVoice,
+                    uploadedMediaReference: upload.mediaReference
+                  }
+                }
+              : current
+          );
+        }
+
+        voiceEvidence = toReportVoiceEvidence(form.selectedVoice, voiceMediaReference);
+      }
+
       setSubmitStatus('saving');
       const payload: UpdateResidentReportRequest = {
         hazardType: form.hazardType,
@@ -166,7 +243,8 @@ export function ResidentReportEditScreen() {
           type: 'Point',
           coordinates: [form.coordinates.longitude, form.coordinates.latitude]
         },
-        ...(mediaReference ? { mediaReference } : {})
+        ...(mediaReference ? { mediaReference } : {}),
+        ...(voiceEvidence !== undefined ? { voiceEvidence } : {})
       };
       const response = await updateMyPendingReport(report.id, payload, accessToken);
 
@@ -174,16 +252,14 @@ export function ResidentReportEditScreen() {
       router.replace(residentReportStatusHref(response.report.id));
     } catch (error) {
       if (error instanceof ApiClientError && error.status === 409) {
-        setErrorMessage('This report can no longer be changed because its status has been updated.');
+        setErrorMessage('This report can no longer be edited because its status has changed.');
+        setCanRetrySave(false);
         await loadReport();
         return;
       }
 
-      setErrorMessage(
-        error instanceof ApiClientError || error instanceof Error
-          ? error.message
-          : 'Unable to save this report right now.'
-      );
+      setErrorMessage('Your changes could not be saved.');
+      setCanRetrySave(true);
     } finally {
       submitInFlightRef.current = false;
       setSubmitStatus('idle');
@@ -205,7 +281,7 @@ export function ResidentReportEditScreen() {
 
       const result = await ImagePicker.launchImageLibraryAsync({
         allowsEditing: false,
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.82
       });
 
@@ -228,32 +304,86 @@ export function ResidentReportEditScreen() {
     }
   };
 
-  const updateCoordinates = (coordinates: ReportLocationCoordinates) => {
+  const startEditingLocation = () => {
+    if (!form) {
+      return;
+    }
+
+    setPendingCoordinates(form.coordinates);
+    setIsEditingLocation(true);
+  };
+
+  const deleteReport = async () => {
+    if (!accessToken || !report || deleteInFlightRef.current) {
+      return;
+    }
+
+    deleteInFlightRef.current = true;
+    setErrorMessage(null);
+
+    try {
+      await cancelMyPendingReport(report.id, accessToken);
+      router.replace('/resident/reports');
+    } catch (error) {
+      setErrorMessage(
+        error instanceof ApiClientError && error.status === 409
+          ? 'This report can no longer be deleted because its status has changed.'
+          : 'Your report could not be deleted.'
+      );
+    } finally {
+      deleteInFlightRef.current = false;
+    }
+  };
+
+  const confirmDeleteReport = () => {
+    const message = 'This permanently removes the pending report from SafeAlert. This action cannot be undone.';
+
+    if (Platform.OS === 'web') {
+      if (typeof globalThis.confirm === 'function' && globalThis.confirm(`Delete this report?\n\n${message}`)) {
+        void deleteReport();
+      }
+      return;
+    }
+
+    Alert.alert(
+      'Delete this report?',
+      message,
+      [
+        { text: 'Keep Report', style: 'cancel' },
+        { text: 'Delete Report', style: 'destructive', onPress: () => void deleteReport() }
+      ]
+    );
+  };
+
+  const cancelEditingLocation = () => {
+    setPendingCoordinates(null);
+    setIsEditingLocation(false);
+  };
+
+  const confirmEditedLocation = (coordinates: ReportLocationCoordinates) => {
     if (!form) {
       return;
     }
 
     setForm({ ...form, coordinates });
-    setRegion((current) => ({
-      latitude: coordinates.latitude,
-      longitude: coordinates.longitude,
-      latitudeDelta: current?.latitudeDelta ?? initialLatitudeDelta,
-      longitudeDelta: current?.longitudeDelta ?? initialLongitudeDelta
-    }));
+    setPendingCoordinates(null);
+    setIsEditingLocation(false);
   };
 
   const isSubmitting = submitStatus !== 'idle';
   const mediaPreviewUri = form?.selectedPhoto?.localUri ?? resolveResidentMediaUri(form?.mediaReference);
+  const currentVoiceUri = resolveMediaReferenceUri(form?.voiceEvidence?.mediaReference);
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <View style={styles.contentWrap}>
+        <DashboardTopBar />
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.headerRow}>
             <Pressable
               accessibilityLabel="Go back"
               accessibilityRole="button"
-              onPress={() => router.back()}
+              onPress={() => goBackSafely(router, '/resident/reports')}
               style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
             >
               <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -264,7 +394,7 @@ export function ResidentReportEditScreen() {
 
           {loadStatus === 'loading' ? (
             <StatePanel loading message="Loading the latest persisted report." title="Loading Report" />
-          ) : loadStatus === 'error' || !report || !form || !region ? (
+          ) : loadStatus === 'error' || !report || !form ? (
             <StatePanel
               actionLabel="Retry"
               message={errorMessage ?? 'Unable to load this report right now.'}
@@ -274,7 +404,7 @@ export function ResidentReportEditScreen() {
           ) : report.status !== 'PENDING' ? (
             <StatePanel
               actionLabel="View Details"
-              message="This report can no longer be changed because its status has been updated."
+              message="This report can no longer be edited because its status has changed."
               onActionPress={() => router.replace(residentReportStatusHref(report.id))}
               title={`${statusLabelForResident(report.status)} Report`}
             />
@@ -296,10 +426,10 @@ export function ResidentReportEditScreen() {
                         pressed && styles.pressed
                       ]}
                     >
-                      <DashboardGlyph
-                        color={form.hazardType === option.value ? dashboardTheme.colors.primaryStrong : dashboardTheme.colors.muted}
-                        name={option.icon}
-                        size={20}
+                      <Image
+                        accessibilityLabel={`${option.label} hazard icon`}
+                        source={option.image}
+                        style={styles.hazardIcon}
                       />
                       <Text style={styles.optionLabel}>{option.label}</Text>
                     </Pressable>
@@ -331,18 +461,31 @@ export function ResidentReportEditScreen() {
 
               <View style={styles.panel}>
                 <Text style={styles.panelTitle}>Location</Text>
-                <Text style={styles.panelText}>
-                  Lat {formatCoordinate(form.coordinates.latitude)}, Long {formatCoordinate(form.coordinates.longitude)}
-                </Text>
-                <View style={styles.mapPanel}>
-                  <ReportLocationMap
-                    location={form.coordinates}
-                    onChange={updateCoordinates}
-                    onRegionChange={setRegion}
-                    region={region}
+                {isEditingLocation ? (
+                  <LocationPicker
+                    onCancel={cancelEditingLocation}
+                    onChange={setPendingCoordinates}
+                    onConfirm={confirmEditedLocation}
+                    value={pendingCoordinates ?? form.coordinates}
                   />
-                </View>
-                <Text style={styles.hintText}>Saved as GeoJSON coordinates [longitude, latitude].</Text>
+                ) : (
+                  <>
+                    <View style={styles.locationSummary}>
+                      <Text style={styles.panelText}>Selected location:</Text>
+                      <Text style={styles.locationAddress}>{locationAddress ?? 'Finding nearby address...'}</Text>
+                    </View>
+                    <LocationPreview coordinates={form.coordinates} height={210} title="Hazard location" />
+                    <Pressable
+                      accessibilityLabel="Adjust report location"
+                      accessibilityRole="button"
+                      onPress={startEditingLocation}
+                      style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.secondaryButtonText}>Adjust Location</Text>
+                    </Pressable>
+                    <Text style={styles.hintText}>Move the pin only if the reported hazard location needs correction.</Text>
+                  </>
+                )}
               </View>
 
               <View style={styles.panel}>
@@ -358,7 +501,9 @@ export function ResidentReportEditScreen() {
                   {form.selectedPhoto
                     ? 'New photo selected. It will upload when you save changes.'
                     : form.mediaReference
-                      ? 'Current uploaded evidence will be kept unless you choose a new photo.'
+                      ? mediaPreviewUri && canPreviewResidentReportMedia(mediaPreviewUri)
+                        ? 'Current uploaded evidence will be kept unless you choose a new photo.'
+                        : 'Current evidence is attached, but preview is unavailable on this device.'
                       : 'No photo evidence attached.'}
                 </Text>
                 <Pressable
@@ -372,6 +517,40 @@ export function ResidentReportEditScreen() {
                 >
                   <Text style={styles.secondaryButtonText}>Replace Photo</Text>
                 </Pressable>
+              </View>
+
+              <View style={styles.panel}>
+                <Text style={styles.panelTitle}>Voice evidence</Text>
+                <Text style={styles.panelText}>Optional. Record up to 60 seconds to clarify the hazard.</Text>
+                <VoiceNoteRecorder
+                  disabled={isSubmitting}
+                  existingVoice={
+                    form.voiceEvidence && !form.removeVoiceEvidence
+                      ? {
+                          uri: currentVoiceUri,
+                          durationSeconds: form.voiceEvidence.durationSeconds
+                        }
+                      : null
+                  }
+                  onChange={(selectedVoice) =>
+                    setForm({
+                      ...form,
+                      selectedVoice,
+                      removeVoiceEvidence: selectedVoice ? false : form.removeVoiceEvidence
+                    })
+                  }
+                  onRemoveExisting={() =>
+                    setForm({
+                      ...form,
+                      selectedVoice: null,
+                      removeVoiceEvidence: true
+                    })
+                  }
+                  value={form.selectedVoice}
+                />
+                {form.removeVoiceEvidence ? (
+                  <Text style={styles.hintText}>Current voice note will be removed when you save changes.</Text>
+                ) : null}
               </View>
 
               <View style={styles.panel}>
@@ -404,11 +583,19 @@ export function ResidentReportEditScreen() {
                 }}
                 style={({ pressed }) => [styles.saveButton, isSubmitting && styles.buttonDisabled, pressed && styles.pressed]}
               >
-                {isSubmitting ? (
-                  <ActivityIndicator color="#ffffff" size="small" />
-                ) : (
-                  <Text style={styles.saveButtonText}>Save Changes</Text>
-                )}
+                <Text style={styles.saveButtonText}>
+                  {isSubmitting ? 'Saving changes...' : canRetrySave ? 'Try Again' : 'Save Changes'}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                accessibilityLabel="Delete report"
+                accessibilityRole="button"
+                disabled={isSubmitting}
+                onPress={confirmDeleteReport}
+                style={({ pressed }) => [styles.deleteButton, isSubmitting && styles.buttonDisabled, pressed && styles.pressed]}
+              >
+                <Text style={styles.deleteButtonText}>Delete Report</Text>
               </Pressable>
 
               <Text style={styles.hintText}>
@@ -425,25 +612,18 @@ export function ResidentReportEditScreen() {
 }
 
 function createFormFromReport(report: SafeReport): ResidentReportEditForm {
+  const coordinates = reportGeoJsonToLocationCoordinates(report.location);
+
   return {
     hazardType: report.hazardType,
     severity: report.severity,
     description: report.description,
-    coordinates: {
-      longitude: report.location.coordinates[0],
-      latitude: report.location.coordinates[1]
-    },
+    coordinates: coordinates ?? { latitude: 0, longitude: 0 },
     ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
-    selectedPhoto: null
-  };
-}
-
-function regionFromReport(report: SafeReport): ReportMapRegion {
-  return {
-    longitude: report.location.coordinates[0],
-    latitude: report.location.coordinates[1],
-    latitudeDelta: initialLatitudeDelta,
-    longitudeDelta: initialLongitudeDelta
+    selectedPhoto: null,
+    ...(report.voiceEvidence ? { voiceEvidence: report.voiceEvidence } : {}),
+    selectedVoice: null,
+    removeVoiceEvidence: false
   };
 }
 
@@ -473,19 +653,7 @@ function validateEditForm(form: ResidentReportEditForm) {
 }
 
 function resolveResidentMediaUri(mediaReference: string | undefined) {
-  if (!mediaReference) {
-    return undefined;
-  }
-
-  if (/^(https?:|data:image\/)/i.test(mediaReference)) {
-    return mediaReference;
-  }
-
-  if (mediaReference.startsWith('/')) {
-    return `${apiBaseUrl.replace(/\/api\/v1\/?$/, '')}${mediaReference}`;
-  }
-
-  return undefined;
+  return resolveMediaReferenceUri(mediaReference);
 }
 
 function StatePanel({
@@ -583,6 +751,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     color: dashboardTheme.colors.muted
   },
+  locationSummary: {
+    gap: 4
+  },
+  locationAddress: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '700',
+    color: dashboardTheme.colors.text
+  },
   optionGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -611,6 +788,11 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: dashboardTheme.colors.text
   },
+  hazardIcon: {
+    width: 26,
+    height: 26,
+    resizeMode: 'contain'
+  },
   optionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -634,14 +816,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
     color: dashboardTheme.colors.text
-  },
-  mapPanel: {
-    minHeight: 300,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: dashboardTheme.colors.border,
-    borderRadius: dashboardTheme.radius.md,
-    backgroundColor: dashboardTheme.colors.surfaceMuted
   },
   mediaPreview: {
     width: '100%',
@@ -686,6 +860,20 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '800',
     color: '#ffffff'
+  },
+  deleteButton: {
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.critical,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.surface
+  },
+  deleteButtonText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: dashboardTheme.colors.critical
   },
   secondaryButton: {
     minHeight: 46,

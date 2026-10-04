@@ -18,9 +18,19 @@ export function isActiveAssignedResponseStatus(
 
 export function getResponderQueueCounts(queueState: ResponderQueueState) {
   return {
-    PENDING: Math.max(0, queueState.pending.length),
-    ASSIGNED: Math.max(0, queueState.assigned.filter((request) => isActiveAssignedResponseStatus(request.status)).length)
+    PENDING: getVisibleResponderRequests(queueState, 'PENDING').length,
+    ASSIGNED: getVisibleResponderRequests(queueState, 'ASSIGNED').length
   };
+}
+
+export function getOwnedResponderAssignments(
+  requests: readonly SafeResponseRequest[],
+  responderId: string,
+  completed = false
+) {
+  // This is a defensive UI filter. The API independently scopes both lists by assignment.
+  return requests.filter((request) => request.assignedResponderId === responderId &&
+    (completed ? request.status === 'COMPLETED' : isActiveAssignedResponseStatus(request.status)));
 }
 
 export function getVisibleResponderRequests(
@@ -30,7 +40,9 @@ export function getVisibleResponderRequests(
   // Keep the two queues visually separate so responders can quickly
   // distinguish unassigned requests from work already assigned to them.
   if (activeTab === 'PENDING') {
-    return queueState.pending;
+    // Mirror the server's NEW-only queue defensively so terminal or unknown
+    // statuses cannot become actionable rows or inflate the tab count.
+    return queueState.pending.filter((request) => request.status === 'NEW');
   }
 
   return queueState.assigned.filter((request) => isActiveAssignedResponseStatus(request.status));

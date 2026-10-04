@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { SafeReport } from '@safealert/contracts';
+
+vi.mock('@/services/api/client', () => ({
+  apiBaseUrl: 'http://localhost:4000/api/v1'
+}));
 
 import {
   filterOfficerGroupedReports,
@@ -20,7 +24,7 @@ const sampleReports: OfficerGroupedReportSummary[] = [
     locationLabel: 'Kelani River Side, Colombo 06',
     latestUpdateLabel: '1h ago',
     communityReportsCount: 12,
-    communityReportsLabel: '12 Community Reports',
+    communityReportsLabel: '12 pending reports',
     descriptionPreview: 'Flood water is spreading along the river edge and reaching the road shoulder.',
     searchText: 'kelani river side flood water road shoulder',
     tone: 'info',
@@ -37,7 +41,7 @@ const sampleReports: OfficerGroupedReportSummary[] = [
     locationLabel: 'Temple Approach Road, Kandy',
     latestUpdateLabel: '32m ago',
     communityReportsCount: 8,
-    communityReportsLabel: '8 Community Reports',
+    communityReportsLabel: '8 pending reports',
     descriptionPreview: 'A slope failure has narrowed the road and left loose debris along the edge.',
     searchText: 'temple approach road slope failure debris',
     tone: 'moderate',
@@ -83,7 +87,7 @@ describe('real Officer report mapping', () => {
         locationLabel: '6.927100, 79.861200',
         latestUpdateLabel: '30m ago',
         communityReportsCount: 1,
-        communityReportsLabel: '1 Community Report',
+        communityReportsLabel: '1 pending report',
         href: '/officer/reports/real-pending-report'
       })
     );
@@ -112,6 +116,19 @@ describe('real Officer report mapping', () => {
       })
     );
     expect(report.timeline.map((event) => event.title)).toEqual(['Report submitted', 'Photo added']);
+  });
+
+  it('resolves API-relative resident photo evidence for officer preview', () => {
+    const report = mapSafeReportToOfficerReviewRecord(
+      {
+        ...safePendingReport,
+        mediaReference: '/api/v1/media/report-evidence/resident-photo.jpg'
+      },
+      new Date('2026-08-24T10:00:00.000Z')
+    );
+
+    expect(report.residentPhotoUrl).toBe('http://localhost:4000/api/v1/media/report-evidence/resident-photo.jpg');
+    expect(report.residentMediaReference).toBe('/api/v1/media/report-evidence/resident-photo.jpg');
   });
 });
 

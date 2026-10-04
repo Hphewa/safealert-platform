@@ -1,8 +1,8 @@
-import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, type ResponseStatus } from '@safealert/contracts';
+import { RESPONSE_ACTIVE_ASSIGNED_STATUSES, RESPONSE_CANCELLABLE_STATUS, RESPONSE_EDITABLE_STATUS, type ResponseStatus, type UpdateResponseRequestRequest } from '@safealert/contracts';
 import mongoose from 'mongoose';
 
 import { ResponseRequestModel, toSafeResponseRequest } from '../models/responseRequest.model.js';
-import { responseProgressTimestampFields } from './responseRequest.repository.js';
+import { residentEditableFields, responseProgressTimestampFields } from './responseRequest.repository.js';
 import type {
   CreateResponseRequestInput,
   ResponseRequestRepository
@@ -14,6 +14,37 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return toSafeResponseRequest(responseRequest);
   }
 
+  async findResponseRequestByClientOperationId(residentId: string, clientOperationId: string) {
+    const responseRequest = await ResponseRequestModel.findOne({ residentId, clientOperationId }).exec();
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
+  async updateResidentResponseRequest(responseRequestId: string, residentId: string, input: UpdateResponseRequestRequest) {
+    const fields = residentEditableFields(input);
+    // residentId is the authenticated actor passed separately from editable input.
+    // Ownership and NEW must still match at write time, even if a responder
+    // accepted the request after the Resident opened or submitted the edit form.
+    const responseRequest = await ResponseRequestModel.findOneAndUpdate(
+      { _id: responseRequestId, residentId, status: RESPONSE_EDITABLE_STATUS },
+      {
+        $set: fields,
+        // A full edit can clear optional notes; omission must not retain old text.
+        ...(!fields.specialRequirements ? { $unset: { specialRequirements: 1 } } : {})
+      },
+      { new: true, runValidators: true }
+    ).exec();
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
+  async findResponseRequestsByResidentId(residentId: string) {
+    // Ownership is part of the database query; completed requests remain trackable too.
+    const responseRequests = await ResponseRequestModel.find({ residentId })
+      .sort({ createdAt: -1, _id: -1 })
+      .exec();
+
+    return responseRequests.map(toSafeResponseRequest);
+  }
+
   async findPendingResponseRequests(responderId: string) {
     if (!mongoose.isValidObjectId(responderId)) {
       return [];
@@ -22,6 +53,7 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     // Exclude only requests declined by this responder. Other responders must
     // still see NEW requests so they can assist with the emergency.
     const responseRequests = await ResponseRequestModel.find({
+      // Cancelled records remain stored for history; only NEW work belongs in Pending.
       status: 'NEW',
       declinedByResponderIds: {
         $nin: [responderId]
@@ -39,13 +71,23 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     // Scope assigned requests to the current responder so one responder
     // cannot view another responder's active workload.
     const responseRequests = await ResponseRequestModel.find({
-      // Assigned work stays active through dispatch, arrival and assistance, until completion.
+      // An explicit active list excludes CANCELLED, COMPLETED and unknown statuses
+      // without removing the records needed for Resident tracking and history.
       status: { $in: RESPONSE_ACTIVE_ASSIGNED_STATUSES },
       assignedResponderId: responderId
     })
       .sort({ createdAt: -1 })
       .exec();
 
+    return responseRequests.map(toSafeResponseRequest);
+  }
+
+  async findCompletedResponseRequests(responderId: string) {
+    // Scope history in the database; a client-selected responder must never expand access.
+    const responseRequests = await ResponseRequestModel.find({
+      assignedResponderId: responderId,
+      status: 'COMPLETED'
+    }).sort({ completedAt: -1, createdAt: -1, _id: -1 }).exec();
     return responseRequests.map(toSafeResponseRequest);
   }
 
@@ -97,16 +139,79 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 
+  async findResponseRequestForCancellation(responseRequestId: string) {
+    // The service must distinguish missing requests from ownership failures;
+    // this internal lookup must never be returned before authorization.
+    const responseRequest = await ResponseRequestModel.findById(responseRequestId).exec();
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
+  async cancelResponseRequest(responseRequestId: string, residentId: string) {
+    // Recheck ownership and eligibility in the write so concurrent responder
+    // acceptance cannot be overwritten after the service's initial read.
+    const responseRequest = await ResponseRequestModel.findOneAndUpdate(
+      { _id: responseRequestId, residentId, status: RESPONSE_CANCELLABLE_STATUS },
+      // Preserve the original record for tracking/audit. The server owns lifecycle
+      // time; Mongoose maintains updatedAt without changing the submission time.
+      { $set: { status: 'CANCELLED', cancelledAt: new Date() } },
+      { new: true, runValidators: true }
+    ).exec();
+
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
   async findResponseRequestForProgress(responseRequestId: string) {
     const responseRequest = await ResponseRequestModel.findById(responseRequestId).exec();
     return responseRequest ? toSafeResponseRequest(responseRequest) : null;
   }
 
+  // LDFEW-266 / LDFEW-350 / LDFEW-354: Atomically record responder field notes and server timestamp in MongoDB.
+  // The authoritative server timestamp (fieldUpdatedAt) is generated on the server (new Date()) rather than trusting client time.
+  // Generating this timestamp server-side prevents mobile device clock skew, intentional timestamp spoofing, or replay attacks.
+  // Only fieldNotes and fieldUpdatedAt are updated; all resident data, coordinates, and prior lifecycle timestamps remain immutable.
+  async updateResponseRequestFieldUpdate(
+    responseRequestId: string,
+    responderId: string,
+    fieldNotes: string
+  ) {
+    if (!mongoose.isValidObjectId(responseRequestId) || !mongoose.isValidObjectId(responderId)) {
+      return null;
+    }
+
+    // Enforce responder assignment and active assigned status atomically in the update filter
+    // to prevent race conditions if the request status or assigned responder changed concurrently.
+    const responseRequest = await ResponseRequestModel.findOneAndUpdate(
+      {
+        _id: responseRequestId,
+        assignedResponderId: responderId,
+        status: { $in: RESPONSE_ACTIVE_ASSIGNED_STATUSES }
+      },
+      {
+        $set: {
+          fieldNotes: fieldNotes.trim(),
+          fieldUpdatedAt: new Date()
+        }
+      },
+      { new: true, runValidators: true }
+    ).exec();
+
+    return responseRequest ? toSafeResponseRequest(responseRequest) : null;
+  }
+
+  // LDFEW-121 / LDFEW-266 / LDFEW-354: Atomically advance request lifecycle progress and record server timestamps.
+  // On COMPLETED transition, completedAt is generated on the server (new Date()) atomically alongside status and
+  // completion details (assistanceProvided, completionSummary, responderRemarks).
+  // Atomic MongoDB persistence ensures the lifecycle status, completion timestamp, and outcome summary never desynchronize.
   async updateResponseRequestProgress(
     responseRequestId: string,
     responderId: string,
     currentStatus: ResponseStatus,
-    nextStatus: ResponseStatus
+    nextStatus: ResponseStatus,
+    completionDetails?: {
+      assistanceProvided: string;
+      completionSummary: string;
+      responderRemarks?: string;
+    }
   ) {
     const timestampField = responseProgressTimestampFields[nextStatus];
 
@@ -121,8 +226,18 @@ export class MongooseResponseRequestRepository implements ResponseRequestReposit
         assignedResponderId: responderId,
         status: currentStatus
       },
-      // Status and its server timestamp must succeed or fail together.
-      { $set: { status: nextStatus, [timestampField]: new Date() } },
+      // Status, server timestamp, and completion details must succeed or fail together.
+      {
+        $set: {
+          status: nextStatus,
+          [timestampField]: new Date(),
+          ...(nextStatus === 'COMPLETED' && completionDetails ? {
+            assistanceProvided: completionDetails.assistanceProvided.trim(),
+            completionSummary: completionDetails.completionSummary.trim(),
+            ...(completionDetails.responderRemarks?.trim() ? { responderRemarks: completionDetails.responderRemarks.trim() } : {})
+          } : {})
+        }
+      },
       { new: true, runValidators: true }
     ).exec();
 

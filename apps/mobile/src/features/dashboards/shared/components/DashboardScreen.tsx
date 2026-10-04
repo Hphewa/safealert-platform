@@ -1,9 +1,11 @@
-import type { ReactNode } from 'react';
-import type { StyleProp, ViewStyle } from 'react-native';
+import type { ReactElement, ReactNode } from 'react';
+import type { RefreshControlProps, StyleProp, ViewStyle } from 'react-native';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
 import { BottomNavigation } from './BottomNavigation';
+import { DashboardTopBar } from './DashboardTopBar';
 import { dashboardTheme } from '../theme';
 import type { BottomNavItem } from '../types';
 
@@ -11,20 +13,28 @@ type DashboardScreenProps = {
   children: ReactNode;
   bottomNavItems: BottomNavItem[];
   contentContainerStyle?: StyleProp<ViewStyle>;
+  refreshControl?: ReactElement<RefreshControlProps>;
+  topBarAction?: ReactNode;
 };
 
 export function DashboardScreen({
   children,
   bottomNavItems,
-  contentContainerStyle
+  contentContainerStyle,
+  refreshControl,
+  topBarAction
 }: DashboardScreenProps) {
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
+      <StatusBar style="dark" />
       <View style={styles.contentWrap}>
+        <DashboardTopBar action={topBarAction} />
         <ScrollView
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[styles.content, contentContainerStyle]}
+          refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
+          style={styles.scroll}
         >
           {children}
         </ScrollView>
@@ -43,10 +53,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: dashboardTheme.colors.background
   },
+  scroll: {
+    flex: 1
+  },
   content: {
-    gap: 20,
+    gap: 18,
     paddingHorizontal: 16,
-    paddingTop: 8,
+    paddingTop: 14,
     paddingBottom: 20
   }
 });

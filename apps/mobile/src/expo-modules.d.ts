@@ -29,6 +29,14 @@ declare module 'expo-location' {
   };
 
   export function requestForegroundPermissionsAsync(): Promise<LocationPermissionResponse>;
+  export function getForegroundPermissionsAsync(): Promise<LocationPermissionResponse>;
+  export type LocationGeocodedAddress = {
+    city: string | null;
+    district: string | null;
+    subregion: string | null;
+    region: string | null;
+  };
+  export function reverseGeocodeAsync(location: { latitude: number; longitude: number }): Promise<LocationGeocodedAddress[]>;
   export function getCurrentPositionAsync(options?: {
     accuracy?: Accuracy;
   }): Promise<LocationObject>;
@@ -44,6 +52,8 @@ declare module 'expo-image-picker' {
   export enum MediaTypeOptions {
     Images = 'Images'
   }
+
+  export type MediaType = 'images' | 'videos' | 'livePhotos';
 
   export type ImagePickerPermissionResponse = {
     status: PermissionStatus;
@@ -77,7 +87,7 @@ declare module 'expo-image-picker' {
   export function requestCameraPermissionsAsync(): Promise<ImagePickerPermissionResponse>;
   export function launchImageLibraryAsync(options?: {
     allowsEditing?: boolean;
-    mediaTypes?: MediaTypeOptions;
+    mediaTypes?: MediaType | MediaType[] | MediaTypeOptions;
     quality?: number;
     base64?: boolean;
     allowsMultipleSelection?: boolean;
@@ -85,7 +95,7 @@ declare module 'expo-image-picker' {
   }): Promise<ImagePickerResult>;
   export function launchCameraAsync(options?: {
     allowsEditing?: boolean;
-    mediaTypes?: MediaTypeOptions;
+    mediaTypes?: MediaType | MediaType[] | MediaTypeOptions;
     quality?: number;
   }): Promise<ImagePickerResult>;
 }

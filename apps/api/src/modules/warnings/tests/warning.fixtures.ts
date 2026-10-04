@@ -7,6 +7,11 @@ import { InMemoryReportRepository } from '../../reports/repositories/inMemoryRep
 import { InMemoryRiskAssessmentRepository } from '../../risk-assessments/repositories/inMemoryRiskAssessment.repository.js';
 import { InMemoryWarningRepository } from '../repositories/inMemoryWarning.repository.js';
 import { InMemoryIncidentRepository } from '../../incidents/repositories/inMemoryIncident.repository.js';
+import { InMemoryNotificationRecipientRepository } from '../../notifications/repositories/inMemoryNotificationRecipient.repository.js';
+import { InMemoryWarningDeliveryRepository } from '../../notifications/repositories/inMemoryWarningDelivery.repository.js';
+import { MockPushProvider } from '../../notifications/providers/mockPushProvider.js';
+import { MockSmsProvider } from '../../notifications/providers/mockSmsProvider.js';
+import type { WarningPublishedHandler } from '../services/warning.service.js';
 
 export const officerId = '123456789012345678901235';
 export const warningInput = {
@@ -17,7 +22,7 @@ export const warningInput = {
 export function warningToken(role: UserRole = 'DISASTER_OFFICER') {
   return jwt.sign({ role }, 'test-access-secret', { subject: officerId, expiresIn: '15m' });
 }
-export async function warningContext(finalRiskLevel: RiskLevel = 'HIGH') {
+export async function warningContext(finalRiskLevel: RiskLevel = 'HIGH', warningPublishedHandler?: WarningPublishedHandler) {
   process.env.NODE_ENV = 'test';
   process.env.JWT_ACCESS_SECRET = 'test-access-secret';
   process.env.JWT_REFRESH_SECRET = 'test-refresh-secret';
@@ -41,6 +46,12 @@ export async function warningContext(finalRiskLevel: RiskLevel = 'HIGH') {
     status: 'ACTIVE', assessedAt: new Date().toISOString()
   });
   const app = createApp({ config: loadConfig(), authRepository: new InMemoryAuthRepository(),
-    reportRepository: reports, incidentRepository: incidents, riskAssessmentRepository: assessments, warningRepository: warnings });
+    reportRepository: reports, incidentRepository: incidents, riskAssessmentRepository: assessments, warningRepository: warnings,
+    // LDFEW-127 post-publication delivery stays in memory here so warning tests never touch
+    // MongoDB, Notify.lk, or Firebase.
+    warningDeliveryRepository: new InMemoryWarningDeliveryRepository(),
+    notificationRecipientRepository: new InMemoryNotificationRecipientRepository(),
+    smsProvider: new MockSmsProvider(), pushProvider: new MockPushProvider(),
+    ...(warningPublishedHandler ? { warningPublishedHandler } : {}) });
   return { app, assessments, assessment, warnings, reportId, payload: { assessmentId: assessment.id, ...warningInput } };
 }

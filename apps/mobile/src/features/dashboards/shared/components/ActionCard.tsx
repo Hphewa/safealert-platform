@@ -13,6 +13,7 @@ type ActionCardProps = {
   icon: DashboardIconName;
   layout?: 'row' | 'column';
   variant?: 'default' | 'primary';
+  onPress?: () => void;
 };
 
 export function ActionCard({
@@ -21,7 +22,8 @@ export function ActionCard({
   href,
   icon,
   layout = 'column',
-  variant = 'default'
+  variant = 'default',
+  onPress
 }: ActionCardProps) {
   const router = useRouter();
   const isRow = layout === 'row';
@@ -30,7 +32,7 @@ export function ActionCard({
   return (
     <Pressable
       accessibilityRole="button"
-      onPress={() => router.push(href)}
+      onPress={onPress ?? (() => router.push(href))}
       style={({ pressed }) => [
         styles.card,
         isRow ? styles.cardRow : styles.cardColumn,
@@ -56,12 +58,13 @@ export function ActionCard({
 
 const styles = StyleSheet.create({
   card: {
-    minHeight: 120,
+    minHeight: 128,
     gap: 14,
     padding: 18,
     borderWidth: 1,
     borderColor: dashboardTheme.colors.border,
     borderRadius: dashboardTheme.radius.md,
+    borderTopWidth: 3,
     backgroundColor: dashboardTheme.colors.surface,
     ...cardShadow
   },
@@ -73,10 +76,12 @@ const styles = StyleSheet.create({
     flex: 1
   },
   cardDefault: {
-    backgroundColor: dashboardTheme.colors.surface
+    backgroundColor: dashboardTheme.colors.surface,
+    borderTopColor: dashboardTheme.colors.navySoft
   },
   cardPrimary: {
-    backgroundColor: dashboardTheme.colors.primarySoft
+    backgroundColor: dashboardTheme.colors.primarySoft,
+    borderTopColor: dashboardTheme.colors.primary
   },
   cardPressed: {
     opacity: 0.82
@@ -97,7 +102,7 @@ const styles = StyleSheet.create({
     gap: 6
   },
   title: {
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
     color: dashboardTheme.colors.text
   },

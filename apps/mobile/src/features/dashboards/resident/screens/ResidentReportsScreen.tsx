@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { SafeReport } from '@safealert/contracts';
+import type { ReportStatus, SafeReport } from '@safealert/contracts';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   ActivityIndicator,
   FlatList,
+  Image,
   Pressable,
   RefreshControl,
   StyleSheet,
@@ -13,20 +14,21 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { useAuth } from '@/features/auth/hooks/useAuth';
-import { ApiClientError } from '@/services/api/client';
+import { goBackSafely } from '@/features/navigation/safeBack';
 
 import { BottomNavigation } from '../../shared/components/BottomNavigation';
+import { DashboardTopBar } from '../../shared/components/DashboardTopBar';
 import { DashboardGlyph } from '../../shared/components/DashboardGlyph';
 import { StatusBadge } from '../../shared/components/StatusBadge';
 import { cardShadow, dashboardTheme } from '../../shared/theme';
 import { listMyReports } from '../api/reportApi';
 import { residentBottomNavItems } from '../mockData';
+import { listQueuedReports, type OfflineReportQueueItem } from '../offlineReportQueue';
 import {
   filterResidentReports,
   formatResidentReportCount,
-  formatResidentReportLocation,
   formatResidentReportSubmittedAt,
-  hazardIconForResident,
+  hazardImageForResident,
   hazardLabelForResident,
   residentReportTabs,
   severityToneForResident,
@@ -36,16 +38,18 @@ import {
   residentReportStatusHref,
   type ResidentReportFilterKey
 } from '../reports';
+import { HumanReadableLocation } from '../../shared/maps/HumanReadableLocation';
 
 type ResidentReportsLoadStatus = 'idle' | 'loading' | 'refreshing' | 'success' | 'error';
 
 export function ResidentReportsScreen() {
   const router = useRouter();
-  const { accessToken } = useAuth();
+  const { accessToken, user } = useAuth();
   const [activeTab, setActiveTab] = useState<ResidentReportFilterKey>('all');
   const [reports, setReports] = useState<SafeReport[]>([]);
   const [loadStatus, setLoadStatus] = useState<ResidentReportsLoadStatus>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [queuedReports, setQueuedReports] = useState<OfflineReportQueueItem[]>([]);
   const inFlightRef = useRef(false);
   const latestRequestIdRef = useRef(0);
   const reportsRef = useRef<SafeReport[]>([]);
@@ -81,17 +85,13 @@ export function ResidentReportsScreen() {
 
         setReports(response.reports);
         setLoadStatus('success');
-      } catch (error) {
+      } catch {
         if (latestRequestIdRef.current !== requestId) {
           return;
         }
 
         setLoadStatus('error');
-        setErrorMessage(
-          error instanceof ApiClientError || error instanceof Error
-            ? error.message
-            : 'Unable to load your submitted reports right now.'
-        );
+        setErrorMessage('Your reports could not be loaded.');
       } finally {
         if (latestRequestIdRef.current === requestId) {
           inFlightRef.current = false;
@@ -101,15 +101,25 @@ export function ResidentReportsScreen() {
     [accessToken]
   );
 
+  const loadQueuedReports = useCallback(async () => {
+    if (!user?.id) {
+      setQueuedReports([]);
+      return;
+    }
+
+    setQueuedReports(await listQueuedReports(user.id));
+  }, [user?.id]);
+
   useFocusEffect(
     useCallback(() => {
       void loadReports(reportsRef.current.length > 0);
+      void loadQueuedReports();
 
       return () => {
         latestRequestIdRef.current += 1;
         inFlightRef.current = false;
       };
-    }, [loadReports])
+    }, [loadQueuedReports, loadReports])
   );
 
   const filteredReports = filterResidentReports(reports, activeTab);
@@ -117,10 +127,12 @@ export function ResidentReportsScreen() {
   const isRefreshing = loadStatus === 'refreshing';
   const showInitialLoading = loadStatus === 'loading' && reports.length === 0;
   const summaryText = errorMessage && reports.length ? errorMessage : formatResidentReportCount(filteredReports.length, activeTab);
+  const visibleQueuedReports = activeTab === 'all' || activeTab === 'pending' ? queuedReports : [];
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={styles.screen}>
       <View style={styles.contentWrap}>
+        <DashboardTopBar />
         <FlatList
           contentContainerStyle={styles.content}
           data={filteredReports}
@@ -130,7 +142,7 @@ export function ResidentReportsScreen() {
               <ResidentReportsStateCard
                 icon="refresh-outline"
                 loading
-                message="Retrieving your submitted reports and latest review status."
+                message="Loading your reports..."
                 title="Loading My Reports"
               />
             ) : (
@@ -139,7 +151,7 @@ export function ResidentReportsScreen() {
                 errorMessage={errorMessage}
                 hasAnyReports={reports.length > 0}
                 loadStatus={loadStatus}
-                onReportHazard={() => router.push('/resident/report-hazard')}
+                onReportHazard={() => router.push('/resident/report-hazard?mode=new')}
                 onRetry={() => void loadReports(true)}
               />
             )
@@ -150,7 +162,7 @@ export function ResidentReportsScreen() {
                 <Pressable
                   accessibilityLabel="Go back"
                   accessibilityRole="button"
-                  onPress={() => router.back()}
+                  onPress={() => goBackSafely(router, '/resident')}
                   style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]}
                 >
                   <DashboardGlyph color={dashboardTheme.colors.text} name="arrow-back" size={22} />
@@ -205,6 +217,9 @@ export function ResidentReportsScreen() {
               <Text style={[styles.summaryText, errorMessage && reports.length ? styles.errorText : null]}>
                 {summaryText}
               </Text>
+              {visibleQueuedReports.map((item) => (
+                <OfflineReportCard item={item} key={item.id} />
+              ))}
             </View>
           }
           refreshControl={
@@ -221,6 +236,40 @@ export function ResidentReportsScreen() {
         <BottomNavigation items={residentBottomNavItems} />
       </View>
     </SafeAreaView>
+  );
+}
+
+function OfflineReportCard({ item }: { item: OfflineReportQueueItem }) {
+  const router = useRouter();
+  const hazardLabel = item.draft.hazardType
+    ? hazardLabelForResident(item.draft.hazardType, item.draft.otherHazardType)
+    : 'Hazard report';
+
+  return (
+    <Pressable
+      accessibilityLabel={`Open saved offline ${hazardLabel} report for review`}
+      accessibilityRole="button"
+      onPress={() => {
+        router.push({
+          pathname: '/resident/review-report',
+          params: { operationId: item.operationId, offlineReportId: item.id }
+        });
+      }}
+      style={({ pressed }) => [styles.offlineCard, pressed && styles.pressed]}
+    >
+      <View style={styles.offlineCardHeader}>
+        <Text style={styles.offlineCardTitle}>{hazardLabel}</Text>
+        <View style={styles.offlineBadgeRow}>
+          <Text style={styles.offlineBadge}>Saved offline</Text>
+          <DashboardGlyph color={dashboardTheme.colors.moderate} name="chevron-forward" size={16} />
+        </View>
+      </View>
+      <Text style={styles.offlineCardText}>
+        {item.status === 'FAILED'
+          ? 'Waiting to retry when connection returns.'
+          : 'Tap to review and continue this report.'}
+      </Text>
+    </Pressable>
   );
 }
 
@@ -246,13 +295,19 @@ function ResidentReportCard({ report }: { report: SafeReport }) {
 
       <View style={styles.cardMainRow}>
         <View style={styles.reportIconWrap}>
-          <DashboardGlyph color={dashboardTheme.colors.info} name={hazardIconForResident(report.hazardType)} size={20} />
+          <Image accessibilityLabel={`${hazardLabel} hazard icon`} source={hazardImageForResident(report.hazardType)} style={styles.reportIconImage} />
         </View>
         <View style={styles.reportBody}>
           <Text style={styles.reportTitle}>{hazardLabel}</Text>
           <Text style={styles.reportStatusText}>{statusDescription}</Text>
           <Text style={styles.reportMeta}>{formatResidentReportSubmittedAt(report.createdAt)}</Text>
-          <Text style={styles.reportMeta}>{formatResidentReportLocation(report)}</Text>
+          <View style={styles.locationRow}><Text style={styles.reportMeta}>Location: </Text><HumanReadableLocation location={report.location} style={styles.reportMeta} /></View>
+          {report.mediaReference || report.voiceEvidence ? (
+            <View style={styles.evidenceRow}>
+              {report.mediaReference ? <Text style={styles.evidenceText}>Photo evidence</Text> : null}
+              {report.voiceEvidence ? <Text style={styles.evidenceText}>Voice note</Text> : null}
+            </View>
+          ) : null}
         </View>
         <View style={styles.openHint}>
           <Text style={styles.openHintText}>Open</Text>
@@ -283,27 +338,21 @@ function ResidentReportsEmptyOrErrorState({
   if (loadStatus === 'error' && errorMessage) {
     return (
       <ResidentReportsStateCard
-        actionLabel="Retry"
+        actionLabel="Try Again"
         icon="alert-circle-outline"
         message={errorMessage}
         onActionPress={onRetry}
-        title="Unable to Load Reports"
+        title="Unable to load reports"
       />
     );
   }
 
   if (hasAnyReports) {
-    return activeTab === 'active' ? (
+    return (
       <ResidentReportsStateCard
-        icon="checkmark-done-outline"
-        message="No submitted reports are currently pending or verified. Rejected reports remain available under All."
-        title="No Active Reports"
-      />
-    ) : (
-      <ResidentReportsStateCard
-        icon="checkmark-done-outline"
-        message="No submitted reports have been marked resolved yet. Rejected reports remain available under All."
-        title="No Resolved Reports"
+        icon={emptyIconForFilter(activeTab)}
+        message="No reports match this filter."
+        title={`No ${filterLabelForState(activeTab)} Reports`}
       />
     );
   }
@@ -312,11 +361,51 @@ function ResidentReportsEmptyOrErrorState({
     <ResidentReportsStateCard
       actionLabel="Report Hazard"
       icon="document-text-outline"
-      message="No submitted reports yet. Report a hazard when you see danger nearby."
+      message="You haven't submitted any hazard reports yet."
       onActionPress={onReportHazard}
-      title="No submitted reports yet"
+      title="No hazard reports yet"
     />
   );
+}
+
+function filterLabelForState(filter: ResidentReportFilterKey) {
+  switch (filter) {
+    case 'all':
+      return 'Submitted';
+    case 'pending':
+      return 'Pending';
+    case 'verified':
+      return 'Verified';
+    case 'rejected':
+      return 'Rejected';
+    case 'cancelled':
+      return 'Cancelled';
+  }
+}
+
+function emptyIconForFilter(filter: ResidentReportFilterKey) {
+  const statusIconByFilter: Partial<Record<ResidentReportFilterKey, Exclude<ReportStatus, 'RESOLVED'>>> = {
+    pending: 'PENDING',
+    verified: 'VERIFIED',
+    rejected: 'REJECTED',
+    cancelled: 'CANCELLED'
+  };
+  const status = statusIconByFilter[filter];
+
+  if (!status) {
+    return 'document-text-outline';
+  }
+
+  switch (status) {
+    case 'PENDING':
+      return 'time-outline';
+    case 'VERIFIED':
+      return 'checkmark-circle-outline';
+    case 'REJECTED':
+      return 'close-circle-outline';
+    case 'CANCELLED':
+      return 'remove-circle-outline';
+  }
 }
 
 type ResidentReportsStateCardProps = {
@@ -361,6 +450,7 @@ function ResidentReportsStateCard({
 }
 
 const styles = StyleSheet.create({
+  locationRow: { flexDirection: 'row', flexWrap: 'wrap' },
   screen: {
     flex: 1,
     backgroundColor: dashboardTheme.colors.background
@@ -444,6 +534,41 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: dashboardTheme.colors.primaryStrong
   },
+  offlineCard: {
+    gap: 6,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: dashboardTheme.colors.moderate,
+    borderRadius: dashboardTheme.radius.md,
+    backgroundColor: dashboardTheme.colors.moderateSoft
+  },
+  offlineCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8
+  },
+  offlineCardTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '800',
+    color: dashboardTheme.colors.text
+  },
+  offlineBadge: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: dashboardTheme.colors.moderate
+  },
+  offlineBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4
+  },
+  offlineCardText: {
+    fontSize: 13,
+    lineHeight: 18,
+    color: dashboardTheme.colors.muted
+  },
   errorText: {
     color: dashboardTheme.colors.critical
   },
@@ -475,6 +600,11 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     backgroundColor: dashboardTheme.colors.infoSoft
   },
+  reportIconImage: {
+    width: 46,
+    height: 46,
+    resizeMode: 'contain'
+  },
   reportBody: {
     flex: 1,
     gap: 4
@@ -493,6 +623,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: dashboardTheme.colors.muted
+  },
+  evidenceRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4
+  },
+  evidenceText: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    overflow: 'hidden',
+    fontSize: 12,
+    fontWeight: '800',
+    color: dashboardTheme.colors.primaryStrong,
+    backgroundColor: dashboardTheme.colors.primarySoft
   },
   openHint: {
     alignItems: 'center',

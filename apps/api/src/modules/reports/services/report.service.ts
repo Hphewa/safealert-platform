@@ -1,7 +1,6 @@
 import type {
   FieldConfirmation,
   CommunityReportSummary,
-  CancelResidentReportResponse,
   CreateReportRequest,
   CreateReportResponse,
   GetCommunityReportResponse,
@@ -14,6 +13,7 @@ import type {
   GetVerifiedOfficerReportsResponse,
   ReportReviewRequest,
   ReviewReportResponse,
+  SafeReport,
   UpdateResidentReportRequest,
   UpdateResidentReportResponse
 } from '@safealert/contracts';
@@ -22,6 +22,7 @@ import type { FieldConfirmationRepository } from '../../field-confirmations/repo
 
 import type { ReportRepository } from '../repositories/report.repository.js';
 import type { IncidentService } from '../../incidents/services/incident.service.js';
+import type { CommunityReportGroupingService } from '../../report-clusters/services/communityReportGrouping.service.js';
 
 export type CommunityReportRetrievalOptions =
   | {
@@ -41,22 +42,34 @@ export class ReportService {
   constructor(
     private readonly repository: ReportRepository,
     private readonly confirmations: FieldConfirmationRepository,
-    private readonly incidents?: IncidentService
+    private readonly incidents?: IncidentService,
+    private readonly communityReportGrouping?: CommunityReportGroupingService
   ) {}
 
   async createResidentReport(
     residentId: string,
-    input: CreateReportRequest
+    input: CreateReportRequest,
+    clientOperationId?: string
   ): Promise<CreateReportResponse> {
-    const report = await this.repository.createReport({
+    if (clientOperationId) {
+      const existing = await this.repository.findReportByClientOperationId(residentId, clientOperationId);
+      if (existing) return { report: existing };
+    }
+
+    let report = await this.repository.createReport({
       residentId,
+      ...(clientOperationId ? { clientOperationId } : {}),
       hazardType: input.hazardType,
+      ...(input.otherHazardType ? { otherHazardType: input.otherHazardType } : {}),
       description: input.description,
       severity: input.severity,
       location: input.location,
       ...(input.mediaReference ? { mediaReference: input.mediaReference } : {}),
+      ...(input.voiceEvidence ? { voiceEvidence: input.voiceEvidence } : {}),
       status: 'PENDING'
     });
+
+    report = await this.tryClusterReport(report, 'assign created report');
 
     return { report };
   }
@@ -110,7 +123,7 @@ export class ReportService {
       throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be changed.');
     }
 
-    const report = await this.repository.updatePendingResidentReport({
+    let report = await this.repository.updatePendingResidentReport({
       reportId,
       residentId,
       update: input
@@ -120,13 +133,22 @@ export class ReportService {
       throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be changed.');
     }
 
+    const groupingRelevantChange = input.hazardType !== undefined || input.location !== undefined;
+    const severityChanged = input.severity !== undefined && input.severity !== existingReport.severity;
+
+    if (groupingRelevantChange) {
+      report = await this.tryRegroupReport(report, existingReport.communityReportClusterId);
+    } else if (severityChanged && report.communityReportClusterId) {
+      await this.tryRecomputeCluster(report.communityReportClusterId, 'recompute severity change');
+    }
+
     return { report };
   }
 
-  async cancelPendingResidentReport(
+  async deletePendingResidentReport(
     residentId: string,
     reportId: string
-  ): Promise<CancelResidentReportResponse> {
+  ): Promise<void> {
     const existingReport = await this.repository.findReportByIdAndResidentId(reportId, residentId);
 
     if (!existingReport) {
@@ -134,20 +156,21 @@ export class ReportService {
     }
 
     if (existingReport.status !== 'PENDING') {
-      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be cancelled.');
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be deleted.');
     }
 
-    const report = await this.repository.cancelPendingResidentReport({
+    const deleted = await this.repository.deletePendingResidentReport({
       reportId,
-      residentId,
-      cancelledAt: new Date()
+      residentId
     });
 
-    if (!report) {
-      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be cancelled.');
+    if (!deleted) {
+      throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be deleted.');
     }
 
-    return { report };
+    if (existingReport.communityReportClusterId) {
+      await this.tryRecomputeCluster(existingReport.communityReportClusterId, 'recompute deleted report');
+    }
   }
 
   async listCommunityReportsForVolunteer(
@@ -158,29 +181,34 @@ export class ReportService {
       (await this.confirmations.findByVolunteerId(volunteerId)).map((item) => item.reportId)
     );
     if (options.mode === 'nearby') {
+      const reports = (await this.repository.findNearbyCommunityReports({
+        statuses: [...volunteerEligibleStatuses],
+        longitude: options.longitude,
+        latitude: options.latitude,
+        radiusKm: options.radiusKm
+      })).filter((report) => !submittedReportIds.has(report.id));
+
       return {
-        reports: (await this.repository.findNearbyCommunityReports({
-          statuses: [...volunteerEligibleStatuses],
-          longitude: options.longitude,
-          latitude: options.latitude,
-          radiusKm: options.radiusKm
-        })).filter((report) => !submittedReportIds.has(report.id))
+        reports: await this.addRelatedCounts(reports)
       };
     }
 
     const reports = await this.repository.findReportsByStatuses([...volunteerEligibleStatuses]);
 
     return {
-      reports: reports.filter((report) => !submittedReportIds.has(report.id)).map<CommunityReportSummary>((report) => ({
+      reports: await this.addRelatedCounts(reports.filter((report) => !submittedReportIds.has(report.id)).map<CommunityReportSummary>((report) => ({
         id: report.id,
+        ...(report.communityReportClusterId ? { communityReportClusterId: report.communityReportClusterId } : {}),
         hazardType: report.hazardType,
+        ...(report.otherHazardType ? { otherHazardType: report.otherHazardType } : {}),
         description: report.description,
         severity: report.severity,
         location: report.location,
         status: report.status,
         createdAt: report.createdAt,
-        ...(report.mediaReference ? { mediaReference: report.mediaReference } : {})
-      }))
+        ...(report.mediaReference ? { mediaReference: report.mediaReference } : {}),
+        ...(report.voiceEvidence ? { voiceEvidence: report.voiceEvidence } : {})
+      })))
     };
   }
 
@@ -191,7 +219,7 @@ export class ReportService {
       throw new ApiError(404, 'REPORT_NOT_FOUND', 'Community report not found.');
     }
 
-    return { report };
+    return { report: await this.addRelatedCount(report) };
   }
 
   async listPendingReportsForOfficer(): Promise<GetPendingOfficerReportsResponse> {
@@ -230,6 +258,9 @@ export class ReportService {
       // Verification retries are safe: they complete grouping if the first response
       // was lost after the report status was persisted.
       if (report.status === 'VERIFIED' && review.action === 'VERIFY' && this.incidents) {
+        if (report.communityReportClusterId) {
+          await this.tryRecomputeCluster(report.communityReportClusterId, 'recompute verified retry');
+        }
         const grouping = await this.incidents.automaticallyGroupVerifiedReport(report.id, officerId);
         return { report, grouping };
       }
@@ -247,12 +278,56 @@ export class ReportService {
       throw new ApiError(409, 'INVALID_REPORT_STATE', 'Only pending reports can be reviewed.');
     }
 
+    if (updatedReport.communityReportClusterId) {
+      await this.tryRecomputeCluster(updatedReport.communityReportClusterId, 'recompute reviewed report');
+    }
+
     if (review.action === 'VERIFY' && this.incidents) {
       const grouping = await this.incidents.automaticallyGroupVerifiedReport(updatedReport.id, officerId);
       return { report: updatedReport, grouping };
     }
 
     return { report: updatedReport };
+  }
+
+  private async tryClusterReport(report: SafeReport, context: string) {
+    if (!this.communityReportGrouping) return report;
+    try {
+      return await this.communityReportGrouping.assignReportToCluster(report);
+    } catch (error) {
+      console.error(`Community report clustering failed during ${context}.`, error);
+      return report;
+    }
+  }
+
+  private async tryRegroupReport(report: SafeReport, previousClusterId?: string) {
+    if (!this.communityReportGrouping) return report;
+    try {
+      return await this.communityReportGrouping.reassignReport(report, previousClusterId);
+    } catch (error) {
+      console.error('Community report regrouping failed after report edit.', error);
+      if (previousClusterId) await this.tryRecomputeCluster(previousClusterId, 'recover after regroup failure');
+      return report;
+    }
+  }
+
+  private async tryRecomputeCluster(clusterId: string, context: string) {
+    if (!this.communityReportGrouping) return;
+    try {
+      await this.communityReportGrouping.recomputeCluster(clusterId);
+    } catch (error) {
+      console.error(`Community report cluster summary failed during ${context}.`, error);
+    }
+  }
+
+  private async addRelatedCount<T extends CommunityReportSummary>(report: T): Promise<T> {
+    if (!this.communityReportGrouping) return report;
+    const relatedCommunityReportCount = await this.communityReportGrouping.relatedReportCount(report as unknown as SafeReport);
+    return relatedCommunityReportCount > 0 ? { ...report, relatedCommunityReportCount } : report;
+  }
+
+  private async addRelatedCounts<T extends CommunityReportSummary>(reports: T[]): Promise<T[]> {
+    return Promise.all(reports.map((report) => this.addRelatedCount(report)));
   }
 }
 
