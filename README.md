@@ -71,7 +71,7 @@ npm run lint
 npm --workspace @safealert/api test
 ```
 
-`npm run mobile` starts Expo from `apps/mobile`. For the Android emulator, start the `Pixel_7a` AVD in Android Studio and run `npm run mobile:android` from the repository root. This opens the Expo app on the emulator.
+`npm run mobile` starts Expo from `apps/mobile`. For the Android emulator, start the `Pixel_10a` AVD in Android Studio and run `npm run mobile:android` from the repository root. If the emulator stays on the Google boot screen, use **Device Manager > Cold Boot Now** (do not wipe its data). This opens the Expo app on the emulator.
 
 `npm run api` starts the Express API in watch mode from `apps/api`.
 
